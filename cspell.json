@@ -1,0 +1,29 @@
+{
+    "words": [
+        "asynch",
+        "CNVR",
+        "CVRF",
+        "defmt",
+        "divp",
+        "divq",
+        "divr",
+        "doctest",
+        "eeprom",
+        "Equus",
+        "EXTI",
+        "heapless",
+        "Irqs",
+        "MCIO",
+        "microcontroller",
+        "MOSI",
+        "msos",
+        "nucleo",
+        "NVIC",
+        "prediv",
+        "PRSNT",
+        "pullup",
+        "smbus",
+        "Sysclk",
+        "uniterm"
+    ]
+}

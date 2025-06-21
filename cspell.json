@@ -1,6 +1,7 @@
 {
     "words": [
         "asynch",
+        "baudrate",
         "CNVR",
         "CVRF",
         "defmt",
@@ -24,6 +25,8 @@
         "pullup",
         "smbus",
         "Sysclk",
-        "uniterm"
+        "Uart",
+        "uniterm",
+        "USART"
     ]
 }

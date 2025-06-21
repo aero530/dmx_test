@@ -8,8 +8,10 @@ use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
+use embassy_stm32::usart::{Config as UsartConfig, DataBits, StopBits, Uart};
+use embassy_stm32::{bind_interrupts, peripherals, usb, usart, Config};
 use embassy_time::Timer;
+
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -31,10 +33,13 @@ use channels::*;
 
 mod ansi;
 
+mod dmx;
+use dmx::dmx_task;
+
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
+    USART2 => usart::InterruptHandler<peripherals::USART2>;
 });
-
 
 
 #[embassy_executor::main]
@@ -131,6 +136,38 @@ async fn main(spawner: Spawner) {
             CHANNEL_USB.sender(),
         ))
         .unwrap();
+
+
+    // -----------------------------------
+    // Setup USART for RS485 / DMX
+    // https://ww1.microchip.com/downloads/aemDocuments/documents/OTH/ApplicationNotes/ApplicationNotes/00001659A.pdf
+    // -----------------------------------
+    // USART_2
+    // ConnectorPin    PinName SignalName      STM32Pin
+    // 2               D51     USART_B_SCLK    PD7
+    // 4               D52     USART_B_RX      PD6
+    // 6               D53     USART_B_TX      PD5
+    // 8               D54     USART_B_RTS     PD4
+    // 10              D55     USART_B_CTS     PD3
+
+    //A data byte is a Start bit, eight data bits and two Stop bits with LSB sent first
+    let mut usart_config = UsartConfig::default();
+    
+    usart_config.baudrate = 250000;
+    usart_config.data_bits = DataBits::DataBits9; // set to 9 data bits but we will ignore the start bit
+    usart_config.stop_bits = StopBits::STOP2;
+
+    let usart = Uart::new(p.USART2, p.PD6, p.PD5, Irqs, p.DMA1_CH6, p.DMA1_CH5, usart_config).unwrap();
+    
+    // Connect this pin to RX pin so we can detect DMX BREAK and MAB independent of the USART peripheral
+    let dmx_break_pin = ExtiInput::new(p.PD7, p.EXTI7, Pull::None);
+    spawner
+        .spawn(dmx_task(usart, dmx_break_pin, CHANNEL.sender()))
+        .unwrap();
+
+    // let write_buf : [u8; 512] = [0xAA; 512];
+    // unwrap!(usart.write(&write_buf).await);
+
 
     // -----------------------------------
     // Initialize event router

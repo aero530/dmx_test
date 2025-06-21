@@ -5,19 +5,31 @@ use defmt::*;
 use embassy_time::{with_timeout, Duration};
 
 /// Data stored for global use (primarily for logging / terminal display)
-#[derive(Debug, Default, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub struct GlobalData {
     pub button: u8,
+    pub dmx: [u8; 513],
+}
+
+impl Default for GlobalData {
+    fn default() -> Self { 
+        Self {
+            button: 0,
+            dmx: [0; 513]
+        }
+    }
 }
 
 /// Events the router watches for.  These trigger the router to pass along an event to another object.
-#[derive(Copy, Clone)]
+// #[derive(Copy, Clone)]
 pub enum RouterEvent {
     UsbCommand(u8),
 
     ButtonHold,
     ButtonPressed,
     ButtonDouble,
+
+    DmxPacket([u8;513]),
 }
 
 pub struct Router {
@@ -72,12 +84,19 @@ impl Router {
                     let _ = self.channel_led.try_send(LedEvent::On);
                 }
                 2 => {
-                    
                     let _ = self.channel_led.try_send(LedEvent::Off);
                 }
                 _ => {
                     let _ = self.channel_led.try_send(LedEvent::Blink);
                 }
+            },
+            RouterEvent::DmxPacket(input) => {
+                info!("Router got DMX data");
+                for i in 0..8 {
+                    // +1 because we skip the address bit
+                    info!("{}",input[(i*64+1)..(i*64-1+1)]);
+                }
+                self.data.dmx = input;
             },
         }
     }

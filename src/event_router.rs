@@ -1,6 +1,7 @@
 //! Event router to send commands between tasks
 use crate::channels::*;
 use crate::led::LedEvent;
+use crate::pwm::PwmEvent;
 use defmt::*;
 use embassy_time::{with_timeout, Duration};
 
@@ -38,6 +39,9 @@ pub struct Router {
     
     /// Channel to send LED events
     pub channel_led: LedChannelTx,
+
+    /// Channel to send LED events
+    pub channel_pwm: PwmChannelTx,
     
     /// Channel to send global data events
     pub channel_log: GlobalDataChannelTx,
@@ -50,11 +54,13 @@ impl Router {
     pub fn new(
         channel: RouterChannelRx,
         channel_led: LedChannelTx,
+        channel_pwm: PwmChannelTx,
         channel_log: GlobalDataChannelTx,
     ) -> Self {
         Self {
             channel,
             channel_led,
+            channel_pwm,
             channel_log,
             data: GlobalData::default(),
         }
@@ -99,6 +105,8 @@ impl Router {
                 // The first byte should be 0x00 to start the packet transmission
                 info!("{}",input[1..11]);
                 self.data.dmx = input;
+
+                let _ = self.channel_pwm.try_send(PwmEvent::Value([input[1], input[2], input[3]]));
             },
         }
     }

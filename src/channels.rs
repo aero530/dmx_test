@@ -5,6 +5,7 @@ use embassy_sync::watch::{Receiver as WatchReceiver, Sender as WatchSender, Watc
 
 use crate::event_router::{GlobalData, RouterEvent};
 use crate::led::LedEvent;
+use crate::pwm::PwmEvent;
 
 
 pub type RouterChannel = Channel<ThreadModeRawMutex, RouterEvent, 10>;
@@ -16,6 +17,11 @@ pub type LedChannel = Channel<ThreadModeRawMutex, LedEvent, 1>;
 pub type LedChannelRx = Receiver<'static, ThreadModeRawMutex, LedEvent, 1>;
 pub type LedChannelTx = Sender<'static, ThreadModeRawMutex, LedEvent, 1>;
 pub static CHANNEL_LED: LedChannel = Channel::new();
+
+pub type PwmChannel = Channel<ThreadModeRawMutex, PwmEvent, 1>;
+pub type PwmChannelRx = Receiver<'static, ThreadModeRawMutex, PwmEvent, 1>;
+pub type PwmChannelTx = Sender<'static, ThreadModeRawMutex, PwmEvent, 1>;
+pub static CHANNEL_PWM: PwmChannel = Channel::new();
 
 pub type UsbChannel = Channel<ThreadModeRawMutex, [u8; 64], 1>;
 pub type UsbChannelRx = Receiver<'static, ThreadModeRawMutex, [u8; 64], 1>;

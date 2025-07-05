@@ -5,8 +5,12 @@
 use defmt::{panic, *};
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
-use embassy_stm32::gpio::{Level, Output, Pull, Speed};
-use embassy_stm32::time::Hertz;
+use embassy_stm32::gpio::{Level, Output, OutputType, Pull, Speed};
+use embassy_stm32::time::{hz, Hertz};
+use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, ComplementaryPwmPin};
+use embassy_stm32::timer::low_level::CountingMode;
+use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
+use embassy_stm32::timer::Channel;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::usart::{Config as UsartConfig, DataBits, StopBits, Uart};
 use embassy_stm32::{bind_interrupts, peripherals, usb, usart, Config};
@@ -24,6 +28,9 @@ use event_router::{event_router, Router};
 
 mod led;
 use led::{button_task, led_task};
+
+mod pwm;
+use pwm::pwm_task;
 
 mod logger;
 use logger::log_task;
@@ -71,19 +78,34 @@ async fn main(spawner: Spawner) {
     // On board LEDs
     // -----------------------------------
 
-    let mut led_red = Output::new(p.PB14, Level::Low, Speed::Low);
-    let led_blue = Output::new(p.PB7, Level::Low, Speed::Low);
+    // let mut led_red = Output::new(p.PB14, Level::Low, Speed::Low);
     // let mut led_green = Output::new(p.PB0, Level::Low, Speed::Low);
+    // let led_blue = Output::new(p.PB7, Level::Low, Speed::Low);
+    // spawner
+    //     .spawn(led_task(led_blue, CHANNEL_LED.receiver()))
+    //     .unwrap();
+    
+    // -----------------------------------
+    // PWMs
+    // -----------------------------------
 
-    // blink red led forever
-    let blink_fut = async {
-        loop {
-            led_red.toggle();
-            Timer::after_millis(500).await;
-        }
-    };
+    // PB14 is on TIM12 CH1 (red)
+    let pwm_pin1 = PwmPin::new_ch1(p.PB14, OutputType::PushPull);
+    let pwm1 = SimplePwm::new(p.TIM12, Some(pwm_pin1), None, None, None, hz(200), CountingMode::EdgeAlignedUp );
+    let cs1 = pwm1.split();
+
+    // PB0 is on TIM3 CH3 (green)
+    let pwm_pin2 = PwmPin::new_ch3(p.PB0, OutputType::PushPull);
+    let pwm2 = SimplePwm::new(p.TIM3, None, None, Some(pwm_pin2), None, hz(200), CountingMode::EdgeAlignedUp  );
+    let cs2 = pwm2.split();
+
+    // PB7 is on TIM3 CH3 (green)
+    let pwm_pin3 = PwmPin::new_ch2(p.PB7, OutputType::PushPull);
+    let pwm3 = SimplePwm::new(p.TIM4, None, Some(pwm_pin3), None, None, hz(200), CountingMode::EdgeAlignedUp  );
+    let cs3 = pwm3.split();
+
     spawner
-        .spawn(led_task(led_blue, CHANNEL_LED.receiver()))
+        .spawn(pwm_task(cs1, cs2, cs3, CHANNEL_PWM.receiver()))
         .unwrap();
 
     // -----------------------------------
@@ -178,14 +200,10 @@ async fn main(spawner: Spawner) {
     let router = Router::new(
         CHANNEL.receiver(),
         CHANNEL_LED.sender(),
+        CHANNEL_PWM.sender(),
         CHANNEL_LOG.sender(),
     );
 
     spawner.spawn(event_router(router)).unwrap();
-
-    // -----------------------------------
-    // Start blinking red LED
-    // -----------------------------------
-    blink_fut.await;
 
 }

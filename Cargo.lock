@@ -259,8 +259,8 @@ dependencies = [
  "panic-probe",
  "rgb",
  "smart-leds",
+ "smart-leds-trait",
  "static_cell",
- "ws2812-async",
 ]
 
 [[package]]
@@ -1033,16 +1033,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de437e2a6208b014ab52972a27e59b33fa2920d3e00fe05026167a1c509d19cc"
 dependencies = [
  "vcell",
-]
-
-[[package]]
-name = "ws2812-async"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7c5ad5e4bdc121601e401fdf7271b312dc0fa066ba7d1d6a899e65b3a3b723d"
-dependencies = [
- "embedded-hal-async",
- "smart-leds-trait",
 ]
 
 [[package]]

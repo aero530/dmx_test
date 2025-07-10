@@ -21,6 +21,8 @@ use {defmt_rtt as _, panic_probe as _};
 
 use smart_leds::SmartLedsWriteAsync;
 use smart_leds::{brightness, RGB8};
+// use ws2812_async::{Grb, Ws2812};
+mod ws2812_async;
 use ws2812_async::{Grb, Ws2812};
 
 mod usb_io;
@@ -46,12 +48,15 @@ mod ansi;
 mod dmx;
 use dmx::dmx_task;
 
+mod smart_led;
+use smart_led::smart_led_task;
+
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
     USART2 => usart::InterruptHandler<peripherals::USART2>;
 });
 
-const NUM_LEDS: usize = 36;
+// const NUM_LEDS_MAX: usize = 36;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -204,14 +209,19 @@ async fn main(spawner: Spawner) {
     spi_config.mode = SpiMode { polarity: Polarity::IdleLow, phase: Phase::CaptureOnFirstTransition };
 
     let spi = Spi::new_txonly(p.SPI3, p.PB3, p.PB5, p.DMA1_CH7, spi_config);
-    let mut ws: Ws2812<_, Grb, { 12 * NUM_LEDS }> = Ws2812::new(spi);
-    let mut data = [RGB8::default(); NUM_LEDS];
+    // let mut ws: Ws2812<_, Grb, { 12 * NUM_LEDS_MAX }> = Ws2812::new(spi);
+    // let mut data = [RGB8::default(); NUM_LEDS_MAX];
 
-    for i in 0..NUM_LEDS {
-        data[i] = wheel((((i * 256) as u16 / NUM_LEDS as u16 + 5 as u16) & 255) as u8);
-        ws.write(brightness(data.iter().cloned(), 32)).await.ok();
-        Timer::after(Duration::from_millis(5)).await;
-    }
+    // for i in 0..NUM_LEDS_MAX {
+    //     data[i] = wheel((((i * 256) as u16 / NUM_LEDS_MAX as u16 + 5 as u16) & 255) as u8);
+    //     ws.write(brightness(data.iter().cloned(), 32)).await.ok();
+    //     Timer::after(Duration::from_millis(5)).await;
+    // }
+
+    spawner
+        .spawn(smart_led_task(spi, CHANNEL_SMART_LED.receiver()))
+        .unwrap();
+
     // embassy_time::block_for(embassy_time::Duration::from_millis(100));
 
     // -----------------------------------
@@ -224,6 +234,7 @@ async fn main(spawner: Spawner) {
         CHANNEL.receiver(),
         CHANNEL_LED.sender(),
         CHANNEL_PWM.sender(),
+        CHANNEL_SMART_LED.sender(),
         CHANNEL_LOG.sender(),
     );
 

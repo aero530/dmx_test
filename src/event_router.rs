@@ -2,6 +2,7 @@
 use crate::channels::*;
 use crate::led::LedEvent;
 use crate::pwm::PwmEvent;
+use crate::smart_led::SmartLedEvent;
 use defmt::*;
 use embassy_time::{with_timeout, Duration};
 
@@ -44,7 +45,7 @@ pub struct Router {
     pub channel_pwm: PwmChannelTx,
     
     /// Channel to send Smart Led events
-    pub channel_smartled: SmartLedChannelTx,
+    pub channel_smart_led: SmartLedChannelTx,
 
     /// Channel to send global data events
     pub channel_log: GlobalDataChannelTx,
@@ -58,14 +59,14 @@ impl Router {
         channel: RouterChannelRx,
         channel_led: LedChannelTx,
         channel_pwm: PwmChannelTx,
-        channel_smartled: SmartLedChannelTx,
+        channel_smart_led: SmartLedChannelTx,
         channel_log: GlobalDataChannelTx,
     ) -> Self {
         Self {
             channel,
             channel_led,
             channel_pwm,
-            channel_smartled,
+            channel_smart_led,
             channel_log,
             data: GlobalData::default(),
         }
@@ -112,6 +113,7 @@ impl Router {
                 self.data.dmx = input;
 
                 let _ = self.channel_pwm.try_send(PwmEvent::Value([input[1], input[2], input[3]]));
+                let _ = self.channel_smart_led.try_send(SmartLedEvent::Value([input[1], input[2], input[3]]));
             },
         }
     }

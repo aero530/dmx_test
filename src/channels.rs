@@ -27,7 +27,7 @@ pub static CHANNEL_PWM: PwmChannel = Channel::new();
 pub type SmartLedChannel = Channel<ThreadModeRawMutex, SmartLedEvent, 1>;
 pub type SmartLedChannelRx = Receiver<'static, ThreadModeRawMutex, SmartLedEvent, 1>;
 pub type SmartLedChannelTx = Sender<'static, ThreadModeRawMutex, SmartLedEvent, 1>;
-pub static CHANNEL_SMARTLED: SmartLedChannel = Channel::new();
+pub static CHANNEL_SMART_LED: SmartLedChannel = Channel::new();
 
 
 pub type UsbChannel = Channel<ThreadModeRawMutex, [u8; 64], 1>;

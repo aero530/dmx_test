@@ -43,6 +43,9 @@ pub struct Router {
     /// Channel to send LED events
     pub channel_pwm: PwmChannelTx,
     
+    /// Channel to send Smart Led events
+    pub channel_smartled: SmartLedChannelTx,
+
     /// Channel to send global data events
     pub channel_log: GlobalDataChannelTx,
     // Global data store
@@ -55,12 +58,14 @@ impl Router {
         channel: RouterChannelRx,
         channel_led: LedChannelTx,
         channel_pwm: PwmChannelTx,
+        channel_smartled: SmartLedChannelTx,
         channel_log: GlobalDataChannelTx,
     ) -> Self {
         Self {
             channel,
             channel_led,
             channel_pwm,
+            channel_smartled,
             channel_log,
             data: GlobalData::default(),
         }

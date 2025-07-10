@@ -9,21 +9,17 @@ use embassy_stm32::gpio::{Level, Output, OutputType, Pull, Speed};
 use embassy_stm32::time::{hz, Hertz};
 use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
-use embassy_stm32::timer::Channel;
+
 use embassy_stm32::usb::Driver;
 use embassy_stm32::usart::{Config as UsartConfig, DataBits, StopBits, Uart};
 use embassy_stm32::spi::{Config as SpiConfig, Mode as SpiMode, Spi, Phase, Polarity};
 use embassy_stm32::{bind_interrupts, peripherals, usb, usart, Config};
-use embassy_time::{Duration, Timer};
+use embassy_time::Timer;
 
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-use smart_leds::SmartLedsWriteAsync;
-use smart_leds::{brightness, RGB8};
-// use ws2812_async::{Grb, Ws2812};
 mod ws2812_async;
-use ws2812_async::{Grb, Ws2812};
 
 mod usb_io;
 use usb_io::usb_task;
@@ -199,7 +195,6 @@ async fn main(spawner: Spawner) {
     // let write_buf : [u8; 512] = [0xAA; 512];
     // unwrap!(usart.write(&write_buf).await);
 
-
     // -----------------------------------
     // Config SPI for WS2812B
     // -----------------------------------
@@ -209,20 +204,9 @@ async fn main(spawner: Spawner) {
     spi_config.mode = SpiMode { polarity: Polarity::IdleLow, phase: Phase::CaptureOnFirstTransition };
 
     let spi = Spi::new_txonly(p.SPI3, p.PB3, p.PB5, p.DMA1_CH7, spi_config);
-    // let mut ws: Ws2812<_, Grb, { 12 * NUM_LEDS_MAX }> = Ws2812::new(spi);
-    // let mut data = [RGB8::default(); NUM_LEDS_MAX];
-
-    // for i in 0..NUM_LEDS_MAX {
-    //     data[i] = wheel((((i * 256) as u16 / NUM_LEDS_MAX as u16 + 5 as u16) & 255) as u8);
-    //     ws.write(brightness(data.iter().cloned(), 32)).await.ok();
-    //     Timer::after(Duration::from_millis(5)).await;
-    // }
-
     spawner
         .spawn(smart_led_task(spi, CHANNEL_SMART_LED.receiver()))
         .unwrap();
-
-    // embassy_time::block_for(embassy_time::Duration::from_millis(100));
 
     // -----------------------------------
     // Initialize event router
@@ -240,18 +224,4 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(event_router(router)).unwrap();
 
-}
-
-
-fn wheel(mut wheel_pos: u8) -> RGB8 {
-    wheel_pos = 255 - wheel_pos;
-    if wheel_pos < 85 {
-        return (255 - wheel_pos * 3, 0, wheel_pos * 3).into();
-    }
-    if wheel_pos < 170 {
-        wheel_pos -= 85;
-        return (0, wheel_pos * 3, 255 - wheel_pos * 3).into();
-    }
-    wheel_pos -= 170;
-    (wheel_pos * 3, 255 - wheel_pos * 3, 0).into()
 }

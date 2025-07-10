@@ -5,7 +5,7 @@ use embedded_hal_async::spi::{ErrorType, SpiBus};
 use smart_leds_trait::{SmartLedsWriteAsync, RGB8};
 
 const PATTERNS: [u8; 4] = [0b1000_1000, 0b1000_1110, 0b1110_1000, 0b1110_1110];
-pub const NUM_LEDS_MAX: usize = 36;
+pub const NUM_LEDS_MAX: usize = 1024; // in theory could be floor(2^16 / 12) = 5461, [2^16 = MAX DMA size, 12 bytes per LED needed]
 pub const BYTES_PER_LED: usize = 12; // number of bytes needed to process each LED (4*3)
 
 /// Trait for color order reordering

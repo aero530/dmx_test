@@ -33,7 +33,7 @@ pub async fn dmx_task(mut usart: Uart<'static, embassy_stm32::mode::Async>, mut 
         if (break_time > BREAK_DELAY) & (break_time < BREAK_TIMEOUT) {
             // info!("DMX BREAK detected");
         } else {
-            // info!("DMX break timeout");
+            info!("DMX break timeout");
             continue
         }
 
@@ -44,13 +44,13 @@ pub async fn dmx_task(mut usart: Uart<'static, embassy_stm32::mode::Async>, mut 
         if (mab_time > MAB_DELAY) & (mab_time < BREAK_TIMEOUT) {
             // info!("DMX MAB detected");
         } else {
-            // info!("DMX MAB timeout");
+            info!("DMX MAB timeout");
             continue
         }
 
         if usart.read(dmx_buffer).await.is_ok() {
             if dmx_buffer[0] == 0x00 {
-                info!("DMX sending packet to router");
+                // info!("DMX sending packet to router");
                 let _ = tx.try_send(RouterEvent::DmxPacket(
                     *dmx_buffer
                 ));

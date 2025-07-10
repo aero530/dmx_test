@@ -71,7 +71,7 @@ impl<'a> Pwm<'a> {
 
     pub async fn show(&mut self) {
         if let Ok(new_message) = with_timeout(Duration::from_millis(100), self.rx.receive()).await {
-            info!("led message {:?}", new_message);
+            // info!("led message {:?}", new_message);
             self.process_event(new_message).await;
         }
     }

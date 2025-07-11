@@ -1,16 +1,16 @@
 //! LED & Button interaction
-use defmt::{info, Format};
+use defmt::Format;
 use embassy_stm32::peripherals::{TIM12, TIM3, TIM4};
 use embassy_stm32::timer::simple_pwm::SimplePwmChannels;
 use embassy_time::{with_timeout, Duration};
 
-use crate::channels::{PwmChannelRx, RouterChannelTx};
-use crate::event_router::RouterEvent;
+use crate::channels::PwmChannelRx;
+
 
 #[derive(Format)]
 pub enum PwmEvent {
-    On,
-    Off,
+    // On,
+    // Off,
     Value([u8;3]),
 }
 
@@ -41,33 +41,33 @@ impl<'a> Pwm<'a> {
         self.channels_c.ch4.disable();
     }
 
-    pub fn disable(&mut self) {
-        self.channels_a.ch1.disable();
-        self.channels_a.ch2.disable();
-        self.channels_a.ch3.disable();
-        self.channels_a.ch4.disable();
-        self.channels_b.ch1.disable();
-        self.channels_b.ch2.disable();
-        self.channels_b.ch3.disable();
-        self.channels_b.ch4.disable();
-        self.channels_c.ch1.disable();
-        self.channels_c.ch2.disable();
-        self.channels_c.ch3.disable();
-        self.channels_c.ch4.disable();
+    // pub fn disable(&mut self) {
+    //     self.channels_a.ch1.disable();
+    //     self.channels_a.ch2.disable();
+    //     self.channels_a.ch3.disable();
+    //     self.channels_a.ch4.disable();
+    //     self.channels_b.ch1.disable();
+    //     self.channels_b.ch2.disable();
+    //     self.channels_b.ch3.disable();
+    //     self.channels_b.ch4.disable();
+    //     self.channels_c.ch1.disable();
+    //     self.channels_c.ch2.disable();
+    //     self.channels_c.ch3.disable();
+    //     self.channels_c.ch4.disable();
         
-        self.channels_a.ch1.set_duty_cycle_fully_off();
-        self.channels_a.ch2.set_duty_cycle_fully_off();
-        self.channels_a.ch3.set_duty_cycle_fully_off();
-        self.channels_a.ch4.set_duty_cycle_fully_off();
-        self.channels_b.ch1.set_duty_cycle_fully_off();
-        self.channels_b.ch2.set_duty_cycle_fully_off();
-        self.channels_b.ch3.set_duty_cycle_fully_off();
-        self.channels_b.ch4.set_duty_cycle_fully_off();
-        self.channels_c.ch1.set_duty_cycle_fully_off();
-        self.channels_c.ch2.set_duty_cycle_fully_off();
-        self.channels_c.ch3.set_duty_cycle_fully_off();
-        self.channels_c.ch4.set_duty_cycle_fully_off();
-    }
+    //     self.channels_a.ch1.set_duty_cycle_fully_off();
+    //     self.channels_a.ch2.set_duty_cycle_fully_off();
+    //     self.channels_a.ch3.set_duty_cycle_fully_off();
+    //     self.channels_a.ch4.set_duty_cycle_fully_off();
+    //     self.channels_b.ch1.set_duty_cycle_fully_off();
+    //     self.channels_b.ch2.set_duty_cycle_fully_off();
+    //     self.channels_b.ch3.set_duty_cycle_fully_off();
+    //     self.channels_b.ch4.set_duty_cycle_fully_off();
+    //     self.channels_c.ch1.set_duty_cycle_fully_off();
+    //     self.channels_c.ch2.set_duty_cycle_fully_off();
+    //     self.channels_c.ch3.set_duty_cycle_fully_off();
+    //     self.channels_c.ch4.set_duty_cycle_fully_off();
+    // }
 
     pub async fn show(&mut self) {
         if let Ok(new_message) = with_timeout(Duration::from_millis(100), self.rx.receive()).await {
@@ -78,13 +78,13 @@ impl<'a> Pwm<'a> {
 
     async fn process_event(&mut self, event: PwmEvent) {
         match event {
-            PwmEvent::On => {
-                self.enable();
-            }
-            PwmEvent::Off => {
-                self.disable();
+            // PwmEvent::On => {
+            //     self.enable();
+            // }
+            // PwmEvent::Off => {
+            //     self.disable();
                 
-            }
+            // }
             PwmEvent::Value(values) => {
                 self.channels_a.ch1.set_duty_cycle_fraction(values[0] as u16, 255);
                 self.channels_b.ch3.set_duty_cycle_fraction(values[1] as u16, 255);

@@ -7,6 +7,7 @@ use crate::event_router::{GlobalData, RouterEvent};
 use crate::led::LedEvent;
 use crate::pwm::PwmEvent;
 use crate::smart_led::SmartLedEvent;
+use crate::artnet::ArtNetEvent;
 
 
 pub type RouterChannel = Channel<ThreadModeRawMutex, RouterEvent, 10>;
@@ -29,6 +30,10 @@ pub type SmartLedChannelRx = Receiver<'static, ThreadModeRawMutex, SmartLedEvent
 pub type SmartLedChannelTx = Sender<'static, ThreadModeRawMutex, SmartLedEvent, 1>;
 pub static CHANNEL_SMART_LED: SmartLedChannel = Channel::new();
 
+pub type ArtNetChannel = Channel<ThreadModeRawMutex, ArtNetEvent, 1>;
+pub type ArtNetChannelRx = Receiver<'static, ThreadModeRawMutex, ArtNetEvent, 1>;
+pub type ArtNetChannelTx = Sender<'static, ThreadModeRawMutex, ArtNetEvent, 1>;
+pub static CHANNEL_ARTNET: ArtNetChannel = Channel::new();
 
 pub type UsbChannel = Channel<ThreadModeRawMutex, [u8; 64], 1>;
 pub type UsbChannelRx = Receiver<'static, ThreadModeRawMutex, [u8; 64], 1>;

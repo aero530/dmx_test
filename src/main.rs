@@ -3,7 +3,7 @@
 
 #[allow(unused_imports)]
 use defmt::{panic, *};
-use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
+// use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Level, Output, OutputType, Pull, Speed};
@@ -21,7 +21,7 @@ use embassy_sync::mutex::Mutex;
 
 
 // https://github.com/cschuhen/oled_drivers/blob/master/examples/i2c.rs
-use embassy_time::Delay;
+
 
 use embedded_graphics::{
     mono_font::{ascii::FONT_6X10, MonoTextStyleBuilder},
@@ -33,6 +33,20 @@ use embedded_graphics::{
 use embedded_hal_async::i2c::AddressMode;
 use oled_async::{prelude::*, Builder};
 
+use static_cell::StaticCell;
+use crate::artnet::artnet_task;
+
+use {defmt_rtt as _, panic_probe as _};
+
+// Eth
+use embassy_net::StackResources;
+use embassy_stm32::eth::generic_smi::GenericSMI;
+use embassy_stm32::eth::{Ethernet, PacketQueue};
+use embassy_stm32::rng::Rng;
+use embassy_stm32::{eth, rng};
+
+
+// -----
 
 // PWM Chip
 // PCA9685
@@ -46,8 +60,14 @@ use oled_async::{prelude::*, Builder};
 // https://www.st.com/en/evaluation-tools/nucleo-h533re.html
 // https://www.st.com/en/microcontrollers-microprocessors/stm32h533re.html
 
-use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
+
+// -----------------------
+// Global allocator needed for nom which is used by tiny_artnet
+// -----------------------
+use alloc_cortex_m::CortexMHeap;
+#[global_allocator]
+static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
+// -----------------------
 
 mod usb_io;
 use usb_io::usb_task;
@@ -75,6 +95,7 @@ use dmx::dmx_task;
 mod smart_led;
 use smart_led::smart_led_task;
 
+mod artnet;
 
 type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async>>;
 
@@ -88,9 +109,15 @@ bind_interrupts!(struct Irqs {
     I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
     I2C4_EV => i2c::EventInterruptHandler<peripherals::I2C4>;
     I2C4_ER => i2c::ErrorInterruptHandler<peripherals::I2C4>;
+    ETH => eth::InterruptHandler;
+    RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
-// const NUM_LEDS_MAX: usize = 36;
+
+
+
+
+
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -313,6 +340,54 @@ async fn main(spawner: Spawner) {
     spawner
         .spawn(smart_led_task(spi, CHANNEL_SMART_LED.receiver()))
         .unwrap();
+
+    
+    // -----------------------------------
+    // Config ethernet for ArtNet
+    // -----------------------------------
+
+    // Generate random seed.
+    let mut rng = Rng::new(p.RNG, Irqs);
+    let mut seed = [0; 8];
+    rng.async_fill_bytes(&mut seed).await.unwrap();
+    let seed = u64::from_le_bytes(seed);
+
+    let mac_addr = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
+
+    static PACKETS: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
+    let ethernet_device = Ethernet::new(
+        PACKETS.init(PacketQueue::<4, 4>::new()),
+        p.ETH,
+        Irqs,
+        p.PA1,
+        p.PA2,
+        p.PC1,
+        p.PA7,
+        p.PC4,
+        p.PC5,
+        p.PG13,
+        p.PB13,
+        p.PG11,
+        GenericSMI::new(0),
+        mac_addr,
+    );
+
+
+    let config = embassy_net::Config::dhcpv4(Default::default());
+    //let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
+    //    address: Ipv4Cidr::new(Ipv4Address::new(10, 42, 0, 61), 24),
+    //    dns_servers: Vec::new(),
+    //    gateway: Some(Ipv4Address::new(10, 42, 0, 1)),
+    //});
+
+    // Init network stack
+    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+    let (stack, runner) = embassy_net::new(ethernet_device, config, RESOURCES.init(StackResources::new()), seed);
+
+    spawner
+        .spawn(artnet_task(stack, runner, spawner.clone(), CHANNEL_ARTNET.receiver()))
+        .unwrap();
+
 
     // -----------------------------------
     // Initialize event router

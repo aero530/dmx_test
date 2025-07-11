@@ -1,10 +1,12 @@
 {
     "words": [
+        "artnet",
         "asynch",
         "baudrate",
         "CNVR",
         "CVRF",
         "defmt",
+        "DGRAM",
         "disp",
         "divp",
         "divq",
@@ -12,6 +14,7 @@
         "doctest",
         "eeprom",
         "Equus",
+        "esta",
         "EXTI",
         "heapless",
         "Irqs",

@@ -1,21 +1,19 @@
 //! Smart LED Interface
-use defmt::{info, Format};
+use defmt::Format;
 use embassy_time::{with_timeout, Duration};
 use embassy_stm32::spi::Spi;
 use embassy_stm32::mode::Async;
 use smart_leds::{SmartLedsWriteAsync, RGB8};
-use core::cmp::max;
 
-use crate::channels::{SmartLedChannelRx, RouterChannelTx};
-use crate::event_router::RouterEvent;
+use crate::channels::SmartLedChannelRx;
 
 mod ws2812_async;
 use ws2812_async::{Grb, Ws2812, NUM_LEDS_MAX};
 
 #[derive(Format)]
 pub enum SmartLedEvent {
-    On,
-    Off,
+    // On,
+    // Off,
     Value([u8; 4]),
 }
 
@@ -40,12 +38,12 @@ impl<'a> SmartLed<'a> {
         self.ws.write(self.data).await.ok();
     }
 
-    pub async fn disable(&mut self) {
-        for i in 0..self.num_leds {
-            self.data[i] = RGB8::default();
-        }
-        self.ws.write(self.data).await.ok();
-    }
+    // pub async fn disable(&mut self) {
+    //     for i in 0..self.num_leds {
+    //         self.data[i] = RGB8::default();
+    //     }
+    //     self.ws.write(self.data).await.ok();
+    // }
 
     pub async fn show(&mut self) {
         if let Ok(new_message) = with_timeout(Duration::from_millis(100), self.rx.receive()).await {
@@ -56,13 +54,13 @@ impl<'a> SmartLed<'a> {
 
     async fn process_event(&mut self, event: SmartLedEvent) {
         match event {
-            SmartLedEvent::On => {
-                self.enable().await;
-            }
-            SmartLedEvent::Off => {
-                self.disable().await;
+            // SmartLedEvent::On => {
+            //     self.enable().await;
+            // }
+            // SmartLedEvent::Off => {
+            //     self.disable().await;
                 
-            }
+            // }
             SmartLedEvent::Value(values) => {
                 let prev_length = self.num_leds;
                 self.num_leds = ((values[3] as usize) * 100) / 255 as usize;

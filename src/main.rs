@@ -3,23 +3,51 @@
 
 #[allow(unused_imports)]
 use defmt::{panic, *};
+use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Level, Output, OutputType, Pull, Speed};
 use embassy_stm32::time::{hz, Hertz};
 use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
-
+use embassy_stm32::i2c::I2c;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::usart::{Config as UsartConfig, DataBits, StopBits, Uart};
 use embassy_stm32::spi::{Config as SpiConfig, Mode as SpiMode, Spi, Phase, Polarity};
-use embassy_stm32::{bind_interrupts, peripherals, usb, usart, Config};
+use embassy_stm32::{bind_interrupts, i2c, peripherals, usb, usart, Config};
 use embassy_time::Timer;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::mutex::Mutex;
+
+
+// https://github.com/cschuhen/oled_drivers/blob/master/examples/i2c.rs
+use embassy_time::Delay;
+
+use embedded_graphics::{
+    mono_font::{ascii::FONT_6X10, MonoTextStyleBuilder},
+    pixelcolor::BinaryColor,
+    prelude::*,
+    text::{Baseline, Text},
+};
+
+use embedded_hal_async::i2c::AddressMode;
+use oled_async::{prelude::*, Builder};
+
+
+// PWM Chip
+// PCA9685
+
+// https://www.st.com/en/microcontrollers-microprocessors/stm32f746zg.html
+// https://www.st.com/en/evaluation-tools/nucleo-f746zg.html
+
+// https://www.st.com/en/evaluation-tools/nucleo-h563zi.html
+// https://www.st.com/en/microcontrollers-microprocessors/stm32h563zi.html
+
+// https://www.st.com/en/evaluation-tools/nucleo-h533re.html
+// https://www.st.com/en/microcontrollers-microprocessors/stm32h533re.html
 
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
-
-mod ws2812_async;
 
 mod usb_io;
 use usb_io::usb_task;
@@ -47,9 +75,19 @@ use dmx::dmx_task;
 mod smart_led;
 use smart_led::smart_led_task;
 
+
+type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async>>;
+
+/// Shared I2C / Smbus
+static I2C_BUS: StaticCell<I2c1Bus> = StaticCell::new();
+
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
     USART2 => usart::InterruptHandler<peripherals::USART2>;
+    I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
+    I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
+    I2C4_EV => i2c::EventInterruptHandler<peripherals::I2C4>;
+    I2C4_ER => i2c::ErrorInterruptHandler<peripherals::I2C4>;
 });
 
 // const NUM_LEDS_MAX: usize = 36;
@@ -79,6 +117,74 @@ async fn main(spawner: Spawner) {
     }
     let p = embassy_stm32::init(config);
 
+    // -----------------------------------
+    // Configure I2C for misc devices
+    // -----------------------------------
+    // CN7 Pin 2 / D15 - PB8 - I2C_A_SCL (I2C1)
+    // CN7 Pin 4 / D14 - PB9 - I2C_A_SDA (I2C1)
+    // let i2c = I2c::new(
+    //     p.I2C4,
+    //     p.PF14,
+    //     p.PF15,
+    //     Irqs,
+    //     p.DMA1_CH5,
+    //     p.DMA1_CH2,
+    //     Hertz(100_000),
+    //     Default::default(),
+    // );
+    // // share i2c bus
+    // let i2c_bus = Mutex::new(i2c);
+    // let i2c_bus_manager = I2C_BUS.init(i2c_bus);
+    // let i2c_bus_dev = I2cDevice::new(i2c_bus_manager);
+
+
+    // -----------------------------------
+    // Configure I2C for display
+    // -----------------------------------
+    // CN7 Pin 2 / D15 - PB8 - I2C_A_SCL (I2C1)
+    // CN7 Pin 4 / D14 - PB9 - I2C_A_SDA (I2C1)
+    let i2c = I2c::new(
+        p.I2C2,
+        p.PF1,
+        p.PF0,
+        Irqs,
+        p.DMA1_CH4,
+        p.DMA1_CH3,
+        Hertz(100_000),
+        Default::default(),
+    );
+
+    type I2cDisplay = embassy_stm32::i2c::I2c<
+        'static,
+        embassy_stm32::mode::Async,
+    >;
+
+    type I2cInterface = display_interface_i2c::I2CInterface<I2cDisplay>;
+    let di: I2cInterface = display_interface_i2c::I2CInterface::new(
+        i2c,  // I2C
+        0x3C, // I2C Address
+        0x40, // Data byte
+    );
+
+    let raw_disp = Builder::new(oled_async::displays::sh1107::Sh1107_64_128 {})
+        .with_rotation(crate::DisplayRotation::Rotate180)
+        .connect(di);
+
+    let mut disp: GraphicsMode<_, _> = raw_disp.into();
+
+    disp.init().await.unwrap();
+    disp.clear();
+    disp.flush().await.unwrap();
+
+    let text_style = MonoTextStyleBuilder::new()
+        .font(&FONT_6X10)
+        .text_color(BinaryColor::On)
+        .build();
+
+    Text::with_baseline("Hello world!", Point::zero(), text_style, Baseline::Top)
+        .draw(&mut disp)
+        .unwrap();
+    
     // -----------------------------------
     // On board LEDs
     // -----------------------------------

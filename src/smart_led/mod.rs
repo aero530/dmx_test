@@ -9,7 +9,8 @@ use core::cmp::max;
 use crate::channels::{SmartLedChannelRx, RouterChannelTx};
 use crate::event_router::RouterEvent;
 
-use crate::ws2812_async::{Grb, Ws2812, NUM_LEDS_MAX};
+mod ws2812_async;
+use ws2812_async::{Grb, Ws2812, NUM_LEDS_MAX};
 
 #[derive(Format)]
 pub enum SmartLedEvent {

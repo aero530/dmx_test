@@ -19,20 +19,6 @@ use embassy_time::Timer;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 
-
-// https://github.com/cschuhen/oled_drivers/blob/master/examples/i2c.rs
-
-
-use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyleBuilder},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    text::{Baseline, Text},
-};
-
-use embedded_hal_async::i2c::AddressMode;
-use oled_async::{prelude::*, Builder};
-
 use static_cell::StaticCell;
 use crate::artnet::artnet_task;
 
@@ -94,6 +80,9 @@ use dmx::dmx_task;
 
 mod smart_led;
 use smart_led::smart_led_task;
+
+mod ui;
+use ui::ui_task;
 
 mod artnet;
 
@@ -181,37 +170,10 @@ async fn main(spawner: Spawner) {
         Default::default(),
     );
 
-    type I2cDisplay = embassy_stm32::i2c::I2c<
-        'static,
-        embassy_stm32::mode::Async,
-    >;
-
-    type I2cInterface = display_interface_i2c::I2CInterface<I2cDisplay>;
-    let di: I2cInterface = display_interface_i2c::I2CInterface::new(
-        i2c,  // I2C
-        0x3C, // I2C Address
-        0x40, // Data byte
-    );
-
-    let raw_disp = Builder::new(oled_async::displays::sh1107::Sh1107_64_128 {})
-        .with_rotation(crate::DisplayRotation::Rotate180)
-        .connect(di);
-
-    let mut disp: GraphicsMode<_, _> = raw_disp.into();
-
-    disp.init().await.unwrap();
-    disp.clear();
-    disp.flush().await.unwrap();
-
-    let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_6X10)
-        .text_color(BinaryColor::On)
-        .build();
-
-    Text::with_baseline("Hello world!", Point::zero(), text_style, Baseline::Top)
-        .draw(&mut disp)
+    spawner
+        .spawn(ui_task(i2c, CHANNEL_UI.receiver()))
         .unwrap();
-    
+
     // -----------------------------------
     // On board LEDs
     // -----------------------------------
@@ -406,3 +368,5 @@ async fn main(spawner: Spawner) {
     spawner.spawn(event_router(router)).unwrap();
 
 }
+
+

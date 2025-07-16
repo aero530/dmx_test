@@ -2,6 +2,7 @@
 name = "dmx_test"
 version = "0.1.0"
 edition = "2024"
+resolver = "3"
 
 [[bin]]
 name = "dmx_test"
@@ -41,6 +42,9 @@ rand_core = "0.9.3"
 embedded-io-async = "0.6.1"
 tiny-artnet = "0.1.3"
 alloc-cortex-m = "0.4.4"
+mousefood = {git="https://github.com/j-g00da/mousefood.git"}
+ratatui-core = {version="0.1.0-alpha.6"}
+ratatui-widgets = {version="0.3.0-alpha.5"}
 
 
 

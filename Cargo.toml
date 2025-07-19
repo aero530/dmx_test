@@ -28,7 +28,6 @@ embassy-futures = { version = "0.1.0" }
 embassy-sync = { version = "0.6.2", features = ["defmt"] }
 embassy-embedded-hal = "0.3.0"
 embedded-hal-async = "1.0.0"
-format_no_std = "1.2.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 static_cell = "2"
 rgb = "0.8.50"
@@ -45,7 +44,7 @@ alloc-cortex-m = "0.4.4"
 mousefood = {git="https://github.com/j-g00da/mousefood.git"}
 ratatui-core = {version="0.1.0-alpha.6"}
 ratatui-widgets = {version="0.3.0-alpha.5"}
-
+format_no_std = "1.2.0"
 
 
 [profile.release]

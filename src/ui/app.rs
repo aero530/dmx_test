@@ -1,0 +1,189 @@
+//! Ratatui App
+// use core::default;
+
+use defmt::Format;
+
+// use embassy_time::{with_timeout, Duration};
+// use ratatui_core::backend::Backend;
+use ratatui_core::buffer::Buffer;
+use ratatui_core::layout::{Constraint, Layout, Rect};
+use ratatui_core::text::Line;
+use ratatui_core::widgets::Widget;
+use ratatui_widgets::tabs::Tabs;
+
+
+// use ratatui_core::terminal::{Frame, Terminal};
+use ratatui_core::style::*;
+use ratatui_core::style::palette::tailwind;
+
+use ratatui_widgets::block::{Block, Padding};
+use ratatui_widgets::paragraph::Paragraph;
+use ratatui_core::symbols;
+
+
+const TABS: [&str; 4] = ["DMX", "ArtNet", "SmartLED", "PWM"];
+
+#[derive(Default, Clone, Copy, Format)]
+enum SelectedTab {
+    #[default]
+    Tab0, // 0
+    Tab1,
+    Tab2,
+    Tab3,
+}
+
+impl SelectedTab {
+    fn display(&self) -> &str {
+        let current_index: usize = *self as usize;
+        TABS[current_index]
+    }
+    fn from_repr(index: usize) -> Self {
+        match index {
+            0 => Self::Tab0,
+            1 => Self::Tab1,
+            2 => Self::Tab2,
+            3 => Self::Tab3,
+            _ => Self::Tab3, // any usize higher than 3 returns the same thing as 3
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct App {
+    selected_tab: SelectedTab,
+}
+
+impl App {
+    
+    pub fn next_tab(&mut self) {
+        self.selected_tab = self.selected_tab.next();
+    }
+
+    pub fn previous_tab(&mut self) {
+        self.selected_tab = self.selected_tab.previous();
+    }
+
+    fn render_tabs(&self, area: Rect, buf: &mut Buffer) {
+        let titles = TABS;
+        let highlight_style = (Color::default(), self.selected_tab.palette().c700);
+        let selected_tab_index = self.selected_tab as usize;
+        Tabs::new(titles)
+            .highlight_style(highlight_style)
+            .select(selected_tab_index)
+            .padding("", "")
+            .divider(" ")
+            .render(area, buf);
+    }
+}
+
+impl SelectedTab {
+    /// Get the previous tab, if there is no previous tab return the current tab.
+    fn previous(self) -> Self {
+        let current_index: usize = self as usize;
+        let previous_index = current_index.saturating_sub(1);
+        Self::from_repr(previous_index)
+        // Self::from_repr(previous_index).unwrap_or(self)
+    }
+
+    /// Get the next tab, if there is no next tab return the current tab.
+    fn next(self) -> Self {
+        let current_index = self as usize;
+        let next_index = current_index.saturating_add(1);
+        Self::from_repr(next_index)
+        // Self::from_repr(next_index).unwrap_or(self)
+    }
+}
+    
+impl Widget for &App {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        use Constraint::{Length, Min};
+        let vertical = Layout::vertical([Length(1), Min(0), Length(1)]);
+        let [header_area, inner_area, footer_area] = vertical.areas(area);
+
+        let horizontal = Layout::horizontal([Min(0), Length(20)]);
+        let [tabs_area, title_area] = horizontal.areas(header_area);
+
+        render_title(title_area, buf);
+        self.render_tabs(tabs_area, buf);
+        self.selected_tab.render(inner_area, buf);
+        render_footer(footer_area, buf);
+    }
+}
+
+fn render_title(area: Rect, buf: &mut Buffer) {
+    "Ratatui Tabs Example".bold().render(area, buf);
+}
+
+fn render_footer(area: Rect, buf: &mut Buffer) {
+    Line::raw("◄ ► to change tab | Press q to quit")
+        .centered()
+        .render(area, buf);
+}
+
+impl Widget for SelectedTab {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        // in a real app these might be separate widgets
+        match self {
+            Self::Tab0 => self.render_tab0(area, buf),
+            Self::Tab1 => self.render_tab1(area, buf),
+            Self::Tab2 => self.render_tab2(area, buf),
+            Self::Tab3 => self.render_tab3(area, buf),
+        }
+    }
+}
+
+impl SelectedTab {
+    /// Return tab's name as a styled `Line`
+    fn title(self) -> Line<'static> {
+        let style = Style::new().fg(tailwind::SLATE.c200).bg(self.palette().c900);
+        
+        match self {
+            SelectedTab::Tab0 => Line::styled(TABS[0], style),
+            SelectedTab::Tab1 => Line::styled(TABS[1], style),
+            SelectedTab::Tab2 => Line::styled(TABS[2], style),
+            SelectedTab::Tab3 => Line::styled(TABS[3], style),
+        }
+        
+    }
+
+    fn render_tab0(self, area: Rect, buf: &mut Buffer) {
+        Paragraph::new("Hello, World!")
+            .block(self.block())
+            .render(area, buf);
+    }
+
+    fn render_tab1(self, area: Rect, buf: &mut Buffer) {
+        Paragraph::new("Welcome to the Ratatui tabs example!")
+            .block(self.block())
+            .render(area, buf);
+    }
+
+    fn render_tab2(self, area: Rect, buf: &mut Buffer) {
+        Paragraph::new("Look! I'm different than others!")
+            .block(self.block())
+            .render(area, buf);
+    }
+
+    fn render_tab3(self, area: Rect, buf: &mut Buffer) {
+        Paragraph::new("I know, these are some basic changes. But I think you got the main idea.")
+            .block(self.block())
+            .render(area, buf);
+    }
+
+    /// A block surrounding the tab's content
+    fn block(self) -> Block<'static> {
+        Block::bordered()
+            .border_set(symbols::border::PROPORTIONAL_TALL)
+            .padding(Padding::horizontal(1))
+            .border_style(self.palette().c700)
+    }
+
+    const fn palette(self) -> tailwind::Palette {
+        match self {
+            Self::Tab0 => tailwind::BLUE,
+            Self::Tab1 => tailwind::EMERALD,
+            Self::Tab2 => tailwind::INDIGO,
+            Self::Tab3 => tailwind::RED,
+        }
+    }
+}

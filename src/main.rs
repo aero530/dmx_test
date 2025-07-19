@@ -1,12 +1,14 @@
 #![no_std]
 #![no_main]
 
+use core::convert::Infallible;
+
 #[allow(unused_imports)]
 use defmt::{panic, *};
 // use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
-use embassy_stm32::gpio::{Level, Output, OutputType, Pull, Speed};
+use embassy_stm32::gpio::{Input, Level, Output, OutputOpenDrain, OutputType, Pull, Speed};
 use embassy_stm32::time::{hz, Hertz};
 use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
@@ -55,6 +57,9 @@ use alloc_cortex_m::CortexMHeap;
 static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
 // -----------------------
 
+mod buttons;
+use buttons::button_task;
+
 mod usb_io;
 use usb_io::usb_task;
 
@@ -62,7 +67,7 @@ mod event_router;
 use event_router::{event_router, Router};
 
 mod led;
-use led::{button_task, led_task};
+use led::led_task;
 
 mod pwm;
 use pwm::pwm_task;
@@ -101,10 +106,6 @@ bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
-
-
-
-
 
 
 
@@ -212,9 +213,32 @@ async fn main(spawner: Spawner) {
     // On board button
     // -----------------------------------
     // button is used to trigger NIC on / off
-    let button = ExtiInput::new(p.PC13, p.EXTI13, Pull::None);
+    // let button = ExtiInput::new(p.PC13, p.EXTI13, Pull::None);
+    // spawner
+    //     .spawn(button_task(button, CHANNEL.sender()))
+    //     .unwrap();
+
+
+    error!("Update pin numbers");
+    error!("Update pin numbers");
+    error!("Update pin numbers");
+
     spawner
-        .spawn(button_task(button, CHANNEL.sender()))
+        .spawn(button_task(
+            [
+                Input::new(p.PD0, Pull::Up),
+                Input::new(p.PD1, Pull::Up),
+                Input::new(p.PD2, Pull::Up),
+                Input::new(p.PD3, Pull::Up),
+            ],
+            [
+                OutputOpenDrain::new(p.PE4, Level::High, Speed::Medium),
+                OutputOpenDrain::new(p.PE5, Level::High, Speed::Medium),
+                OutputOpenDrain::new(p.PE6, Level::High, Speed::Medium),
+                OutputOpenDrain::new(p.PE7, Level::High, Speed::Medium),
+            ],
+            CHANNEL.sender())
+        )
         .unwrap();
 
     // -----------------------------------

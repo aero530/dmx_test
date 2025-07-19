@@ -1,5 +1,6 @@
 //! Event router to send commands between tasks
-use crate::channels::*;
+use crate::buttons::KeyPadButton;
+use crate::{channels::*};
 use crate::led::LedEvent;
 use crate::pwm::PwmEvent;
 use crate::smart_led::SmartLedEvent;
@@ -30,6 +31,7 @@ pub enum RouterEvent {
     ButtonHold,
     ButtonPressed,
     ButtonDouble,
+    Button(KeyPadButton),
 
     DmxPacket([u8;513]),
 }
@@ -118,6 +120,9 @@ impl Router {
                 );
                 // let _ = self.channel_smart_led.try_send(SmartLedEvent::Value([input[1], input[2], input[3]]));
             },
+            RouterEvent::Button(btn_evt) => {
+                info!("Button event {}", btn_evt);
+            }
         }
     }
 }

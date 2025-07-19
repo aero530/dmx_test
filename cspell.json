@@ -31,6 +31,7 @@
         "PRSNT",
         "pullup",
         "Ratatui",
+        "Repr",
         "smbus",
         "Sysclk",
         "Uart",

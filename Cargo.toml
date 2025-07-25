@@ -46,6 +46,7 @@ ratatui-widgets = {version="0.3.0-alpha.5"}
 format_no_std = "1.2.0"
 embedded-alloc = "0.6.0"
 display-interface = {version="0.5.0", features = ["defmt-03"]}
+pwm-pca9685 = { version = "1.0.0", features = ["async"] }
 
 [profile.release]
 debug = 2

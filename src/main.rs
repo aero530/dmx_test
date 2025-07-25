@@ -22,12 +22,12 @@ use embassy_stm32::gpio::{Input, Level, Output, OutputOpenDrain, OutputType, Pul
 use embassy_stm32::time::{hz, Hertz};
 use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
-use embassy_stm32::i2c::I2c;
+use embassy_stm32::i2c::{I2c, Config as I2cConfig};
 use embassy_stm32::usb::Driver;
 use embassy_stm32::usart::{Config as UsartConfig, DataBits, StopBits, Uart};
 use embassy_stm32::spi::{Config as SpiConfig, Mode as SpiMode, Spi, Phase, Polarity};
 use embassy_stm32::{bind_interrupts, i2c, peripherals, usb, usart, Config};
-use embassy_time::Timer;
+use embassy_time::{Duration, Timer};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 
@@ -35,6 +35,8 @@ use static_cell::StaticCell;
 use crate::artnet::artnet_task;
 
 use {defmt_rtt as _, panic_probe as _};
+
+use pwm_pca9685::{Address, Channel, Pca9685};
 
 // Eth
 use embassy_net::StackResources;
@@ -153,20 +155,20 @@ async fn main(spawner: Spawner) {
     // -----------------------------------
     // CN7 Pin 2 / D15 - PB8 - I2C_A_SCL (I2C1)
     // CN7 Pin 4 / D14 - PB9 - I2C_A_SDA (I2C1)
-    // let i2c = I2c::new(
-    //     p.I2C4,
-    //     p.PF14,
-    //     p.PF15,
-    //     Irqs,
-    //     p.DMA1_CH5,
-    //     p.DMA1_CH2,
-    //     Hertz(100_000),
-    //     Default::default(),
-    // );
-    // // share i2c bus
-    // let i2c_bus = Mutex::new(i2c);
-    // let i2c_bus_manager = I2C_BUS.init(i2c_bus);
-    // let i2c_bus_dev = I2cDevice::new(i2c_bus_manager);
+    let i2c = I2c::new(
+        p.I2C4,
+        p.PF14,
+        p.PF15,
+        Irqs,
+        p.DMA1_CH5,
+        p.DMA1_CH2,
+        Hertz(100_000),
+        Default::default(),
+    );
+    // share i2c bus
+    let i2c_bus = Mutex::new(i2c);
+    let i2c_bus_manager = I2C_BUS.init(i2c_bus);
+    let i2c_bus_dev = I2cDevice::new(i2c_bus_manager);
 
 
     // -----------------------------------
@@ -174,7 +176,9 @@ async fn main(spawner: Spawner) {
     // -----------------------------------
     // CN7 Pin 2 / D15 - PB8 - I2C_A_SCL (I2C1)
     // CN7 Pin 4 / D14 - PB9 - I2C_A_SDA (I2C1)
-    let i2c = I2c::new(
+    let mut cfg : I2cConfig = I2cConfig::default();
+    cfg.timeout = Duration::from_millis(200);
+    let mut i2c = I2c::new(
         p.I2C2,
         p.PF1,
         p.PF0,
@@ -182,9 +186,39 @@ async fn main(spawner: Spawner) {
         p.DMA1_CH4,
         p.DMA1_CH3,
         Hertz(100_000),
-        Default::default(),
+        cfg
+        //Default::default(),
     );
 
+    let address = Address::default();
+    let mut pwm = Pca9685::new(i2c, address).unwrap();
+
+    loop {
+        
+        // let mut buffer = [0u8; 6];
+        // let a = i2c.write(0x40, &[0xFE]).await;
+        // info!("{}", a);
+        // let a = i2c.read(0x40, &mut buffer).await;
+        // info!("{}", a);
+        // let a = i2c.write(0x40, &[0xA4]).await;
+        // info!("{}", a);
+
+        
+        // This corresponds to a frequency of 60 Hz.
+        let _ = pwm.set_prescale(100).await;
+
+        // It is necessary to enable the device.
+        let _ = pwm.enable().await;
+
+        // Turn on channel 0 at 0.
+        let _ = pwm.set_channel_on(Channel::C0, 0).await;
+
+        // Turn off channel 0 at 2047, which is 50% in
+        // the range `[0..4095]`.
+        let _ = pwm.set_channel_off(Channel::C0, 2047).await;
+
+        
+    }
     spawner
         .spawn(ui_task(i2c, CHANNEL_UI.receiver()))
         .unwrap();

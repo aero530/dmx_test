@@ -1,6 +1,16 @@
 #![no_std]
 #![no_main]
 
+extern crate alloc;
+
+use cortex_m_rt::entry;
+use embedded_alloc::LlffHeap as Heap;
+
+#[global_allocator]
+static HEAP: Heap = Heap::empty();
+
+// ------------------------------------------
+
 use core::convert::Infallible;
 
 #[allow(unused_imports)]
@@ -49,13 +59,7 @@ use embassy_stm32::{eth, rng};
 // https://www.st.com/en/microcontrollers-microprocessors/stm32h533re.html
 
 
-// -----------------------
-// Global allocator needed for nom which is used by tiny_artnet
-// -----------------------
-use alloc_cortex_m::CortexMHeap;
-#[global_allocator]
-static ALLOCATOR: CortexMHeap = CortexMHeap::empty();
-// -----------------------
+
 
 mod buttons;
 use buttons::button_task;
@@ -108,9 +112,19 @@ bind_interrupts!(struct Irqs {
 });
 
 
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
+
+    // Initialize the allocator BEFORE you use it
+    {
+        use core::mem::MaybeUninit;
+        const HEAP_SIZE: usize = 16384;
+        static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
+        #[allow(static_mut_refs)]
+        unsafe { HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE) }
+    }
+
+
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
@@ -219,27 +233,26 @@ async fn main(spawner: Spawner) {
     //     .unwrap();
 
 
-    error!("Update pin numbers");
-    error!("Update pin numbers");
-    error!("Update pin numbers");
-
-    spawner
-        .spawn(button_task(
-            [
-                Input::new(p.PD0, Pull::Up),
-                Input::new(p.PD1, Pull::Up),
-                Input::new(p.PD2, Pull::Up),
-                Input::new(p.PD3, Pull::Up),
-            ],
-            [
-                OutputOpenDrain::new(p.PE4, Level::High, Speed::Medium),
-                OutputOpenDrain::new(p.PE5, Level::High, Speed::Medium),
-                OutputOpenDrain::new(p.PE6, Level::High, Speed::Medium),
-                OutputOpenDrain::new(p.PE7, Level::High, Speed::Medium),
-            ],
-            CHANNEL.sender())
-        )
-        .unwrap();
+    // error!("Update pin numbers");
+    // error!("Update pin numbers");
+    // error!("Update pin numbers");
+    // spawner
+    //     .spawn(button_task(
+    //         [
+    //             Input::new(p.PD0, Pull::Up),
+    //             Input::new(p.PD1, Pull::Up),
+    //             Input::new(p.PD2, Pull::Up),
+    //             Input::new(p.PD3, Pull::Up),
+    //         ],
+    //         [
+    //             OutputOpenDrain::new(p.PE4, Level::High, Speed::Medium),
+    //             OutputOpenDrain::new(p.PE5, Level::High, Speed::Medium),
+    //             OutputOpenDrain::new(p.PE6, Level::High, Speed::Medium),
+    //             OutputOpenDrain::new(p.PE7, Level::High, Speed::Medium),
+    //         ],
+    //         CHANNEL.sender())
+    //     )
+    //     .unwrap();
 
     // -----------------------------------
     // USB

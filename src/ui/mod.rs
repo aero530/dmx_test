@@ -1,7 +1,7 @@
 //! UI hardware interface
 // use core::default;
 
-use defmt::{Format, error};
+use defmt::{error, info, Format};
 use embassy_stm32::i2c::I2c;
 use embassy_time::{with_timeout, Duration};
 use mousefood::{EmbeddedBackend, EmbeddedBackendConfig};
@@ -26,6 +26,14 @@ use ratatui_core::terminal::Terminal;
 
 use oled_async::{prelude::*, Builder as OledBuilder};
 use oled_async::displayrotation::DisplayRotation;
+
+
+use embedded_graphics::{
+    mono_font::{ascii::FONT_6X10, MonoTextStyleBuilder},
+    pixelcolor::BinaryColor,
+    prelude::*,
+    text::{Baseline, Text},
+};
 
 mod app;
 use app::App;
@@ -85,7 +93,7 @@ pub async fn ui_task(i2c: I2c<'static, embassy_stm32::mode::Async>, rx: UiChanne
     type I2cInterface = display_interface_i2c::I2CInterface<I2cDisplay>;
     let di: I2cInterface = display_interface_i2c::I2CInterface::new(
         i2c,  // I2C
-        0x3C, // I2C Address
+        0x3C, // I2C Address 3C or 61
         0x40, // Data byte
     );
 
@@ -95,17 +103,48 @@ pub async fn ui_task(i2c: I2c<'static, embassy_stm32::mode::Async>, rx: UiChanne
 
     let mut disp: GraphicsMode<_, _> = raw_disp.into();
 
-    let backend = EmbeddedBackend::new(&mut disp, EmbeddedBackendConfig::default());
-   
-    if let Ok(terminal) = Terminal::new(backend) {
-        let mut ui = Ui::new(terminal, rx);
-        // app.run();
-        loop {
-            ui.run().await
-        }
-    } else {
-        error!("Unable to create terminal using backend display");
+    let a = disp.display_on(true).await;
+    match a {
+        Ok(()) => info!("ok"),
+        Err(e) => error!("{}",e)
+        // Err(e) => match e {
+        //     DisplayError::InvalidFormatError => error!("InvalidFormatError"),
+        //     DisplayError::BusWriteError => error!("BusWriteError"),
+        //     DisplayError::DCError => error!("DCError"),
+        //     DisplayError::CSError => error!("CSError"),
+        //     DisplayError::DataFormatNotImplemented => error!("DataFormatNotImplemented"),
+        //     DisplayError::RSError => error!("RSError"),
+            
+        //     DisplayError::OutOfBoundsError => error!("OutOfBoundsError"),
+        //     _ => error!("other error"),
+        // }
     }
+    let _ = disp.init().await; // unwrap
+    disp.clear();
+    let _ = disp.flush().await; // unwrap
+
+    // let text_style = MonoTextStyleBuilder::new()
+    //     .font(&FONT_6X10)
+    //     .text_color(BinaryColor::On)
+    //     .build();
+
+    // Text::with_baseline("Hello world!", Point::zero(), text_style, Baseline::Top)
+    //     .draw(&mut disp)
+    //     .unwrap();
+
+
+
+
+    // let backend = EmbeddedBackend::new(&mut disp, EmbeddedBackendConfig::default());
+    // if let Ok(terminal) = Terminal::new(backend) {
+    //     let mut ui = Ui::new(terminal, rx);
+    //     // app.run();
+    //     loop {
+    //         ui.run().await
+    //     }
+    // } else {
+    //     error!("Unable to create terminal using backend display");
+    // }
 }
 
 

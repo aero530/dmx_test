@@ -104,10 +104,13 @@ static I2C_BUS: StaticCell<I2c1Bus> = StaticCell::new();
 bind_interrupts!(struct Irqs {
     // OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
     USART2 => usart::InterruptHandler<peripherals::USART2>;
-    I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
-    I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
-    I2C4_EV => i2c::EventInterruptHandler<peripherals::I2C4>;
-    I2C4_ER => i2c::ErrorInterruptHandler<peripherals::I2C4>;
+    // I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::EventInterruptHandler<peripherals::I2C1>;
+    I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
+    I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
+    // I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
+    // I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
+    // I2C4_EV => i2c::EventInterruptHandler<peripherals::I2C4>;
+    // I2C4_ER => i2c::ErrorInterruptHandler<peripherals::I2C4>;
     ETH => eth::InterruptHandler;
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
@@ -178,13 +181,24 @@ async fn main(spawner: Spawner) {
     // CN7 Pin 4 / D14 - PB9 - I2C_A_SDA (I2C1)
     let mut cfg : I2cConfig = I2cConfig::default();
     cfg.timeout = Duration::from_millis(200);
+    // let mut i2c_display = I2c::new(
+    //     p.I2C2,
+    //     p.PF1,
+    //     p.PF0,
+    //     Irqs,
+    //     p.DMA1_CH4,
+    //     p.DMA1_CH3,
+    //     Hertz(100_000),
+    //     cfg
+    //     //Default::default(),
+    // );
     let mut i2c_display = I2c::new(
-        p.I2C2,
-        p.PF1,
-        p.PF0,
+        p.I2C1,
+        p.PB8,
+        p.PB9,
         Irqs,
-        p.DMA1_CH4,
-        p.DMA1_CH3,
+        p.DMA1_CH7,
+        p.DMA1_CH0,
         Hertz(100_000),
         cfg
         //Default::default(),
@@ -365,14 +379,14 @@ async fn main(spawner: Spawner) {
     // Config SPI for WS2812B
     // -----------------------------------
 
-    let mut spi_config = SpiConfig::default();
-    spi_config.frequency = Hertz(3_000_000);
-    spi_config.mode = SpiMode { polarity: Polarity::IdleLow, phase: Phase::CaptureOnFirstTransition };
+    // let mut spi_config = SpiConfig::default();
+    // spi_config.frequency = Hertz(3_000_000);
+    // spi_config.mode = SpiMode { polarity: Polarity::IdleLow, phase: Phase::CaptureOnFirstTransition };
 
-    let spi = Spi::new_txonly(p.SPI3, p.PB3, p.PB5, p.DMA1_CH7, spi_config);
-    spawner
-        .spawn(smart_led_task(spi, CHANNEL_SMART_LED.receiver()))
-        .unwrap();
+    // let spi = Spi::new_txonly(p.SPI3, p.PB3, p.PB5, p.DMA1_CH7, spi_config);
+    // spawner
+    //     .spawn(smart_led_task(spi, CHANNEL_SMART_LED.receiver()))
+    //     .unwrap();
 
     
     // -----------------------------------

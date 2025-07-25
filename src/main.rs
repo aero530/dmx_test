@@ -1,11 +1,11 @@
 #![no_std]
 #![no_main]
 
-// extern crate alloc;
-// use cortex_m_rt::entry;
-// use embedded_alloc::LlffHeap as Heap;
-// #[global_allocator]
-// static HEAP: Heap = Heap::empty();
+extern crate alloc;
+use cortex_m_rt::entry;
+use embedded_alloc::LlffHeap as Heap;
+#[global_allocator]
+static HEAP: Heap = Heap::empty();
 
 // ------------------------------------------
 
@@ -90,8 +90,8 @@ use dmx::dmx_task;
 mod smart_led;
 use smart_led::smart_led_task;
 
-// mod ui;
-// use ui::ui_task;
+mod ui;
+use ui::ui_task;
 
 mod artnet;
 use crate::artnet::artnet_task;
@@ -107,10 +107,10 @@ bind_interrupts!(struct Irqs {
     // I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::EventInterruptHandler<peripherals::I2C1>;
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
-    // I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
-    // I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
-    // I2C4_EV => i2c::EventInterruptHandler<peripherals::I2C4>;
-    // I2C4_ER => i2c::ErrorInterruptHandler<peripherals::I2C4>;
+    I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
+    I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
+    I2C4_EV => i2c::EventInterruptHandler<peripherals::I2C4>;
+    I2C4_ER => i2c::ErrorInterruptHandler<peripherals::I2C4>;
     ETH => eth::InterruptHandler;
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
@@ -120,13 +120,13 @@ bind_interrupts!(struct Irqs {
 async fn main(spawner: Spawner) {
 
     // Initialize the allocator BEFORE you use it
-    // {
-    //     use core::mem::MaybeUninit;
-    //     const HEAP_SIZE: usize = 1024;
-    //     static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
-    //     #[allow(static_mut_refs)]
-    //     unsafe { HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE) }
-    // }
+    {
+        use core::mem::MaybeUninit;
+        const HEAP_SIZE: usize = 8192;
+        static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
+        #[allow(static_mut_refs)]
+        unsafe { HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE) }
+    }
 
 
     let mut config = Config::default();
@@ -206,40 +206,44 @@ async fn main(spawner: Spawner) {
 
     let i2c_display_bus = Mutex::new(i2c_display);
     let i2c_display_bus_manager = I2C_BUS.init(i2c_display_bus);
-    let mut  i2c_display_bus_dev = I2cDevice::new(i2c_display_bus_manager);
+    // let mut  i2c_display_bus_dev = I2cDevice::new(i2c_display_bus_manager);
 
 
     // let address = Address::default();
     // let mut pwm = Pca9685::new(i2c_display_bus_dev, address).unwrap();
 
-    loop {
+    // loop {
         
-        // let mut buffer = [0u8; 6];
-        // let a = i2c.write(0x40, &[0xFE]).await;
-        // info!("{}", a);
-        // let a = i2c.read(0x40, &mut buffer).await;
-        // info!("{}", a);
-        // let a = i2c.write(0x40, &[0xA4]).await;
-        // info!("{}", a);
+    //     // let mut buffer = [0u8; 6];
+    //     // let a = i2c.write(0x40, &[0xAE]).await;
+    //     // info!("{}", a);
+    //     // let a = i2c.read(0x40, &mut buffer).await;
+    //     // info!("{}", a);
+    //     // let a = i2c.write(0x40, &[0xA4]).await;
+    //     // info!("{}", a);
 
-        let mut buffer = [0u8; 6];
-        let a = embedded_hal_async::i2c::I2c::write_read(&mut i2c_display_bus_dev, 0x40, &[0xFE], &mut buffer).await;
-        info!("{} {}", a, buffer);
+    //     // let mut buffer = [0u8; 6];
+    //     // let a = embedded_hal_async::i2c::I2c::write_read(&mut i2c_display_bus_dev, 0x40, &[0xFE], &mut buffer).await;
+    //     // info!("{} {}", a, buffer);
         
+    //     // let mut buffer = [0u8; 6];
+    //     let a = embedded_hal_async::i2c::I2c::write(&mut i2c_display_bus_dev, 0x3C, &[0xAF]).await;
+    //     // info!("{} {}", a, buffer);
 
-        // // This corresponds to a frequency of 60 Hz.
-        // let _ = pwm.set_prescale(100).await;
-        // // It is necessary to enable the device.
-        // let _ = pwm.enable().await;
-        // // Turn on channel 0 at 0.
-        // let _ = pwm.set_channel_on(Channel::C0, 0).await;
-        // // Turn off channel 0 at 2047, which is 50% in
-        // // the range `[0..4095]`.
-        // let _ = pwm.set_channel_off(Channel::C0, 2047).await;
-    }
-    // spawner
-    //     .spawn(ui_task(i2c, CHANNEL_UI.receiver()))
-    //     .unwrap();
+
+    //     // // This corresponds to a frequency of 60 Hz.
+    //     // let _ = pwm.set_prescale(100).await;
+    //     // // It is necessary to enable the device.
+    //     // let _ = pwm.enable().await;
+    //     // // Turn on channel 0 at 0.
+    //     // let _ = pwm.set_channel_on(Channel::C0, 0).await;
+    //     // // Turn off channel 0 at 2047, which is 50% in
+    //     // // the range `[0..4095]`.
+    //     // let _ = pwm.set_channel_off(Channel::C0, 2047).await;
+    // }
+    spawner
+        .spawn(ui_task(i2c_display_bus_manager, CHANNEL_UI.receiver()))
+        .unwrap();
 
     // -----------------------------------
     // On board LEDs

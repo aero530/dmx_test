@@ -2,16 +2,20 @@
 // use core::default;
 
 use defmt::{error, info, Format};
+use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_stm32::i2c::I2c;
 use embassy_time::{with_timeout, Duration};
-use mousefood::{EmbeddedBackend, EmbeddedBackendConfig};
+use embedded_graphics::mono_font::iso_8859_4::FONT_10X20;
+// use mousefood::{EmbeddedBackend, EmbeddedBackendConfig};
 use ratatui_core::backend::Backend;
+
 // use ratatui_core::buffer::Buffer;
 // use ratatui_core::layout::{Constraint, Layout, Rect};
 // use ratatui_core::text::Line;
 // use ratatui_core::widgets::Widget;
 // use ratatui_widgets::tabs::Tabs;
 use crate::channels::UiChannelRx;
+use crate::I2c1Bus;
 
 // use mousefood::prelude::*;
 
@@ -35,8 +39,8 @@ use embedded_graphics::{
     text::{Baseline, Text},
 };
 
-mod app;
-use app::App;
+// mod app;
+// use app::App;
 
 #[derive(Format)]
 pub enum UiEvent {
@@ -49,19 +53,23 @@ pub enum UiEvent {
 pub struct Ui<B> where B: Backend {
     terminal: Terminal<B>,
     rx: UiChannelRx,
-    app: App,
+    // app: App,
 }
 
 impl<B> Ui<B> where B:Backend {
     pub fn new(terminal: Terminal<B>, rx: UiChannelRx) -> Self {
-        Self { terminal, rx, app: App::default() }
+        Self { 
+            terminal, 
+            rx, 
+            // app: App::default() 
+        }
     }
 
     pub async fn run(&mut self) {
         // if self.terminal.draw(draw).is_err() {
-        if self.terminal.draw(|frame| frame.render_widget(&self.app, frame.area())).is_err() {
-            error!("Failed to draw to screen");
-        }
+        // if self.terminal.draw(|frame| frame.render_widget(&self.app, frame.area())).is_err() {
+        //     error!("Failed to draw to screen");
+        // }
 
         if let Ok(new_message) = with_timeout(Duration::from_millis(50), self.rx.receive()).await {
             self.process_event(new_message).await;
@@ -84,22 +92,23 @@ impl<B> Ui<B> where B:Backend {
 
 
 #[embassy_executor::task]
-pub async fn ui_task(mut i2c: I2c<'static, embassy_stm32::mode::Async, embassy_stm32::i2c::mode::Master>, rx: UiChannelRx) {
-    type I2cDisplay = embassy_stm32::i2c::I2c<
-        'static,
-        embassy_stm32::mode::Async,
-        embassy_stm32::i2c::mode::Master,
-    >;
+// pub async fn ui_task(mut i2c: I2c<'static, embassy_stm32::mode::Async>, rx: UiChannelRx) {
+pub async fn ui_task(sm_bus_manager: &'static I2c1Bus, rx: UiChannelRx) {
+
+    let sm_bus_dev = I2cDevice::new(sm_bus_manager);
+
+    type I2cDisplay = I2cDevice<'static, embassy_sync::blocking_mutex::raw::NoopRawMutex, I2c<'static, embassy_stm32::mode::Async>>;
 
     type I2cInterface = display_interface_i2c::I2CInterface<I2cDisplay>;
+
     let di: I2cInterface = display_interface_i2c::I2CInterface::new(
-        i2c,  // I2C
+        sm_bus_dev,  // I2C
         0x3C, // I2C Address 3C or 61
         0x40, // Data byte
     );
 
-    let raw_disp = OledBuilder::new(oled_async::displays::sh1107::Sh1107_64_128 {})
-        .with_rotation(DisplayRotation::Rotate180)
+    let raw_disp = OledBuilder::new(oled_async::displays::sh1106::SH1106_128_64 {})
+        .with_rotation(DisplayRotation::Rotate0)
         .connect(di);
 
     let mut disp: GraphicsMode<_, _> = raw_disp.into();
@@ -121,20 +130,38 @@ pub async fn ui_task(mut i2c: I2c<'static, embassy_stm32::mode::Async, embassy_s
         // }
     }
     let _ = disp.init().await; // unwrap
-    disp.clear();
     let _ = disp.flush().await; // unwrap
 
-    // let text_style = MonoTextStyleBuilder::new()
-    //     .font(&FONT_6X10)
-    //     .text_color(BinaryColor::On)
-    //     .build();
+    disp.clear();
+    let _ = disp.flush().await; // unwrap
+    
+    info!("clear");
 
-    // Text::with_baseline("Hello world!", Point::zero(), text_style, Baseline::Top)
-    //     .draw(&mut disp)
-    //     .unwrap();
+    let text_style = MonoTextStyleBuilder::new()
+        .font(&FONT_10X20)
+        .text_color(BinaryColor::On)
+        .build();
+
+    Text::with_baseline("Hello world!", Point::zero(), text_style, Baseline::Top)
+        .draw(&mut disp)
+        .unwrap();
+
+    
+    disp.set_pixel(0, 0, 255); // top left
+    disp.set_pixel(127, 63, 255); // bottom right
+
+    disp.set_pixel(64, 0, 255);
+    disp.set_pixel(64, 63, 255);
+    disp.set_pixel(0, 32, 255);
+    disp.set_pixel(127, 32, 255);
+    
+    let _ = disp.flush().await; // unwrap
+    
+    info!("hello");
 
 
-
+    let (x,y) = disp.get_dimensions();
+    info!("{} {}", x, y);
 
     // let backend = EmbeddedBackend::new(&mut disp, EmbeddedBackendConfig::default());
     // if let Ok(terminal) = Terminal::new(backend) {

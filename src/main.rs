@@ -1,18 +1,13 @@
 #![no_std]
 #![no_main]
 
-extern crate alloc;
-
-use cortex_m_rt::entry;
-use embedded_alloc::LlffHeap as Heap;
-// use embedded_hal_async::i2c::I2c;
-
-#[global_allocator]
-static HEAP: Heap = Heap::empty();
+// extern crate alloc;
+// use cortex_m_rt::entry;
+// use embedded_alloc::LlffHeap as Heap;
+// #[global_allocator]
+// static HEAP: Heap = Heap::empty();
 
 // ------------------------------------------
-
-use core::convert::Infallible;
 
 #[allow(unused_imports)]
 use defmt::{panic, *};
@@ -35,7 +30,7 @@ use embassy_sync::mutex::Mutex;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 
 use static_cell::StaticCell;
-use crate::artnet::artnet_task;
+
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -43,7 +38,7 @@ use pwm_pca9685::{Address, Channel, Pca9685};
 
 // Eth
 use embassy_net::StackResources;
-use embassy_stm32::eth::GenericPhy;
+use embassy_stm32::eth::generic_smi::GenericSMI;
 use embassy_stm32::eth::{Ethernet, PacketQueue};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{eth, rng};
@@ -69,8 +64,8 @@ use embassy_stm32::{eth, rng};
 mod buttons;
 use buttons::button_task;
 
-mod usb_io;
-use usb_io::usb_task;
+// mod usb_io;
+// use usb_io::usb_task;
 
 mod event_router;
 use event_router::{event_router, Router};
@@ -81,8 +76,8 @@ use led::led_task;
 mod pwm;
 use pwm::pwm_task;
 
-mod logger;
-use logger::log_task;
+// mod logger;
+// use logger::log_task;
 
 mod channels;
 use channels::*;
@@ -95,18 +90,19 @@ use dmx::dmx_task;
 mod smart_led;
 use smart_led::smart_led_task;
 
-mod ui;
-use ui::ui_task;
+// mod ui;
+// use ui::ui_task;
 
 mod artnet;
+use crate::artnet::artnet_task;
 
-type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, embassy_stm32::i2c::mode::Master>>;
+type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async>>;
 
 /// Shared I2C / Smbus
 static I2C_BUS: StaticCell<I2c1Bus> = StaticCell::new();
 
 bind_interrupts!(struct Irqs {
-    OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
+    // OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
     USART2 => usart::InterruptHandler<peripherals::USART2>;
     I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
     I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
@@ -121,13 +117,13 @@ bind_interrupts!(struct Irqs {
 async fn main(spawner: Spawner) {
 
     // Initialize the allocator BEFORE you use it
-    {
-        use core::mem::MaybeUninit;
-        const HEAP_SIZE: usize = 16384;
-        static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
-        #[allow(static_mut_refs)]
-        unsafe { HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE) }
-    }
+    // {
+    //     use core::mem::MaybeUninit;
+    //     const HEAP_SIZE: usize = 1024;
+    //     static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
+    //     #[allow(static_mut_refs)]
+    //     unsafe { HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE) }
+    // }
 
 
     let mut config = Config::default();
@@ -158,21 +154,20 @@ async fn main(spawner: Spawner) {
     // -----------------------------------
     // CN7 Pin 2 / D15 - PB8 - I2C_A_SCL (I2C1)
     // CN7 Pin 4 / D14 - PB9 - I2C_A_SDA (I2C1)
-    let i2c = I2c::new(
-        p.I2C4,
-        p.PF14,
-        p.PF15,
-        Irqs,
-        p.DMA1_CH5,
-        p.DMA1_CH2,
-        Hertz(100_000),
-        Default::default(),
-    );
-    // share i2c bus
-    let i2c_bus = Mutex::new(i2c);
-    let i2c_bus_manager = I2C_BUS.init(i2c_bus);
-
-    let i2c_bus_dev = I2cDevice::new(i2c_bus_manager);
+    // let i2c = I2c::new(
+    //     p.I2C4,
+    //     p.PF14,
+    //     p.PF15,
+    //     Irqs,
+    //     p.DMA1_CH5,
+    //     p.DMA1_CH2,
+    //     Hertz(100_000),
+    //     Default::default(),
+    // );
+    // // share i2c bus
+    // let i2c_bus = Mutex::new(i2c);
+    // let i2c_bus_manager = I2C_BUS.init(i2c_bus);
+    // let i2c_bus_dev = I2cDevice::new(i2c_bus_manager);
 
     // i2c_bus_dev.write_read(0x40, 0xFE, read).await;
 
@@ -197,11 +192,11 @@ async fn main(spawner: Spawner) {
 
     let i2c_display_bus = Mutex::new(i2c_display);
     let i2c_display_bus_manager = I2C_BUS.init(i2c_display_bus);
-    let i2c_display_bus_dev = I2cDevice::new(i2c_display_bus_manager);
+    let mut  i2c_display_bus_dev = I2cDevice::new(i2c_display_bus_manager);
 
 
-    let address = Address::default();
-    let mut pwm = Pca9685::new(i2c_display_bus_dev, address).unwrap();
+    // let address = Address::default();
+    // let mut pwm = Pca9685::new(i2c_display_bus_dev, address).unwrap();
 
     loop {
         
@@ -213,25 +208,24 @@ async fn main(spawner: Spawner) {
         // let a = i2c.write(0x40, &[0xA4]).await;
         // info!("{}", a);
 
+        let mut buffer = [0u8; 6];
+        let a = embedded_hal_async::i2c::I2c::write_read(&mut i2c_display_bus_dev, 0x40, &[0xFE], &mut buffer).await;
+        info!("{} {}", a, buffer);
         
-        // This corresponds to a frequency of 60 Hz.
-        let _ = pwm.set_prescale(100).await;
 
-        // It is necessary to enable the device.
-        let _ = pwm.enable().await;
-
-        // Turn on channel 0 at 0.
-        let _ = pwm.set_channel_on(Channel::C0, 0).await;
-
-        // Turn off channel 0 at 2047, which is 50% in
-        // the range `[0..4095]`.
-        let _ = pwm.set_channel_off(Channel::C0, 2047).await;
-
-        
+        // // This corresponds to a frequency of 60 Hz.
+        // let _ = pwm.set_prescale(100).await;
+        // // It is necessary to enable the device.
+        // let _ = pwm.enable().await;
+        // // Turn on channel 0 at 0.
+        // let _ = pwm.set_channel_on(Channel::C0, 0).await;
+        // // Turn off channel 0 at 2047, which is 50% in
+        // // the range `[0..4095]`.
+        // let _ = pwm.set_channel_off(Channel::C0, 2047).await;
     }
-    spawner
-        .spawn(ui_task(i2c, CHANNEL_UI.receiver()))
-        .unwrap();
+    // spawner
+    //     .spawn(ui_task(i2c, CHANNEL_UI.receiver()))
+    //     .unwrap();
 
     // -----------------------------------
     // On board LEDs
@@ -249,17 +243,17 @@ async fn main(spawner: Spawner) {
     // -----------------------------------
 
     // PB14 is on TIM12 CH1 (red)
-    let pwm_pin1 = PwmPin::new(p.PB14, OutputType::PushPull);
+    let pwm_pin1 = PwmPin::new_ch1(p.PB14, OutputType::PushPull);
     let pwm1 = SimplePwm::new(p.TIM12, Some(pwm_pin1), None, None, None, hz(200), CountingMode::EdgeAlignedUp );
     let cs1 = pwm1.split();
 
     // PB0 is on TIM3 CH3 (green)
-    let pwm_pin2 = PwmPin::new(p.PB0, OutputType::PushPull);
+    let pwm_pin2 = PwmPin::new_ch3(p.PB0, OutputType::PushPull);
     let pwm2 = SimplePwm::new(p.TIM3, None, None, Some(pwm_pin2), None, hz(200), CountingMode::EdgeAlignedUp  );
     let cs2 = pwm2.split();
 
-    // PB7 is on TIM3 CH3 (green)
-    let pwm_pin3 = PwmPin::new(p.PB7, OutputType::PushPull);
+    // PB7 is on TIM4 CH2 (green)
+    let pwm_pin3 = PwmPin::new_ch2(p.PB7, OutputType::PushPull);
     let pwm3 = SimplePwm::new(p.TIM4, None, Some(pwm_pin3), None, None, hz(200), CountingMode::EdgeAlignedUp  );
     let cs3 = pwm3.split();
 
@@ -302,43 +296,39 @@ async fn main(spawner: Spawner) {
     // USB
     // -----------------------------------
 
-    // Setup needed for nucleo-stm32f303ze
-    let mut dp_pullup = Output::new(p.PG6, Level::Low, Speed::Medium);
-    Timer::after_millis(10).await;
-    dp_pullup.set_high();
+    // // Setup needed for nucleo-stm32f303ze
+    // let mut dp_pullup = Output::new(p.PG6, Level::Low, Speed::Medium);
+    // Timer::after_millis(10).await;
+    // dp_pullup.set_high();
 
+    // // Create the driver, from the HAL.
+    // // let mut ep_out_buffer = [0u8; 256];
+    // let mut config = embassy_stm32::usb::Config::default();
 
-    // Create the driver, from the HAL.
-    // let mut ep_out_buffer = [0u8; 256];
-    let mut config = embassy_stm32::usb::Config::default();
+    // // Do not enable vbus_detection. This is a safe default that works in all boards.
+    // // However, if your USB device is self-powered (can stay powered on if USB is unplugged), you need
+    // // to enable vbus_detection to comply with the USB spec. If you enable it, the board
+    // // has to support it or USB won't work at all. See docs on `vbus_detection` for details.
+    // config.vbus_detection = false;
 
-    // Do not enable vbus_detection. This is a safe default that works in all boards.
-    // However, if your USB device is self-powered (can stay powered on if USB is unplugged), you need
-    // to enable vbus_detection to comply with the USB spec. If you enable it, the board
-    // has to support it or USB won't work at all. See docs on `vbus_detection` for details.
-    config.vbus_detection = false;
+    // // Create the driver, from the HAL.
+    // let driver = {
+    //     static EP_OUT: StaticCell<[u8; 256]> = StaticCell::new();
+    //     let d = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, EP_OUT.init([0; 256]), config);
+    //     d
+    // };
 
-    
-    // Create the driver, from the HAL.
-    let driver = {
-        static EP_OUT: StaticCell<[u8; 256]> = StaticCell::new();
-        let d = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, EP_OUT.init([0; 256]), config);
-        d
-    };
+    // spawner
+    //     .spawn(usb_task(driver, CHANNEL_USB.receiver(), CHANNEL.sender()))
+    //     .unwrap();
 
-
-    spawner
-        .spawn(usb_task(driver, CHANNEL_USB.receiver(), CHANNEL.sender()))
-        .unwrap();
-
-
-    spawner
-        .spawn(log_task(
-            CHANNEL.sender(),
-            CHANNEL_LOG.receiver().unwrap(),
-            CHANNEL_USB.sender(),
-        ))
-        .unwrap();
+    // spawner
+    //     .spawn(log_task(
+    //         CHANNEL.sender(),
+    //         CHANNEL_LOG.receiver().unwrap(),
+    //         CHANNEL_USB.sender(),
+    //     ))
+    //     .unwrap();
 
 
     // -----------------------------------
@@ -411,7 +401,7 @@ async fn main(spawner: Spawner) {
         p.PG13,
         p.PB13,
         p.PG11,
-        GenericPhy::new(0),
+        GenericSMI::new(0),
         mac_addr,
     );
 
@@ -443,7 +433,7 @@ async fn main(spawner: Spawner) {
         CHANNEL_LED.sender(),
         CHANNEL_PWM.sender(),
         CHANNEL_SMART_LED.sender(),
-        CHANNEL_LOG.sender(),
+        // CHANNEL_LOG.sender(),
     );
 
     spawner.spawn(event_router(router)).unwrap();

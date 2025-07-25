@@ -8,7 +8,7 @@ use crate::led::LedEvent;
 use crate::pwm::PwmEvent;
 use crate::smart_led::SmartLedEvent;
 use crate::artnet::ArtNetEvent;
-use crate::ui::UiEvent;
+// use crate::ui::UiEvent;
 
 
 pub type RouterChannel = Channel<ThreadModeRawMutex, RouterEvent, 10>;
@@ -36,17 +36,17 @@ pub type ArtNetChannelRx = Receiver<'static, ThreadModeRawMutex, ArtNetEvent, 1>
 pub type ArtNetChannelTx = Sender<'static, ThreadModeRawMutex, ArtNetEvent, 1>;
 pub static CHANNEL_ARTNET: ArtNetChannel = Channel::new();
 
-pub type UiChannel = Channel<ThreadModeRawMutex, UiEvent, 1>;
-pub type UiChannelRx = Receiver<'static, ThreadModeRawMutex, UiEvent, 1>;
-pub type UiChannelTx = Sender<'static, ThreadModeRawMutex, UiEvent, 1>;
-pub static CHANNEL_UI: UiChannel = Channel::new();
+// pub type UiChannel = Channel<ThreadModeRawMutex, UiEvent, 1>;
+// pub type UiChannelRx = Receiver<'static, ThreadModeRawMutex, UiEvent, 1>;
+// pub type UiChannelTx = Sender<'static, ThreadModeRawMutex, UiEvent, 1>;
+// pub static CHANNEL_UI: UiChannel = Channel::new();
 
-pub type UsbChannel = Channel<ThreadModeRawMutex, [u8; 64], 1>;
-pub type UsbChannelRx = Receiver<'static, ThreadModeRawMutex, [u8; 64], 1>;
-pub type UsbChannelTx = Sender<'static, ThreadModeRawMutex, [u8; 64], 1>;
-pub static CHANNEL_USB: UsbChannel = Channel::new();
+// pub type UsbChannel = Channel<ThreadModeRawMutex, [u8; 64], 1>;
+// pub type UsbChannelRx = Receiver<'static, ThreadModeRawMutex, [u8; 64], 1>;
+// pub type UsbChannelTx = Sender<'static, ThreadModeRawMutex, [u8; 64], 1>;
+// pub static CHANNEL_USB: UsbChannel = Channel::new();
 
-pub type GlobalDataChannel = Watch<CriticalSectionRawMutex, GlobalData, 2>;
-pub type GlobalDataChannelRx = WatchReceiver<'static, CriticalSectionRawMutex, GlobalData, 2>;
-pub type GlobalDataChannelTx = WatchSender<'static, CriticalSectionRawMutex, GlobalData, 2>;
-pub static CHANNEL_LOG: GlobalDataChannel = Watch::new();
+// pub type GlobalDataChannel = Watch<CriticalSectionRawMutex, GlobalData, 2>;
+// pub type GlobalDataChannelRx = WatchReceiver<'static, CriticalSectionRawMutex, GlobalData, 2>;
+// pub type GlobalDataChannelTx = WatchSender<'static, CriticalSectionRawMutex, GlobalData, 2>;
+// pub static CHANNEL_LOG: GlobalDataChannel = Watch::new();

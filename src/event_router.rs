@@ -50,7 +50,8 @@ pub struct Router {
     pub channel_smart_led: SmartLedChannelTx,
 
     /// Channel to send global data events
-    pub channel_log: GlobalDataChannelTx,
+    // pub channel_log: GlobalDataChannelTx,
+
     // Global data store
     pub data: GlobalData,
 }
@@ -62,14 +63,14 @@ impl Router {
         channel_led: LedChannelTx,
         channel_pwm: PwmChannelTx,
         channel_smart_led: SmartLedChannelTx,
-        channel_log: GlobalDataChannelTx,
+        // channel_log: GlobalDataChannelTx,
     ) -> Self {
         Self {
             channel,
             channel_led,
             channel_pwm,
             channel_smart_led,
-            channel_log,
+            // channel_log,
             data: GlobalData::default(),
         }
     }
@@ -79,18 +80,18 @@ impl Router {
             RouterEvent::ButtonHold => {
                 let _ = self.channel_led.try_send(LedEvent::Blink);
                 self.data.button = 1;
-                self.channel_log.send(self.data);
+                // self.channel_log.send(self.data);
             }
             RouterEvent::ButtonPressed => {
                 info!("Event router button pressed");
                 let _ = self.channel_led.try_send(LedEvent::On);
                 self.data.button = 2;
-                self.channel_log.send(self.data);
+                // self.channel_log.send(self.data);
             }
             RouterEvent::ButtonDouble => {
                 let _ = self.channel_led.try_send(LedEvent::Off);
                 self.data.button = 3;
-                self.channel_log.send(self.data);
+                // self.channel_log.send(self.data);
             }
 
             RouterEvent::UsbCommand(input) => match input {

@@ -5,6 +5,7 @@ extern crate alloc;
 
 use cortex_m_rt::entry;
 use embedded_alloc::LlffHeap as Heap;
+// use embedded_hal_async::i2c::I2c;
 
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
@@ -31,6 +32,8 @@ use embassy_time::{Duration, Timer};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 
+use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
+
 use static_cell::StaticCell;
 use crate::artnet::artnet_task;
 
@@ -40,7 +43,7 @@ use pwm_pca9685::{Address, Channel, Pca9685};
 
 // Eth
 use embassy_net::StackResources;
-use embassy_stm32::eth::generic_smi::GenericSMI;
+use embassy_stm32::eth::GenericPhy;
 use embassy_stm32::eth::{Ethernet, PacketQueue};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{eth, rng};
@@ -97,7 +100,7 @@ use ui::ui_task;
 
 mod artnet;
 
-type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async>>;
+type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, embassy_stm32::i2c::mode::Master>>;
 
 /// Shared I2C / Smbus
 static I2C_BUS: StaticCell<I2c1Bus> = StaticCell::new();
@@ -168,8 +171,10 @@ async fn main(spawner: Spawner) {
     // share i2c bus
     let i2c_bus = Mutex::new(i2c);
     let i2c_bus_manager = I2C_BUS.init(i2c_bus);
+
     let i2c_bus_dev = I2cDevice::new(i2c_bus_manager);
 
+    // i2c_bus_dev.write_read(0x40, 0xFE, read).await;
 
     // -----------------------------------
     // Configure I2C for display
@@ -178,7 +183,7 @@ async fn main(spawner: Spawner) {
     // CN7 Pin 4 / D14 - PB9 - I2C_A_SDA (I2C1)
     let mut cfg : I2cConfig = I2cConfig::default();
     cfg.timeout = Duration::from_millis(200);
-    let mut i2c = I2c::new(
+    let mut i2c_display = I2c::new(
         p.I2C2,
         p.PF1,
         p.PF0,
@@ -190,8 +195,13 @@ async fn main(spawner: Spawner) {
         //Default::default(),
     );
 
+    let i2c_display_bus = Mutex::new(i2c_display);
+    let i2c_display_bus_manager = I2C_BUS.init(i2c_display_bus);
+    let i2c_display_bus_dev = I2cDevice::new(i2c_display_bus_manager);
+
+
     let address = Address::default();
-    let mut pwm = Pca9685::new(i2c, address).unwrap();
+    let mut pwm = Pca9685::new(i2c_display_bus_dev, address).unwrap();
 
     loop {
         
@@ -239,17 +249,17 @@ async fn main(spawner: Spawner) {
     // -----------------------------------
 
     // PB14 is on TIM12 CH1 (red)
-    let pwm_pin1 = PwmPin::new_ch1(p.PB14, OutputType::PushPull);
+    let pwm_pin1 = PwmPin::new(p.PB14, OutputType::PushPull);
     let pwm1 = SimplePwm::new(p.TIM12, Some(pwm_pin1), None, None, None, hz(200), CountingMode::EdgeAlignedUp );
     let cs1 = pwm1.split();
 
     // PB0 is on TIM3 CH3 (green)
-    let pwm_pin2 = PwmPin::new_ch3(p.PB0, OutputType::PushPull);
+    let pwm_pin2 = PwmPin::new(p.PB0, OutputType::PushPull);
     let pwm2 = SimplePwm::new(p.TIM3, None, None, Some(pwm_pin2), None, hz(200), CountingMode::EdgeAlignedUp  );
     let cs2 = pwm2.split();
 
     // PB7 is on TIM3 CH3 (green)
-    let pwm_pin3 = PwmPin::new_ch2(p.PB7, OutputType::PushPull);
+    let pwm_pin3 = PwmPin::new(p.PB7, OutputType::PushPull);
     let pwm3 = SimplePwm::new(p.TIM4, None, Some(pwm_pin3), None, None, hz(200), CountingMode::EdgeAlignedUp  );
     let cs3 = pwm3.split();
 
@@ -401,7 +411,7 @@ async fn main(spawner: Spawner) {
         p.PG13,
         p.PB13,
         p.PG11,
-        GenericSMI::new(0),
+        GenericPhy::new(0),
         mac_addr,
     );
 
@@ -439,5 +449,4 @@ async fn main(spawner: Spawner) {
     spawner.spawn(event_router(router)).unwrap();
 
 }
-
 

@@ -84,10 +84,11 @@ impl<B> Ui<B> where B:Backend {
 
 
 #[embassy_executor::task]
-pub async fn ui_task(mut i2c: I2c<'static, embassy_stm32::mode::Async>, rx: UiChannelRx) {
+pub async fn ui_task(mut i2c: I2c<'static, embassy_stm32::mode::Async, embassy_stm32::i2c::mode::Master>, rx: UiChannelRx) {
     type I2cDisplay = embassy_stm32::i2c::I2c<
         'static,
         embassy_stm32::mode::Async,
+        embassy_stm32::i2c::mode::Master,
     >;
 
     type I2cInterface = display_interface_i2c::I2CInterface<I2cDisplay>;

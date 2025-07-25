@@ -2,7 +2,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{IpAddress, Runner, Stack};
-use embassy_stm32::eth::generic_smi::GenericSMI;
+use embassy_stm32::eth::GenericPhy;
 use embassy_stm32::eth::Ethernet;
 use embassy_stm32::peripherals::ETH;
 use embassy_futures::yield_now;
@@ -60,7 +60,7 @@ impl<'a> ArtNet<'a> {
 
 
 #[embassy_executor::task]
-pub async fn artnet_task(stack: Stack<'static>, runner: Runner<'static, Ethernet<'static, ETH, GenericSMI>>, spawner: Spawner, rx: ArtNetChannelRx) {
+pub async fn artnet_task(stack: Stack<'static>, runner: Runner<'static, Ethernet<'static, ETH, GenericPhy>>, spawner: Spawner, rx: ArtNetChannelRx) {
     // let mut art_net = ArtNet::new(eth, 8, rx);
     
     // art_net.enable().await;
@@ -172,7 +172,7 @@ pub async fn artnet_task(stack: Stack<'static>, runner: Runner<'static, Ethernet
     }
 }
 
-type Device = Ethernet<'static, ETH, GenericSMI>;
+type Device = Ethernet<'static, ETH, GenericPhy>;
 
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static, Device>) -> ! {

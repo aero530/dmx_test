@@ -218,23 +218,23 @@ async fn main(spawner: Spawner) {
     // error!("Update pin numbers");
     // error!("Update pin numbers");
     // error!("Update pin numbers");
-    // spawner
-    //     .spawn(button_task(
-    //         [
-    //             Input::new(p.PD0, Pull::Up),
-    //             Input::new(p.PD1, Pull::Up),
-    //             Input::new(p.PD2, Pull::Up),
-    //             Input::new(p.PD3, Pull::Up),
-    //         ],
-    //         [
-    //             OutputOpenDrain::new(p.PE4, Level::High, Speed::Medium),
-    //             OutputOpenDrain::new(p.PE5, Level::High, Speed::Medium),
-    //             OutputOpenDrain::new(p.PE6, Level::High, Speed::Medium),
-    //             OutputOpenDrain::new(p.PE7, Level::High, Speed::Medium),
-    //         ],
-    //         CHANNEL.sender())
-    //     )
-    //     .unwrap();
+    spawner
+        .spawn(button_task(
+            [
+                Input::new(p.PA3, Pull::Up),
+                Input::new(p.PC0, Pull::Up),
+                Input::new(p.PC3, Pull::Up),
+                Input::new(p.PF3, Pull::Up),
+            ],
+            [
+                OutputOpenDrain::new(p.PD7, Level::High, Speed::Medium),
+                OutputOpenDrain::new(p.PD6, Level::High, Speed::Medium),
+                OutputOpenDrain::new(p.PD5, Level::High, Speed::Medium),
+                OutputOpenDrain::new(p.PD4, Level::High, Speed::Medium),
+            ],
+            CHANNEL.sender())
+        )
+        .unwrap();
 
     // -----------------------------------
     // USB

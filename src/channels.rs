@@ -41,12 +41,12 @@ pub type UiChannelRx = Receiver<'static, ThreadModeRawMutex, UiEvent, 1>;
 pub type UiChannelTx = Sender<'static, ThreadModeRawMutex, UiEvent, 1>;
 pub static CHANNEL_UI: UiChannel = Channel::new();
 
-// pub type UsbChannel = Channel<ThreadModeRawMutex, [u8; 64], 1>;
-// pub type UsbChannelRx = Receiver<'static, ThreadModeRawMutex, [u8; 64], 1>;
-// pub type UsbChannelTx = Sender<'static, ThreadModeRawMutex, [u8; 64], 1>;
-// pub static CHANNEL_USB: UsbChannel = Channel::new();
+pub type UsbChannel = Channel<ThreadModeRawMutex, [u8; 64], 1>;
+pub type UsbChannelRx = Receiver<'static, ThreadModeRawMutex, [u8; 64], 1>;
+pub type UsbChannelTx = Sender<'static, ThreadModeRawMutex, [u8; 64], 1>;
+pub static CHANNEL_USB: UsbChannel = Channel::new();
 
-// pub type GlobalDataChannel = Watch<CriticalSectionRawMutex, GlobalData, 2>;
-// pub type GlobalDataChannelRx = WatchReceiver<'static, CriticalSectionRawMutex, GlobalData, 2>;
-// pub type GlobalDataChannelTx = WatchSender<'static, CriticalSectionRawMutex, GlobalData, 2>;
-// pub static CHANNEL_LOG: GlobalDataChannel = Watch::new();
+pub type GlobalDataChannel = Watch<CriticalSectionRawMutex, GlobalData, 2>;
+pub type GlobalDataChannelRx = WatchReceiver<'static, CriticalSectionRawMutex, GlobalData, 2>;
+pub type GlobalDataChannelTx = WatchSender<'static, CriticalSectionRawMutex, GlobalData, 2>;
+pub static CHANNEL_LOG: GlobalDataChannel = Watch::new();

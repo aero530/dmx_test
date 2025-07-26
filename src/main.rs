@@ -11,7 +11,7 @@ static HEAP: Heap = Heap::empty();
 
 #[allow(unused_imports)]
 use defmt::{panic, *};
-// use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
+
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, OutputOpenDrain, OutputType, Pull, Speed};
@@ -64,8 +64,8 @@ use embassy_stm32::{eth, rng};
 mod buttons;
 use buttons::button_task;
 
-// mod usb_io;
-// use usb_io::usb_task;
+mod usb_io;
+use usb_io::usb_task;
 
 mod event_router;
 use event_router::{event_router, Router};
@@ -76,8 +76,8 @@ use led::led_task;
 mod pwm;
 use pwm::pwm_task;
 
-// mod logger;
-// use logger::log_task;
+mod logger;
+use logger::log_task;
 
 mod channels;
 use channels::*;
@@ -102,10 +102,8 @@ type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async>>;
 static I2C_BUS: StaticCell<I2c1Bus> = StaticCell::new();
 
 bind_interrupts!(struct Irqs {
-    // OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
-    // USART2 => usart::InterruptHandler<peripherals::USART2>;
+    OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
     USART6 => usart::InterruptHandler<peripherals::USART6>;
-    // I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::EventInterruptHandler<peripherals::I2C1>;
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
     I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
@@ -182,17 +180,6 @@ async fn main(spawner: Spawner) {
     // CN7 Pin 4 / D14 - PB9 - I2C_A_SDA (I2C1)
     let mut cfg : I2cConfig = I2cConfig::default();
     cfg.timeout = Duration::from_millis(200);
-    // let mut i2c_display = I2c::new(
-    //     p.I2C2,
-    //     p.PF1,
-    //     p.PF0,
-    //     Irqs,
-    //     p.DMA1_CH4,
-    //     p.DMA1_CH3,
-    //     Hertz(100_000),
-    //     cfg
-    //     //Default::default(),
-    // );
     let mut i2c_display = I2c::new(
         p.I2C1,
         p.PB8,
@@ -207,58 +194,13 @@ async fn main(spawner: Spawner) {
 
     let i2c_display_bus = Mutex::new(i2c_display);
     let i2c_display_bus_manager = I2C_BUS.init(i2c_display_bus);
-    // let mut  i2c_display_bus_dev = I2cDevice::new(i2c_display_bus_manager);
-
-
-    // let address = Address::default();
-    // let mut pwm = Pca9685::new(i2c_display_bus_dev, address).unwrap();
-
-    // loop {
-        
-    //     // let mut buffer = [0u8; 6];
-    //     // let a = i2c.write(0x40, &[0xAE]).await;
-    //     // info!("{}", a);
-    //     // let a = i2c.read(0x40, &mut buffer).await;
-    //     // info!("{}", a);
-    //     // let a = i2c.write(0x40, &[0xA4]).await;
-    //     // info!("{}", a);
-
-    //     // let mut buffer = [0u8; 6];
-    //     // let a = embedded_hal_async::i2c::I2c::write_read(&mut i2c_display_bus_dev, 0x40, &[0xFE], &mut buffer).await;
-    //     // info!("{} {}", a, buffer);
-        
-    //     // let mut buffer = [0u8; 6];
-    //     let a = embedded_hal_async::i2c::I2c::write(&mut i2c_display_bus_dev, 0x3C, &[0xAF]).await;
-    //     // info!("{} {}", a, buffer);
-
-
-    //     // // This corresponds to a frequency of 60 Hz.
-    //     // let _ = pwm.set_prescale(100).await;
-    //     // // It is necessary to enable the device.
-    //     // let _ = pwm.enable().await;
-    //     // // Turn on channel 0 at 0.
-    //     // let _ = pwm.set_channel_on(Channel::C0, 0).await;
-    //     // // Turn off channel 0 at 2047, which is 50% in
-    //     // // the range `[0..4095]`.
-    //     // let _ = pwm.set_channel_off(Channel::C0, 2047).await;
-    // }
+    
     spawner
         .spawn(ui_task(i2c_display_bus_manager, CHANNEL_UI.receiver()))
         .unwrap();
 
     // -----------------------------------
-    // On board LEDs
-    // -----------------------------------
-
-    // let mut led_red = Output::new(p.PB14, Level::Low, Speed::Low);
-    // let mut led_green = Output::new(p.PB0, Level::Low, Speed::Low);
-    // let led_blue = Output::new(p.PB7, Level::Low, Speed::Low);
-    // spawner
-    //     .spawn(led_task(led_blue, CHANNEL_LED.receiver()))
-    //     .unwrap();
-    
-    // -----------------------------------
-    // PWMs
+    // PWMs (currently On board LEDs)
     // -----------------------------------
 
     // PB14 is on TIM12 CH1 (red)
@@ -315,52 +257,45 @@ async fn main(spawner: Spawner) {
     // USB
     // -----------------------------------
 
-    // // Setup needed for nucleo-stm32f303ze
-    // let mut dp_pullup = Output::new(p.PG6, Level::Low, Speed::Medium);
-    // Timer::after_millis(10).await;
-    // dp_pullup.set_high();
+    // Setup needed for nucleo-stm32f303ze
+    let mut dp_pullup = Output::new(p.PG6, Level::Low, Speed::Medium);
+    Timer::after_millis(10).await;
+    dp_pullup.set_high();
 
-    // // Create the driver, from the HAL.
-    // // let mut ep_out_buffer = [0u8; 256];
-    // let mut config = embassy_stm32::usb::Config::default();
+    // Create the driver, from the HAL.
+    // let mut ep_out_buffer = [0u8; 256];
+    let mut config = embassy_stm32::usb::Config::default();
 
-    // // Do not enable vbus_detection. This is a safe default that works in all boards.
-    // // However, if your USB device is self-powered (can stay powered on if USB is unplugged), you need
-    // // to enable vbus_detection to comply with the USB spec. If you enable it, the board
-    // // has to support it or USB won't work at all. See docs on `vbus_detection` for details.
-    // config.vbus_detection = false;
+    // Do not enable vbus_detection. This is a safe default that works in all boards.
+    // However, if your USB device is self-powered (can stay powered on if USB is unplugged), you need
+    // to enable vbus_detection to comply with the USB spec. If you enable it, the board
+    // has to support it or USB won't work at all. See docs on `vbus_detection` for details.
+    config.vbus_detection = false;
 
-    // // Create the driver, from the HAL.
-    // let driver = {
-    //     static EP_OUT: StaticCell<[u8; 256]> = StaticCell::new();
-    //     let d = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, EP_OUT.init([0; 256]), config);
-    //     d
-    // };
+    // Create the driver, from the HAL.
+    let driver = {
+        static EP_OUT: StaticCell<[u8; 256]> = StaticCell::new();
+        let d = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, EP_OUT.init([0; 256]), config);
+        d
+    };
 
-    // spawner
-    //     .spawn(usb_task(driver, CHANNEL_USB.receiver(), CHANNEL.sender()))
-    //     .unwrap();
+    spawner
+        .spawn(usb_task(driver, CHANNEL_USB.receiver(), CHANNEL.sender()))
+        .unwrap();
 
-    // spawner
-    //     .spawn(log_task(
-    //         CHANNEL.sender(),
-    //         CHANNEL_LOG.receiver().unwrap(),
-    //         CHANNEL_USB.sender(),
-    //     ))
-    //     .unwrap();
+    spawner
+        .spawn(log_task(
+            CHANNEL.sender(),
+            CHANNEL_LOG.receiver().unwrap(),
+            CHANNEL_USB.sender(),
+        ))
+        .unwrap();
 
 
     // -----------------------------------
     // Setup USART for RS485 / DMX
     // https://ww1.microchip.com/downloads/aemDocuments/documents/OTH/ApplicationNotes/ApplicationNotes/00001659A.pdf
     // -----------------------------------
-    // USART_2
-    // ConnectorPin    PinName SignalName      STM32Pin
-    // 2               D51     USART_B_SCLK    PD7
-    // 4               D52     USART_B_RX      PD6
-    // 6               D53     USART_B_TX      PD5
-    // 8               D54     USART_B_RTS     PD4
-    // 10              D55     USART_B_CTS     PD3
 
     //A data byte is a Start bit, eight data bits and two Stop bits with LSB sent first
     let mut usart_config = UsartConfig::default();
@@ -369,10 +304,7 @@ async fn main(spawner: Spawner) {
     usart_config.data_bits = DataBits::DataBits9; // set to 9 data bits but we will ignore the start bit
     usart_config.stop_bits = StopBits::STOP2;
 
-    // let usart = Uart::new(p.USART2, p.PD6, p.PD5, Irqs, p.DMA1_CH6, p.DMA1_CH5, usart_config).unwrap();
-
-    // CN10 pin 14 (D1) = p.PG14
-    // CN10 pin 16 (D0) = p.PG9
+    // CN10 pin 14 (D1) = p.PG14, CN10 pin 16 (D0) = p.PG9
     let usart = Uart::new(p.USART6, p.PG9, p.PG14, Irqs, p.DMA2_CH7, p.DMA2_CH2, usart_config).unwrap();
     
     // Connect this pin to RX pin so we can detect DMX BREAK and MAB independent of the USART peripheral
@@ -381,9 +313,6 @@ async fn main(spawner: Spawner) {
     spawner
         .spawn(dmx_task(usart, dmx_break_pin, CHANNEL.sender()))
         .unwrap();
-
-    // let write_buf : [u8; 512] = [0xAA; 512];
-    // unwrap!(usart.write(&write_buf).await);
 
     // -----------------------------------
     // Config SPI for WS2812B

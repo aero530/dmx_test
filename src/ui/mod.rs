@@ -107,7 +107,7 @@ pub async fn ui_task(sm_bus_manager: &'static I2c1Bus, rx: UiChannelRx) {
         0x40, // Data byte
     );
 
-    let raw_disp = OledBuilder::new(oled_async::displays::sh1106::SH1106_128_64 {})
+    let raw_disp = OledBuilder::new(oled_async::displays::sh1106::Sh1106_128_64 {})
         .with_rotation(DisplayRotation::Rotate0)
         .connect(di);
 

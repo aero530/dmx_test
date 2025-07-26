@@ -1,0 +1,94 @@
+[package]
+authors = ["James Waples <james@wapl.es>", "Corey Schuhen <cschuhen@gmail.com>"]
+categories = ["embedded", "no-std"]
+description = "Driver for various OLED display controllers. e.g. SH110x SSD130X works with embedded-graphics"
+documentation = "https://docs.rs/oled_async"
+exclude = [".travis.yml", ".gitignore"]
+keywords = ["no-std", "oled", "async", "sh11", "embedded-graphics"]
+license = "MIT OR Apache-2.0"
+name = "oled_async"
+readme = "README.md"
+repository = "https://github.com/cschuhen/oled_drivers"
+version = "0.2.0"
+edition = "2021"
+
+[package.metadata.docs.rs]
+targets = [ "thumbv7m-none-eabi", "thumbv7em-none-eabihf" ]
+
+[dependencies]
+defmt = "0.3"
+embedded-hal = "1.0.0"
+embedded-graphics-core = { version = "0.4", optional = true }
+display-interface = "^ 0.5"
+
+[dev-dependencies]
+cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.6.10"
+embedded-graphics = "0.8"
+heapless = "0.7.10"
+panic-semihosting = "0.5.2"
+cortex-m-rtic = "0.5.9"
+display-interface-i2c = "^ 0.5"
+display-interface-spi = "^ 0.5"
+embedded-hal-bus = { version = "0.1", features = ["async"] }
+embassy-executor = { version = "0.5.0", git = "https://github.com/embassy-rs/embassy", rev = "9cbbedef793d619c659c6a81080675282690a8af" , features = ["defmt", "arch-cortex-m", "executor-thread", "integrated-timers", "task-arena-size-8192"] }
+embedded-hal-async = { version = "1.0" }
+defmt = "0.3"
+defmt-rtt = "0.4"
+panic-probe = { version = "0.3.1", features = ["print-defmt"] }
+
+[patch.crates-io]
+embedded-graphics = {path="/home/cschuhen/rust/embedded-graphics"}
+embedded-graphics-core = {path="/home/cschuhen/rust/embedded-graphics/core"}
+
+[dependencies.stm32f1xx-hal]
+version = "0.7.0"
+optional = true
+features = [ "rt", "stm32f103" ]
+
+[dependencies.stm32g4xx-hal]
+optional = true
+version = "0.0.1"
+features = ["rt", "stm32g431"]
+
+[dependencies.stm32f4xx-hal]
+optional = true
+version = "0.9"
+features = ["rt", "stm32f405"]
+
+[dependencies.embassy-stm32]
+optional = true
+version = "0.1.0"
+git = "https://github.com/embassy-rs/embassy"
+rev = "9cbbedef793d619c659c6a81080675282690a8af"
+features = ["defmt", "time-driver-any", "stm32g431cb", "memory-x", "unstable-pac", "exti"]
+
+[dependencies.embassy-time]
+optional = true
+git = "https://github.com/embassy-rs/embassy"
+rev = "9cbbedef793d619c659c6a81080675282690a8af"
+version = "0.3.0"
+features = ["defmt", "tick-hz-32_768"]
+
+
+[features]
+default = ["graphics"]
+graphics = ["embedded-graphics-core"]
+#graphics = ["embedded-graphics"]
+
+# These features are for development/testing
+stm32f1 = ["stm32f1xx-hal"]
+stm32f4 = ["stm32f4xx-hal"]
+stm32g4 = ["stm32g4xx-hal"]
+embassy-stm32 = ["dep:embassy-time", "dep:embassy-stm32"]
+spi = []
+i2c = []
+
+[profile.dev]
+codegen-units = 1
+incremental = false
+
+[profile.release]
+codegen-units = 1
+debug = true
+lto = true

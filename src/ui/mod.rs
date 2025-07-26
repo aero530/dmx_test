@@ -6,7 +6,7 @@ use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_stm32::i2c::I2c;
 use embassy_time::{with_timeout, Duration};
 use embedded_graphics::mono_font::iso_8859_4::FONT_10X20;
-// use mousefood::{EmbeddedBackend, EmbeddedBackendConfig};
+use mousefood::{EmbeddedBackend, EmbeddedBackendConfig};
 use ratatui_core::backend::Backend;
 
 // use ratatui_core::buffer::Buffer;
@@ -39,8 +39,8 @@ use embedded_graphics::{
     text::{Baseline, Text},
 };
 
-// mod app;
-// use app::App;
+mod app;
+use app::App;
 
 #[derive(Format)]
 pub enum UiEvent {
@@ -53,7 +53,7 @@ pub enum UiEvent {
 pub struct Ui<B> where B: Backend {
     terminal: Terminal<B>,
     rx: UiChannelRx,
-    // app: App,
+    app: App,
 }
 
 impl<B> Ui<B> where B:Backend {
@@ -61,15 +61,15 @@ impl<B> Ui<B> where B:Backend {
         Self { 
             terminal, 
             rx, 
-            // app: App::default() 
+            app: App::default() 
         }
     }
 
     pub async fn run(&mut self) {
         // if self.terminal.draw(draw).is_err() {
-        // if self.terminal.draw(|frame| frame.render_widget(&self.app, frame.area())).is_err() {
-        //     error!("Failed to draw to screen");
-        // }
+        if self.terminal.draw(|frame| frame.render_widget(&self.app, frame.area())).is_err() {
+            error!("Failed to draw to screen");
+        }
 
         if let Ok(new_message) = with_timeout(Duration::from_millis(50), self.rx.receive()).await {
             self.process_event(new_message).await;
@@ -115,64 +115,42 @@ pub async fn ui_task(sm_bus_manager: &'static I2c1Bus, rx: UiChannelRx) {
 
     let a = disp.display_on(true).await;
     match a {
-        Ok(()) => info!("ok"),
+        Ok(()) => info!("Display on"),
         Err(e) => error!("{}",e)
-        // Err(e) => match e {
-        //     DisplayError::InvalidFormatError => error!("InvalidFormatError"),
-        //     DisplayError::BusWriteError => error!("BusWriteError"),
-        //     DisplayError::DCError => error!("DCError"),
-        //     DisplayError::CSError => error!("CSError"),
-        //     DisplayError::DataFormatNotImplemented => error!("DataFormatNotImplemented"),
-        //     DisplayError::RSError => error!("RSError"),
-            
-        //     DisplayError::OutOfBoundsError => error!("OutOfBoundsError"),
-        //     _ => error!("other error"),
-        // }
     }
-    let _ = disp.init().await; // unwrap
-    let _ = disp.flush().await; // unwrap
 
-    disp.clear();
-    let _ = disp.flush().await; // unwrap
-    
-    info!("clear");
-
-    let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_10X20)
-        .text_color(BinaryColor::On)
-        .build();
-
-    Text::with_baseline("Hello world!", Point::zero(), text_style, Baseline::Top)
-        .draw(&mut disp)
-        .unwrap();
-
-    
-    disp.set_pixel(0, 0, 255); // top left
-    disp.set_pixel(127, 63, 255); // bottom right
-
-    disp.set_pixel(64, 0, 255);
-    disp.set_pixel(64, 63, 255);
-    disp.set_pixel(0, 32, 255);
-    disp.set_pixel(127, 32, 255);
-    
-    let _ = disp.flush().await; // unwrap
-    
-    info!("hello");
+    // let _ = disp.init().await; // unwrap
+    // let _ = disp.flush().await; // unwrap
+    // disp.clear();
+    // let _ = disp.flush().await; // unwrap
+    // info!("clear");
+    // let text_style = MonoTextStyleBuilder::new()
+    //     .font(&FONT_10X20)
+    //     .text_color(BinaryColor::On)
+    //     .build();
+    // Text::with_baseline("Hello world!", Point::zero(), text_style, Baseline::Top)
+    //     .draw(&mut disp)
+    //     .unwrap();
+    // disp.set_pixel(0, 0, 255); // top left
+    // disp.set_pixel(127, 63, 255); // bottom right
+    // disp.set_pixel(64, 0, 255);
+    // disp.set_pixel(64, 63, 255);
+    // disp.set_pixel(0, 32, 255);
+    // disp.set_pixel(127, 32, 255);
+    // let _ = disp.flush().await; // unwrap
+    // info!("hello");
 
 
-    let (x,y) = disp.get_dimensions();
-    info!("{} {}", x, y);
-
-    // let backend = EmbeddedBackend::new(&mut disp, EmbeddedBackendConfig::default());
-    // if let Ok(terminal) = Terminal::new(backend) {
-    //     let mut ui = Ui::new(terminal, rx);
-    //     // app.run();
-    //     loop {
-    //         ui.run().await
-    //     }
-    // } else {
-    //     error!("Unable to create terminal using backend display");
-    // }
+    let backend = EmbeddedBackend::new(&mut disp, EmbeddedBackendConfig::default());
+    if let Ok(terminal) = Terminal::new(backend) {
+        let mut ui = Ui::new(terminal, rx);
+        // app.run();
+        loop {
+            ui.run().await
+        }
+    } else {
+        error!("Unable to create terminal using backend display");
+    }
 }
 
 

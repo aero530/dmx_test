@@ -43,9 +43,9 @@ oled_async = {path="oled/"}
 embedded-graphics = "0.8.1"
 display-interface = {version="0.5.0", features = ["defmt-03"]}
 display-interface-i2c = "0.5.0"
-# mousefood = {git="https://github.com/j-g00da/mousefood.git"}
+mousefood = {git="https://github.com/j-g00da/mousefood.git"}
 ratatui-core = {version="0.1.0-alpha.6"}
-# ratatui-widgets = {version="0.3.0-alpha.5"}
+ratatui-widgets = {version="0.3.0-alpha.5"}
 
 
 rand_core = "0.9.3"

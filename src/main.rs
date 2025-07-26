@@ -1,13 +1,6 @@
 #![no_std]
 #![no_main]
 
-extern crate alloc;
-use cortex_m_rt::entry;
-use embedded_alloc::LlffHeap as Heap;
-#[global_allocator]
-static HEAP: Heap = Heap::empty();
-
-// ------------------------------------------
 
 #[allow(unused_imports)]
 use defmt::{panic, *};
@@ -113,16 +106,6 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
 
-    // Initialize the allocator BEFORE you use it
-    {
-        use core::mem::MaybeUninit;
-        const HEAP_SIZE: usize = 8192;
-        static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
-        #[allow(static_mut_refs)]
-        unsafe { HEAP.init(HEAP_MEM.as_ptr() as usize, HEAP_SIZE) }
-    }
-
-
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
@@ -204,9 +187,14 @@ async fn main(spawner: Spawner) {
     let cs1 = pwm1.split();
 
     // PB0 is on TIM3 CH3 (green)
-    let pwm_pin2 = PwmPin::new_ch3(p.PB0, OutputType::PushPull);
-    let pwm2 = SimplePwm::new(p.TIM3, None, None, Some(pwm_pin2), None, hz(200), CountingMode::EdgeAlignedUp  );
-    let cs2 = pwm2.split();
+    // let pwm_pin2 = PwmPin::new_ch3(p.PB0, OutputType::PushPull);
+    // let pwm2 = SimplePwm::new(p.TIM3, None, None, Some(pwm_pin2), None, hz(200), CountingMode::EdgeAlignedUp  );
+    // let cs2 = pwm2.split();
+
+    let pwm_pin6 = PwmPin::new_ch3(p.PC8, OutputType::PushPull);
+    let pwm6 = SimplePwm::new(p.TIM3, None, None, Some(pwm_pin6), None, hz(200), CountingMode::EdgeAlignedUp  );
+    let cs6 = pwm6.split();
+
 
     // PB7 is on TIM4 CH2 (green)
     let pwm_pin3 = PwmPin::new_ch2(p.PB7, OutputType::PushPull);
@@ -214,7 +202,7 @@ async fn main(spawner: Spawner) {
     let cs3 = pwm3.split();
 
     spawner
-        .spawn(pwm_task(cs1, cs2, cs3, CHANNEL_PWM.receiver()))
+        .spawn(pwm_task(cs1, cs6, cs3, CHANNEL_PWM.receiver()))
         .unwrap();
 
     // -----------------------------------
@@ -385,6 +373,8 @@ async fn main(spawner: Spawner) {
     );
 
     spawner.spawn(event_router(router)).unwrap();
+
+
 
 }
 

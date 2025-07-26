@@ -40,35 +40,7 @@ impl<'a> Pwm<'a> {
         self.channels_c.ch3.disable();
         self.channels_c.ch4.disable();
     }
-
-    // pub fn disable(&mut self) {
-    //     self.channels_a.ch1.disable();
-    //     self.channels_a.ch2.disable();
-    //     self.channels_a.ch3.disable();
-    //     self.channels_a.ch4.disable();
-    //     self.channels_b.ch1.disable();
-    //     self.channels_b.ch2.disable();
-    //     self.channels_b.ch3.disable();
-    //     self.channels_b.ch4.disable();
-    //     self.channels_c.ch1.disable();
-    //     self.channels_c.ch2.disable();
-    //     self.channels_c.ch3.disable();
-    //     self.channels_c.ch4.disable();
-        
-    //     self.channels_a.ch1.set_duty_cycle_fully_off();
-    //     self.channels_a.ch2.set_duty_cycle_fully_off();
-    //     self.channels_a.ch3.set_duty_cycle_fully_off();
-    //     self.channels_a.ch4.set_duty_cycle_fully_off();
-    //     self.channels_b.ch1.set_duty_cycle_fully_off();
-    //     self.channels_b.ch2.set_duty_cycle_fully_off();
-    //     self.channels_b.ch3.set_duty_cycle_fully_off();
-    //     self.channels_b.ch4.set_duty_cycle_fully_off();
-    //     self.channels_c.ch1.set_duty_cycle_fully_off();
-    //     self.channels_c.ch2.set_duty_cycle_fully_off();
-    //     self.channels_c.ch3.set_duty_cycle_fully_off();
-    //     self.channels_c.ch4.set_duty_cycle_fully_off();
-    // }
-
+ 
     pub async fn show(&mut self) {
         if let Ok(new_message) = with_timeout(Duration::from_millis(100), self.rx.receive()).await {
             // info!("led message {:?}", new_message);

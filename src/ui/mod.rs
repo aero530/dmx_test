@@ -1,46 +1,41 @@
 //! UI hardware interface
-// use core::default;
 
 use defmt::{error, info, Format};
+use display_interface::AsyncWriteOnlyDataCommand;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_stm32::i2c::I2c;
 use embassy_time::{with_timeout, Duration};
-use embedded_graphics::mono_font::iso_8859_4::FONT_10X20;
-use mousefood::{EmbeddedBackend, EmbeddedBackendConfig};
-use ratatui_core::backend::Backend;
 
-// use ratatui_core::buffer::Buffer;
-// use ratatui_core::layout::{Constraint, Layout, Rect};
-// use ratatui_core::text::Line;
-// use ratatui_core::widgets::Widget;
-// use ratatui_widgets::tabs::Tabs;
 use crate::channels::UiChannelRx;
 use crate::I2c1Bus;
-
-// use mousefood::prelude::*;
-
-use ratatui_core::terminal::Terminal;
-// use ratatui_core::style::*;
-
-// use ratatui_widgets::block::Block;
-// use ratatui_widgets::paragraph::{Paragraph, Wrap};
-
 
 // https://github.com/cschuhen/oled_drivers/blob/master/examples/i2c.rs
 
 use oled_async::{prelude::*, Builder as OledBuilder};
 use oled_async::displayrotation::DisplayRotation;
-
+use oled_async::display;
 
 use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyleBuilder},
+    mono_font::{ascii::FONT_6X10, iso_8859_4::FONT_10X20, MonoTextStyleBuilder},
     pixelcolor::BinaryColor,
     prelude::*,
     text::{Baseline, Text},
 };
 
+use embedded_menu::{
+    interaction::{Action, Interaction, Navigation},
+    Menu, SelectValue,
+};
+
 mod app;
 use app::App;
+
+#[derive(Copy, Clone, PartialEq, SelectValue)]
+pub enum TestEnum {
+    A,
+    B,
+    C,
+}
 
 #[derive(Format)]
 pub enum UiEvent {
@@ -50,29 +45,49 @@ pub enum UiEvent {
 }
 
 
-pub struct Ui<B> where B: Backend {
-    terminal: Terminal<B>,
+pub struct Ui<DV, DI> where DI: AsyncWriteOnlyDataCommand, DV: display::DisplayVariant{
+    disp: GraphicsMode<DV, DI>,
     rx: UiChannelRx,
     app: App,
 }
 
-impl<B> Ui<B> where B:Backend {
-    pub fn new(terminal: Terminal<B>, rx: UiChannelRx) -> Self {
+impl<DV, DI> Ui<DV, DI> where DI: AsyncWriteOnlyDataCommand, DV: display::DisplayVariant {
+    pub fn new(disp: GraphicsMode<DV, DI>, rx: UiChannelRx) -> Self {
+
+
+
         Self { 
-            terminal, 
+            disp, 
             rx, 
-            app: App::default() 
+            app: App::default(),
+
         }
     }
 
     pub async fn run(&mut self) {
         // if self.terminal.draw(draw).is_err() {
-        if self.terminal.draw(|frame| frame.render_widget(&self.app, frame.area())).is_err() {
-            error!("Failed to draw to screen");
-        }
+        // if self.terminal.draw(|frame| frame.render_widget(&self.app, frame.area())).is_err() {
+        //     error!("Failed to draw to screen");
+        // }
 
-        if let Ok(new_message) = with_timeout(Duration::from_millis(50), self.rx.receive()).await {
-            self.process_event(new_message).await;
+        let mut menu = Menu::build("Menu")
+            .add_item("Foo", ">", |_| 1)
+            .add_item("Check this 1", false, |b| 20 + b as i32)
+            .add_section_title("===== Section =====")
+            .add_item("Check this 2", false, |b| 30 + b as i32)
+            .add_item("Check this 3", TestEnum::A, |b| 40 + b as i32)
+            .build();
+
+        loop {
+            menu.update(&self.disp);
+            menu.draw(&mut self.disp).unwrap();
+
+            let _ = self.disp.flush().await; // unwrap
+            // self.app.render();
+
+            if let Ok(new_message) = with_timeout(Duration::from_millis(50), self.rx.receive()).await {
+                self.process_event(new_message).await;
+            }
         }
     }
 
@@ -113,6 +128,7 @@ pub async fn ui_task(sm_bus_manager: &'static I2c1Bus, rx: UiChannelRx) {
 
     let mut disp: GraphicsMode<_, _> = raw_disp.into();
 
+
     let a = disp.display_on(true).await;
     match a {
         Ok(()) => info!("Display on"),
@@ -141,16 +157,12 @@ pub async fn ui_task(sm_bus_manager: &'static I2c1Bus, rx: UiChannelRx) {
     // info!("hello");
 
 
-    let backend = EmbeddedBackend::new(&mut disp, EmbeddedBackendConfig::default());
-    if let Ok(terminal) = Terminal::new(backend) {
-        let mut ui = Ui::new(terminal, rx);
+        let mut ui = Ui::new(disp, rx);
         // app.run();
-        loop {
-            ui.run().await
-        }
-    } else {
-        error!("Unable to create terminal using backend display");
-    }
+        
+        ui.run().await
+        
+
 }
 
 

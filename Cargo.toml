@@ -22,7 +22,7 @@ embedded-hal-async = "1.0.0"
 
 # Change stm32f746zg to your chip name, if necessary.
 embassy-stm32 = { version = "0.2.0", features = [ "defmt", "stm32f746zg", "unstable-pac", "memory-x", "time-driver-tim2", "exti"]  }
-embassy-executor = { version = "0.7.0", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "task-arena-size-65536"] }
+embassy-executor = { version = "0.7.0", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "task-arena-size-262144"] }
 embassy-time = { version = "0.4.0", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-usb = { version = "0.4.0", features = ["defmt"] }
 embassy-futures = { version = "0.1.0" }
@@ -43,10 +43,6 @@ oled_async = {path="oled/"}
 embedded-graphics = "0.8.1"
 display-interface = {version="0.5.0", features = ["defmt-03"]}
 display-interface-i2c = "0.5.0"
-mousefood = {git="https://github.com/j-g00da/mousefood.git"}
-ratatui-core = {version="0.1.0-alpha.6"}
-ratatui-widgets = {version="0.3.0-alpha.5"}
-
 
 rand_core = "0.9.3"
 embedded-io-async = "0.6.1"
@@ -54,6 +50,7 @@ embedded-io-async = "0.6.1"
 format_no_std = "1.2.0"
 
 embedded-alloc = "0.6.0"
+embedded-menu = "0.6.1"
 
 
 [profile.release]

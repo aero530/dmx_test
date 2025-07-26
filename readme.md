@@ -18,3 +18,9 @@ DMX Test
     * Addresses used (output)
 * PWM
     * Mode 3 channel / 4 channel
+
+
+https://github.com/embedded-graphics/embedded-graphics/
+https://github.com/bugadani/embedded-layout
+https://github.com/bugadani/embedded-menu
+https://github.com/embedded-graphics/embedded-text

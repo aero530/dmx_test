@@ -11,7 +11,6 @@ static HEAP: Heap = Heap::empty();
 
 #[allow(unused_imports)]
 use defmt::{panic, *};
-
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, OutputOpenDrain, OutputType, Pull, Speed};
@@ -27,14 +26,10 @@ use embassy_time::{Duration, Timer};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 
-use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
-
 use static_cell::StaticCell;
 
 
 use {defmt_rtt as _, panic_probe as _};
-
-use pwm_pca9685::{Address, Channel, Pca9685};
 
 // Eth
 use embassy_net::StackResources;

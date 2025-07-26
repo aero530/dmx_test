@@ -7,7 +7,6 @@ use embassy_time::{with_timeout, Duration};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 
-
 use static_cell::StaticCell;
 
 use crate::channels::{RouterChannelTx, UsbChannelRx};

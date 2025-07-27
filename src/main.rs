@@ -90,15 +90,16 @@ use crate::artnet::artnet_task;
 type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async>>;
 
 /// Shared I2C / Smbus
-static I2C_BUS: StaticCell<I2c1Bus> = StaticCell::new();
+static I2C_BUS_DISPLAY: StaticCell<I2c1Bus> = StaticCell::new();
+static I2C_BUS_LED: StaticCell<I2c1Bus> = StaticCell::new();
 
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
     USART6 => usart::InterruptHandler<peripherals::USART6>;
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
-    I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
-    I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
+    // I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
+    // I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
     I2C4_EV => i2c::EventInterruptHandler<peripherals::I2C4>;
     I2C4_ER => i2c::ErrorInterruptHandler<peripherals::I2C4>;
     ETH => eth::InterruptHandler;
@@ -112,22 +113,22 @@ async fn main(spawner: Spawner) {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hse = Some(Hse {
-            freq: Hertz(8_000_000),
+        config.rcc.hse = Some(Hse { // High speed external clock
+            freq: Hertz(8_000_000), // 4 - 26MHz
             mode: HseMode::Bypass,
         });
-        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll_src = PllSource::HSE; // Source PLL from HSE (8MHz)
         config.rcc.pll = Some(Pll {
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL216,
-            divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 216 / 2 = 216Mhz
-            divq: Some(PllQDiv::DIV9), // 8mhz / 4 * 216 / 9 = 48Mhz
+            divp: Some(PllPDiv::DIV2), // PLL P divisor = pll_src / prediv * mul / divp = 8mhz / 4 * 216 / 2 = 216Mhz
+            divq: Some(PllQDiv::DIV9), // PLL Q divisor = 8mhz / 4 * 216 / 9 = 48Mhz
             divr: None,
         });
         config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV4;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.apb1_pre = APBPrescaler::DIV4; //DIV4
+        config.rcc.apb2_pre = APBPrescaler::DIV2; //DIV2
+        config.rcc.sys = Sysclk::PLL1_P; // use PLL1_P for system clock
         config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q;
     }
     let p = embassy_stm32::init(config);
@@ -144,12 +145,12 @@ async fn main(spawner: Spawner) {
         Irqs,
         p.DMA1_CH5,
         p.DMA1_CH2,
-        Hertz(100_000),
+        Hertz(1_000_000),
         Default::default(),
     );
     // share i2c bus
     let i2c_led_bus = Mutex::new(i2c_led);
-    let i2c_led_bus_manager = I2C_BUS.init(i2c_led_bus);
+    let i2c_led_bus_manager = I2C_BUS_LED.init(i2c_led_bus);
     spawner
         .spawn(pwm_i2c_task(i2c_led_bus_manager, 0x40, CHANNEL_PWM.receiver()))
         .unwrap();
@@ -168,13 +169,13 @@ async fn main(spawner: Spawner) {
         Irqs,
         p.DMA1_CH6,
         p.DMA1_CH0,
-        Hertz(100_000),
+        Hertz(1_000_000),
         cfg
         //Default::default(),
     );
 
     let i2c_display_bus = Mutex::new(i2c_display);
-    let i2c_display_bus_manager = I2C_BUS.init(i2c_display_bus);
+    let i2c_display_bus_manager = I2C_BUS_DISPLAY.init(i2c_display_bus);
     
     spawner
         .spawn(ui_task(i2c_display_bus_manager, CHANNEL_UI.receiver()))
@@ -190,14 +191,13 @@ async fn main(spawner: Spawner) {
     let cs1 = pwm1.split();
 
     // PB0 is on TIM3 CH3 (green)
-    // let pwm_pin2 = PwmPin::new_ch3(p.PB0, OutputType::PushPull);
-    // let pwm2 = SimplePwm::new(p.TIM3, None, None, Some(pwm_pin2), None, hz(200), CountingMode::EdgeAlignedUp  );
-    // let cs2 = pwm2.split();
+    let pwm_pin2 = PwmPin::new_ch3(p.PB0, OutputType::PushPull);
+    let pwm2 = SimplePwm::new(p.TIM3, None, None, Some(pwm_pin2), None, hz(200), CountingMode::EdgeAlignedUp  );
+    let cs2 = pwm2.split();
 
-    let pwm_pin6 = PwmPin::new_ch3(p.PC8, OutputType::PushPull);
-    let pwm6 = SimplePwm::new(p.TIM3, None, None, Some(pwm_pin6), None, hz(200), CountingMode::EdgeAlignedUp  );
-    let cs6 = pwm6.split();
-
+    // let pwm_pin6 = PwmPin::new_ch3(p.PC8, OutputType::PushPull);
+    // let pwm6 = SimplePwm::new(p.TIM3, None, None, Some(pwm_pin6), None, hz(200), CountingMode::EdgeAlignedUp  );
+    // let cs6 = pwm6.split();
 
     // PB7 is on TIM4 CH2 (green)
     let pwm_pin3 = PwmPin::new_ch2(p.PB7, OutputType::PushPull);
@@ -205,7 +205,7 @@ async fn main(spawner: Spawner) {
     let cs3 = pwm3.split();
 
     spawner
-        .spawn(pwm_task(cs1, cs6, cs3, CHANNEL_PWM.receiver()))
+        .spawn(pwm_task(cs1, cs2, cs3, CHANNEL_PWM.receiver()))
         .unwrap();
 
     // -----------------------------------
@@ -288,7 +288,7 @@ async fn main(spawner: Spawner) {
     
     usart_config.baudrate = 250000;
     usart_config.data_bits = DataBits::DataBits9; // set to 9 data bits but we will ignore the start bit
-    usart_config.stop_bits = StopBits::STOP2;
+    usart_config.stop_bits = StopBits::STOP2; //StopBits::STOP2;
 
     // CN10 pin 14 (D1) = p.PG14, CN10 pin 16 (D0) = p.PG9
     let usart = Uart::new(p.USART6, p.PG9, p.PG14, Irqs, p.DMA2_CH7, p.DMA2_CH2, usart_config).unwrap();
@@ -313,7 +313,6 @@ async fn main(spawner: Spawner) {
         .spawn(smart_led_task(spi, CHANNEL_SMART_LED.receiver()))
         .unwrap();
 
-    
     // -----------------------------------
     // Config ethernet for ArtNet
     // -----------------------------------
@@ -356,9 +355,9 @@ async fn main(spawner: Spawner) {
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(ethernet_device, config, RESOURCES.init(StackResources::new()), seed);
 
-    spawner
-        .spawn(artnet_task(stack, runner, spawner.clone(), CHANNEL_ARTNET.receiver()))
-        .unwrap();
+    // spawner
+    //     .spawn(artnet_task(stack, runner, spawner.clone(), CHANNEL_ARTNET.receiver()))
+    //     .unwrap();
 
 
     // -----------------------------------
@@ -371,6 +370,7 @@ async fn main(spawner: Spawner) {
         CHANNEL.receiver(),
         // CHANNEL_LED.sender(),
         CHANNEL_PWM.sender(),
+        CHANNEL_PWM_I2C.sender(),
         CHANNEL_SMART_LED.sender(),
         CHANNEL_UI.sender(),
         // CHANNEL_LOG.sender(),

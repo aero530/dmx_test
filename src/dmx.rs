@@ -1,7 +1,7 @@
 //! DMX interaction
 use defmt::info;
 use embassy_stm32::exti::ExtiInput;
-use embassy_time::Instant;
+use embassy_time::{Instant, Timer};
 
 use embassy_stm32::usart::Uart;
 
@@ -9,7 +9,6 @@ use static_cell::StaticCell;
 
 use crate::channels::RouterChannelTx;
 use crate::event_router::RouterEvent;
-
 
 
 /// Monitor dmx_break_pin interrupt
@@ -30,21 +29,22 @@ pub async fn dmx_task(mut usart: Uart<'static, embassy_stm32::mode::Async>, mut 
         let rise = Instant::now();
 
         let break_time = (rise - break_fall).as_micros();
-        if (break_time > BREAK_DELAY) & (break_time < BREAK_TIMEOUT) {
+        if (break_time >= BREAK_DELAY) & (break_time < BREAK_TIMEOUT) {
             // info!("DMX BREAK detected");
         } else {
-            info!("DMX break timeout");
+            // info!("DMX break timeout {}", break_time);
             continue
         }
 
         dmx_break_pin.wait_for_falling_edge().await;
         let mab_fall = Instant::now();
 
+
         let mab_time = (mab_fall - rise).as_micros();
-        if (mab_time > MAB_DELAY) & (mab_time < BREAK_TIMEOUT) {
+        if (mab_time >= MAB_DELAY) & (mab_time < BREAK_TIMEOUT) {
             // info!("DMX MAB detected");
         } else {
-            info!("DMX MAB timeout");
+            info!("DMX MAB timeout {}", mab_time);
             continue
         }
 
@@ -58,9 +58,8 @@ pub async fn dmx_task(mut usart: Uart<'static, embassy_stm32::mode::Async>, mut 
                 info!("DMX packet start byte was not 0x00");
             }
         } else {
-            info!("DMX error reading data");
+            info!("DMX error reading data break: {}, mab: {}", break_time, mab_time);
         }
-
     }
 }
 

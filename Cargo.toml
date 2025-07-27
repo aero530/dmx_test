@@ -23,7 +23,7 @@ embedded-hal-async = "1.0.0"
 # Change stm32f746zg to your chip name, if necessary.
 embassy-stm32 = { version = "0.2.0", features = [ "defmt", "stm32f746zg", "unstable-pac", "memory-x", "time-driver-tim2", "exti"]  }
 embassy-executor = { version = "0.7.0", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "task-arena-size-262144"] }
-embassy-time = { version = "0.4.0", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+embassy-time = { version = "0.4.0", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-100_000_000"] }
 embassy-usb = { version = "0.4.0", features = ["defmt"] }
 embassy-futures = { version = "0.1.0" }
 embassy-sync = { version = "0.7.0", features = ["defmt"] } 

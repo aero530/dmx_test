@@ -139,27 +139,16 @@ pub async fn button_task(
         });
 
         // send pressed buttons to router
-
-        // for (l, v) in pressed.iter().enumerate() {
-        //     if *v {
-        //         info!("Button {} {}", l, KeyPadButton::at(l));
-        //     }
-        //     // tx.send(RouterEvent::Button(pressed[p_index])).await;
-        // }
-
         for (l, e) in events.iter().enumerate() {
-            if *e == KeyPadEvent::Pressed || *e == KeyPadEvent::Released {
-                info!("Event {} {} {}", l, KeyPadButton::at(l), e);
-            }
-
+            // if *e == KeyPadEvent::Pressed || *e == KeyPadEvent::Released {
+            //     info!("Event {} {} {}", l, KeyPadButton::at(l), e);
+            // }
             if *e == KeyPadEvent::Released {
                 tx.send(RouterEvent::Button((KeyPadButton::at(l), KeyPadEvent::Released))).await;
             }
-            
-            
         }
 
         // wait to check again
-        Timer::after_millis(50).await;
+        Timer::after_millis(125).await;
     }
 }

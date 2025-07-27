@@ -4,7 +4,7 @@ use defmt::{error, info, Format};
 use display_interface::AsyncWriteOnlyDataCommand;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_stm32::i2c::I2c;
-use embassy_time::{with_timeout, Duration};
+use embassy_time::{with_timeout, Duration, Timer};
 
 use crate::channels::UiChannelRx;
 use crate::ui::app::SelectedTab;
@@ -17,14 +17,14 @@ use oled_async::displayrotation::DisplayRotation;
 use oled_async::display;
 
 use embedded_graphics::{
-    // mono_font::{ascii::FONT_6X10, iso_8859_4::FONT_10X20, MonoTextStyleBuilder},
-    // pixelcolor::BinaryColor,
+    mono_font::{ascii::FONT_6X10, iso_8859_4::FONT_10X20, MonoTextStyleBuilder},
+    pixelcolor::BinaryColor,
     prelude::*,
-    // text::{Baseline, Text},
+    text::{Baseline, Text},
 };
 
 use embedded_menu::{
-    // interaction::{Action, Interaction, Navigation},
+    interaction::{Action, Interaction, Navigation},
     Menu, SelectValue,
 };
 
@@ -45,7 +45,6 @@ pub enum UiEvent {
     PreviousTab,
 }
 
-
 pub struct Ui<DV, DI> where DI: AsyncWriteOnlyDataCommand, DV: display::DisplayVariant{
     disp: GraphicsMode<DV, DI>,
     rx: UiChannelRx,
@@ -62,10 +61,6 @@ impl<DV, DI> Ui<DV, DI> where DI: AsyncWriteOnlyDataCommand, DV: display::Displa
     }
 
     pub async fn run(&mut self) {
-        // if self.terminal.draw(draw).is_err() {
-        // if self.terminal.draw(|frame| frame.render_widget(&self.app, frame.area())).is_err() {
-        //     error!("Failed to draw to screen");
-        // }
 
         let mut menu0 = Menu::build("Tab 0")
             .add_item("Check this 2", false, |b| 30 + b as i32)
@@ -90,23 +85,32 @@ impl<DV, DI> Ui<DV, DI> where DI: AsyncWriteOnlyDataCommand, DV: display::Displa
             .build();
 
         loop {
-            menu0.update(&self.disp);
-            menu1.update(&self.disp);
-            menu2.update(&self.disp);
-            menu3.update(&self.disp);
-            
+
+            self.disp.clear();
 
             match self.app.current_tab() {
-                SelectedTab::Tab0 => {let _ = menu0.draw(&mut self.disp);},
-                SelectedTab::Tab1 => {let _ = menu1.draw(&mut self.disp).unwrap();},
-                SelectedTab::Tab2 => {let _ = menu2.draw(&mut self.disp).unwrap();},
-                SelectedTab::Tab3 => {let _ = menu3.draw(&mut self.disp).unwrap();},
+                SelectedTab::Tab0 => {
+                    menu0.update(&self.disp);
+                    let _ = menu0.draw(&mut self.disp);
+                },
+                SelectedTab::Tab1 => {
+                    menu1.update(&self.disp);
+                    let _ = menu1.draw(&mut self.disp).unwrap();
+                },
+                SelectedTab::Tab2 => {
+                    menu2.update(&self.disp);
+                    let _ = menu2.draw(&mut self.disp).unwrap();
+                },
+                SelectedTab::Tab3 => {
+                    menu3.update(&self.disp);
+                    let _ = menu3.draw(&mut self.disp).unwrap();
+                },
             }
 
             let _ = self.disp.flush().await; // unwrap
             // self.app.render();
 
-            if let Ok(new_message) = with_timeout(Duration::from_millis(50), self.rx.receive()).await {
+            if let Ok(new_message) = with_timeout(Duration::from_millis(250), self.rx.receive()).await {
                 self.process_event(new_message).await;
             }
         }
@@ -147,10 +151,11 @@ pub async fn ui_task(i2c_bus_manager: &'static I2c1Bus, rx: UiChannelRx) {
         0x40, // Data byte
     );
     let raw_disp = OledBuilder::new(oled_async::displays::sh1106::Sh1106_128_64 {})
-        .with_rotation(DisplayRotation::Rotate180)
+        .with_rotation(DisplayRotation::Rotate0)
         .connect(di);
 
     let mut disp: GraphicsMode<_, _> = raw_disp.into();
+    Timer::after_millis(50).await;
 
     let a = disp.display_on(true).await;
     match a {
@@ -158,7 +163,15 @@ pub async fn ui_task(i2c_bus_manager: &'static I2c1Bus, rx: UiChannelRx) {
         Err(e) => error!("{}",e)
     }
 
-    // let _ = disp.init().await; // unwrap
+// Timer::after_millis(50).await;
+//     let a = disp.set_rotation(DisplayRotation::Rotate0).await;
+//     match a {
+//         Ok(()) => info!("Display rotated"),
+//         Err(e) => error!("{}",e)
+//     }
+// Timer::after_millis(50).await;
+
+// let _ = disp.init().await; // unwrap
     // let _ = disp.flush().await; // unwrap
     // disp.clear();
     // let _ = disp.flush().await; // unwrap

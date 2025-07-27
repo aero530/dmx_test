@@ -63,7 +63,7 @@ impl<'a> SmartLed<'a> {
             // }
             SmartLedEvent::Value(values) => {
                 let prev_length = self.num_leds;
-                self.num_leds = ((values[3] as usize) * 100) / 255 as usize;
+                self.num_leds = ((values[3] as usize) * 100) / 255 * 3 as usize;
                 
                 for i in 0..self.num_leds {
                     self.data[i] = RGB8::new(values[0], values[1], values[2]);

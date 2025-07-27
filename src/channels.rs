@@ -25,6 +25,7 @@ pub type PwmChannel = Channel<ThreadModeRawMutex, PwmEvent, 1>;
 pub type PwmChannelRx = Receiver<'static, ThreadModeRawMutex, PwmEvent, 1>;
 pub type PwmChannelTx = Sender<'static, ThreadModeRawMutex, PwmEvent, 1>;
 pub static CHANNEL_PWM: PwmChannel = Channel::new();
+pub static CHANNEL_PWM_I2C: PwmChannel = Channel::new();
 
 pub type SmartLedChannel = Channel<ThreadModeRawMutex, SmartLedEvent, 1>;
 pub type SmartLedChannelRx = Receiver<'static, ThreadModeRawMutex, SmartLedEvent, 1>;

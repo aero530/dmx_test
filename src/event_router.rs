@@ -11,12 +11,14 @@ use embassy_time::{with_timeout, Duration};
 /// Data stored for global use (primarily for logging / terminal display)
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct GlobalData {
+    pub dmx_address: u16,
     pub dmx: [u8; 513],
 }
 
 impl Default for GlobalData {
     fn default() -> Self { 
         Self {
+            dmx_address: 0,
             dmx: [0; 513]
         }
     }
@@ -39,6 +41,7 @@ pub struct Router {
 
     /// Channel to send LED events
     pub channel_pwm: PwmChannelTx,
+    pub channel_pwm_i2c: PwmChannelTx,
     
     /// Channel to send Smart Led events
     pub channel_smart_led: SmartLedChannelTx,
@@ -59,6 +62,7 @@ impl Router {
         channel: RouterChannelRx,
         // channel_led: LedChannelTx,
         channel_pwm: PwmChannelTx,
+        channel_pwm_i2c: PwmChannelTx,
         channel_smart_led: SmartLedChannelTx,
         channel_ui: UiChannelTx,
         // channel_log: GlobalDataChannelTx,
@@ -67,6 +71,7 @@ impl Router {
             channel,
             // channel_led,
             channel_pwm,
+            channel_pwm_i2c,
             channel_smart_led,
             channel_ui,
             // channel_log,
@@ -76,23 +81,6 @@ impl Router {
 
     pub async fn process_event(&mut self, event: RouterEvent) {
         match event {
-            // RouterEvent::ButtonHold => {
-            //     let _ = self.channel_led.try_send(LedEvent::Blink);
-            //     self.data.button = 1;
-            //     // self.channel_log.send(self.data);
-            // }
-            // RouterEvent::ButtonPressed => {
-            //     info!("Event router button pressed");
-            //     let _ = self.channel_led.try_send(LedEvent::On);
-            //     self.data.button = 2;
-            //     // self.channel_log.send(self.data);
-            // }
-            // RouterEvent::ButtonDouble => {
-            //     let _ = self.channel_led.try_send(LedEvent::Off);
-            //     self.data.button = 3;
-            //     // self.channel_log.send(self.data);
-            // }
-
             RouterEvent::UsbCommand(input) => match input {
                 // 1 => {
                 //     let _ = self.channel_led.try_send(LedEvent::On);
@@ -114,10 +102,11 @@ impl Router {
                 //     info!("{}",input[(i*64+1)..(i*64-1+1)]);
                 // }
                 // The first byte should be 0x00 to start the packet transmission
-                info!("{}",input[1..11]);
+                // info!("{}",input[1..11]);
                 self.data.dmx = input;
 
                 let _ = self.channel_pwm.try_send(PwmEvent::Value([input[1], input[2], input[3]]));
+                let _ = self.channel_pwm_i2c.try_send(PwmEvent::Value([input[1], input[2], input[3]]));
                 let _ = self.channel_smart_led.try_send(
                     SmartLedEvent::Value([input[1], input[2], input[3], input[4]])
                 );
@@ -140,8 +129,8 @@ impl Router {
                     KeyPadButton::N7 => {},
                     KeyPadButton::N8 => {},
                     KeyPadButton::N9 => {},
-                    KeyPadButton::Star => {let _ = self.channel_ui.try_send(UiEvent::NextTab);},
-                    KeyPadButton::Pound => {let _ = self.channel_ui.try_send(UiEvent::PreviousTab);},
+                    KeyPadButton::Star => {let _ = self.channel_ui.try_send(UiEvent::PreviousTab);},
+                    KeyPadButton::Pound => {let _ = self.channel_ui.try_send(UiEvent::NextTab);},
                     KeyPadButton::None => {},
                 }
             }
@@ -153,7 +142,7 @@ impl Router {
 pub async fn event_router(mut router: Router) {
     loop {
         if let Ok(new_message) =
-            with_timeout(Duration::from_millis(2), router.channel.receive()).await
+            with_timeout(Duration::from_millis(10), router.channel.receive()).await
         {
             router.process_event(new_message).await;
         }

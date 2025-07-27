@@ -4,7 +4,6 @@ use embassy_stm32::{exti::ExtiInput, gpio::Output};
 use embassy_time::{with_timeout, Duration, Timer};
 
 use crate::channels::{LedChannelRx, RouterChannelTx};
-use crate::event_router::RouterEvent;
 
 #[derive(Format)]
 pub enum LedEvent {
@@ -68,7 +67,7 @@ pub async fn button_task(mut button: ExtiInput<'static>, tx: RouterChannelTx) {
         .is_err()
         {
             info!("Hold");
-            let _ = tx.try_send(RouterEvent::ButtonHold);
+            // let _ = tx.try_send(RouterEvent::ButtonHold);
             button.wait_for_falling_edge().await;
         } else if with_timeout(
             Duration::from_millis(DOUBLE_CLICK_DELAY),
@@ -78,10 +77,10 @@ pub async fn button_task(mut button: ExtiInput<'static>, tx: RouterChannelTx) {
         .is_err()
         {
             info!("Single click");
-            let _ = tx.try_send(RouterEvent::ButtonPressed);
+            // let _ = tx.try_send(RouterEvent::ButtonPressed);
         } else {
             info!("Double click");
-            let _ = tx.try_send(RouterEvent::ButtonDouble);
+            // let _ = tx.try_send(RouterEvent::ButtonDouble);
             button.wait_for_falling_edge().await;
         }
         button.wait_for_rising_edge().await;

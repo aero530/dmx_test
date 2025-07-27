@@ -42,31 +42,31 @@ pub enum KeyPadButton {
 }
 
 impl KeyPadButton {
-    fn from(row: usize, col: usize) -> Self {
-        match (row, col) {
-// 1 2 3 A
-// 4 5 6 B
-// 7 8 9 C
-// * 0 # D
-            (0,0) => Self::N1,
-            (1,0) => Self::N4,
-            (3,0) => Self::N7,
-            (4,0) => Self::Star,
-            (0,1) => Self::N2,
-            (1,1) => Self::N5,
-            (3,1) => Self::N8,
-            (4,1) => Self::N0,
-            (0,2) => Self::N3,
-            (1,2) => Self::N6,
-            (3,2) => Self::N9,
-            (4,2) => Self::Pound,
-            (0,3) => Self::A,
-            (1,3) => Self::B,
-            (3,3) => Self::C,
-            (4,3) => Self::D,
-            _ => Self::None,
-        }
-    }
+//     fn from(row: usize, col: usize) -> Self {
+//         match (row, col) {
+// // 1 2 3 A
+// // 4 5 6 B
+// // 7 8 9 C
+// // * 0 # D
+//             (0,0) => Self::N1,
+//             (1,0) => Self::N4,
+//             (3,0) => Self::N7,
+//             (4,0) => Self::Star,
+//             (0,1) => Self::N2,
+//             (1,1) => Self::N5,
+//             (3,1) => Self::N8,
+//             (4,1) => Self::N0,
+//             (0,2) => Self::N3,
+//             (1,2) => Self::N6,
+//             (3,2) => Self::N9,
+//             (4,2) => Self::Pound,
+//             (0,3) => Self::A,
+//             (1,3) => Self::B,
+//             (3,3) => Self::C,
+//             (4,3) => Self::D,
+//             _ => Self::None,
+//         }
+//     }
     fn at(location: usize) -> Self {
         match location {
             0 => Self::N1,
@@ -112,9 +112,9 @@ pub async fn button_task(
         
 
         // iterate through rows / cols to check if button is pressed
-        rows.iter_mut().enumerate().for_each(|(r_index, r)| {
+        rows.iter_mut().for_each(|r| {
             r.set_low(); // enable this row drain
-            cols.iter().enumerate().for_each(|(c_index, c)| {
+            cols.iter().for_each(|c| {
                 if c.is_low() && found == false { // check each col for low value (button pressed)
                     pressed[location] = true;
                     found = true;
@@ -151,7 +151,12 @@ pub async fn button_task(
             if *e == KeyPadEvent::Pressed || *e == KeyPadEvent::Released {
                 info!("Event {} {} {}", l, KeyPadButton::at(l), e);
             }
-            // tx.send(RouterEvent::Button(pressed[p_index])).await;
+
+            if *e == KeyPadEvent::Released {
+                tx.send(RouterEvent::Button((KeyPadButton::at(l), KeyPadEvent::Released))).await;
+            }
+            
+            
         }
 
         // wait to check again

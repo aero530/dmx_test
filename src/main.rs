@@ -58,11 +58,14 @@ use usb_io::usb_task;
 mod event_router;
 use event_router::{event_router, Router};
 
-mod led;
-use led::led_task;
+// mod led;
+// use led::led_task;
 
 mod pwm;
 use pwm::pwm_task;
+
+mod pwm_i2c;
+use pwm_i2c::pwm_i2c_task;
 
 mod logger;
 use logger::log_task;
@@ -134,22 +137,22 @@ async fn main(spawner: Spawner) {
     // -----------------------------------
     // CN7 Pin 2 / D15 - PB8 - I2C_A_SCL (I2C1)
     // CN7 Pin 4 / D14 - PB9 - I2C_A_SDA (I2C1)
-    // let i2c = I2c::new(
-    //     p.I2C4,
-    //     p.PF14,
-    //     p.PF15,
-    //     Irqs,
-    //     p.DMA1_CH5,
-    //     p.DMA1_CH2,
-    //     Hertz(100_000),
-    //     Default::default(),
-    // );
-    // // share i2c bus
-    // let i2c_bus = Mutex::new(i2c);
-    // let i2c_bus_manager = I2C_BUS.init(i2c_bus);
-    // let i2c_bus_dev = I2cDevice::new(i2c_bus_manager);
-
-    // i2c_bus_dev.write_read(0x40, 0xFE, read).await;
+    let mut i2c_led = I2c::new(
+        p.I2C4,
+        p.PF14,
+        p.PF15,
+        Irqs,
+        p.DMA1_CH5,
+        p.DMA1_CH2,
+        Hertz(100_000),
+        Default::default(),
+    );
+    // share i2c bus
+    let i2c_led_bus = Mutex::new(i2c_led);
+    let i2c_led_bus_manager = I2C_BUS.init(i2c_led_bus);
+    spawner
+        .spawn(pwm_i2c_task(i2c_led_bus_manager, 0x40, CHANNEL_PWM.receiver()))
+        .unwrap();
 
     // -----------------------------------
     // Configure I2C for display
@@ -366,9 +369,10 @@ async fn main(spawner: Spawner) {
 
     let router = Router::new(
         CHANNEL.receiver(),
-        CHANNEL_LED.sender(),
+        // CHANNEL_LED.sender(),
         CHANNEL_PWM.sender(),
         CHANNEL_SMART_LED.sender(),
+        CHANNEL_UI.sender(),
         // CHANNEL_LOG.sender(),
     );
 

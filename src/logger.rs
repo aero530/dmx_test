@@ -18,7 +18,7 @@ pub async fn log_task(
     loop {
         let now = Instant::now().as_millis();
         match rx_data.try_changed() {
-            Some(data) => {
+            Some(_data) => {
                 hide_cursor(usb_tx, &mut buf).await;
 
                 home(usb_tx, &mut buf).await;
@@ -26,10 +26,6 @@ pub async fn log_task(
                 buf.fill(0_u8);
                 let _ =
                     format_no_std::show(&mut buf, format_args!("{}sec ", now.fg(cyan()))).unwrap();
-                usb_tx.send(buf).await;
-
-                buf.fill(0_u8);
-                let _ = format_no_std::show(&mut buf, format_args!("Button{}", data.button)).unwrap();
                 usb_tx.send(buf).await;
                 new_line(usb_tx, &mut buf).await;
 

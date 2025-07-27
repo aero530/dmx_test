@@ -7,6 +7,7 @@ use embassy_stm32::i2c::I2c;
 use embassy_time::{with_timeout, Duration};
 
 use crate::channels::UiChannelRx;
+use crate::ui::app::SelectedTab;
 use crate::I2c1Bus;
 
 // https://github.com/cschuhen/oled_drivers/blob/master/examples/i2c.rs
@@ -16,14 +17,14 @@ use oled_async::displayrotation::DisplayRotation;
 use oled_async::display;
 
 use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, iso_8859_4::FONT_10X20, MonoTextStyleBuilder},
-    pixelcolor::BinaryColor,
+    // mono_font::{ascii::FONT_6X10, iso_8859_4::FONT_10X20, MonoTextStyleBuilder},
+    // pixelcolor::BinaryColor,
     prelude::*,
-    text::{Baseline, Text},
+    // text::{Baseline, Text},
 };
 
 use embedded_menu::{
-    interaction::{Action, Interaction, Navigation},
+    // interaction::{Action, Interaction, Navigation},
     Menu, SelectValue,
 };
 
@@ -39,9 +40,9 @@ pub enum TestEnum {
 
 #[derive(Format)]
 pub enum UiEvent {
-    // On,
-    // Off,
-    Value([u8;3]),
+    // Value([u8;3]),
+    NextTab,
+    PreviousTab,
 }
 
 
@@ -53,14 +54,10 @@ pub struct Ui<DV, DI> where DI: AsyncWriteOnlyDataCommand, DV: display::DisplayV
 
 impl<DV, DI> Ui<DV, DI> where DI: AsyncWriteOnlyDataCommand, DV: display::DisplayVariant {
     pub fn new(disp: GraphicsMode<DV, DI>, rx: UiChannelRx) -> Self {
-
-
-
         Self { 
             disp, 
             rx, 
             app: App::default(),
-
         }
     }
 
@@ -70,17 +67,41 @@ impl<DV, DI> Ui<DV, DI> where DI: AsyncWriteOnlyDataCommand, DV: display::Displa
         //     error!("Failed to draw to screen");
         // }
 
-        let mut menu = Menu::build("Menu")
-            .add_item("Foo", ">", |_| 1)
-            .add_item("Check this 1", false, |b| 20 + b as i32)
-            .add_section_title("===== Section =====")
+        let mut menu0 = Menu::build("Tab 0")
             .add_item("Check this 2", false, |b| 30 + b as i32)
             .add_item("Check this 3", TestEnum::A, |b| 40 + b as i32)
             .build();
+        
+
+        let mut menu1 = Menu::build("Tab 1")
+            .add_item("Foo", ">", |_| 1)
+            .add_section_title("===== Section =====")
+            .add_item("Check this 5", false, |b| 30 + b as i32)
+            .build();
+
+        let mut menu2 = Menu::build("Tab 2")
+            .add_item("Bar", ">", |_| 1)
+            .add_item("More stuff", false, |b| 20 + b as i32)
+            .build();
+
+        let mut menu3 = Menu::build("Tab 3")
+            .add_item("Cat", ">", |_| 1)
+            .add_section_title("===== Section =====")
+            .build();
 
         loop {
-            menu.update(&self.disp);
-            menu.draw(&mut self.disp).unwrap();
+            menu0.update(&self.disp);
+            menu1.update(&self.disp);
+            menu2.update(&self.disp);
+            menu3.update(&self.disp);
+            
+
+            match self.app.current_tab() {
+                SelectedTab::Tab0 => {let _ = menu0.draw(&mut self.disp);},
+                SelectedTab::Tab1 => {let _ = menu1.draw(&mut self.disp).unwrap();},
+                SelectedTab::Tab2 => {let _ = menu2.draw(&mut self.disp).unwrap();},
+                SelectedTab::Tab3 => {let _ = menu3.draw(&mut self.disp).unwrap();},
+            }
 
             let _ = self.disp.flush().await; // unwrap
             // self.app.render();
@@ -93,11 +114,17 @@ impl<DV, DI> Ui<DV, DI> where DI: AsyncWriteOnlyDataCommand, DV: display::Displa
 
     async fn process_event(&mut self, event: UiEvent) {
         match event {
-            UiEvent::Value(_) => {
-                // self.channels_a.ch1.set_duty_cycle_fraction(values[0] as u16, 255);
-                // self.channels_b.ch3.set_duty_cycle_fraction(values[1] as u16, 255);
-                // self.channels_c.ch2.set_duty_cycle_fraction(values[2] as u16, 255);
-                // set pwm to value
+            // UiEvent::Value(_) => {
+            //     // self.channels_a.ch1.set_duty_cycle_fraction(values[0] as u16, 255);
+            //     // self.channels_b.ch3.set_duty_cycle_fraction(values[1] as u16, 255);
+            //     // self.channels_c.ch2.set_duty_cycle_fraction(values[2] as u16, 255);
+            //     // set pwm to value
+            // },
+            UiEvent::NextTab => {
+                self.app.goto_next_tab();
+            }
+            UiEvent::PreviousTab => {
+                self.app.goto_previous_tab();
             }
         }
     }
@@ -108,26 +135,22 @@ impl<DV, DI> Ui<DV, DI> where DI: AsyncWriteOnlyDataCommand, DV: display::Displa
 
 #[embassy_executor::task]
 // pub async fn ui_task(mut i2c: I2c<'static, embassy_stm32::mode::Async>, rx: UiChannelRx) {
-pub async fn ui_task(sm_bus_manager: &'static I2c1Bus, rx: UiChannelRx) {
-
-    let sm_bus_dev = I2cDevice::new(sm_bus_manager);
+pub async fn ui_task(i2c_bus_manager: &'static I2c1Bus, rx: UiChannelRx) {
 
     type I2cDisplay = I2cDevice<'static, embassy_sync::blocking_mutex::raw::NoopRawMutex, I2c<'static, embassy_stm32::mode::Async>>;
-
     type I2cInterface = display_interface_i2c::I2CInterface<I2cDisplay>;
 
+    let i2c_bus_dev = I2cDevice::new(i2c_bus_manager);
     let di: I2cInterface = display_interface_i2c::I2CInterface::new(
-        sm_bus_dev,  // I2C
+        i2c_bus_dev,  // I2C
         0x3C, // I2C Address 3C or 61
         0x40, // Data byte
     );
-
     let raw_disp = OledBuilder::new(oled_async::displays::sh1106::Sh1106_128_64 {})
         .with_rotation(DisplayRotation::Rotate180)
         .connect(di);
 
     let mut disp: GraphicsMode<_, _> = raw_disp.into();
-
 
     let a = disp.display_on(true).await;
     match a {
@@ -156,13 +179,8 @@ pub async fn ui_task(sm_bus_manager: &'static I2c1Bus, rx: UiChannelRx) {
     // let _ = disp.flush().await; // unwrap
     // info!("hello");
 
-
-        let mut ui = Ui::new(disp, rx);
-        // app.run();
-        
-        ui.run().await
-        
-
+    let mut ui = Ui::new(disp, rx);
+    ui.run().await
 }
 
 

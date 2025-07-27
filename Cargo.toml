@@ -52,6 +52,7 @@ format_no_std = "1.2.0"
 embedded-alloc = "0.6.0"
 embedded-menu = "0.6.1"
 
+pwm-pca9685 = { version = "1.0.0", features = ["async"] }
 
 [profile.release]
 debug = 2

@@ -12,29 +12,34 @@ use embassy_time::{with_timeout, Duration};
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub struct GlobalData {
     pub dmx_address: u16,
-    pub dmx: [u8; 513],
+    // pub dmx: [u8; 513],
 }
 
 impl Default for GlobalData {
     fn default() -> Self { 
         Self {
             dmx_address: 0,
-            dmx: [0; 513]
+            // dmx: [0; 513]
         }
     }
 }
 
 /// Events the router watches for.  These trigger the router to pass along an event to another object.
-// #[derive(Copy, Clone)]
+#[derive(Format)]
 pub enum RouterEvent {
     UsbCommand(u8),
     Button((KeyPadButton, KeyPadEvent)),
+}
+
+#[derive(Format)]
+pub enum DmxEvent {
     DmxPacket([u8;513]),
 }
 
 pub struct Router {
     /// Listen for event router tasks
     pub channel: RouterChannelRx,
+    pub channel_dmx: DmxChannelRx,
     
     // /// Channel to send LED events
     // pub channel_led: LedChannelTx,
@@ -60,6 +65,7 @@ impl Router {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         channel: RouterChannelRx,
+        channel_dmx: DmxChannelRx,
         // channel_led: LedChannelTx,
         channel_pwm: PwmChannelTx,
         channel_pwm_i2c: PwmChannelTx,
@@ -69,6 +75,7 @@ impl Router {
     ) -> Self {
         Self {
             channel,
+            channel_dmx,
             // channel_led,
             channel_pwm,
             channel_pwm_i2c,
@@ -95,23 +102,7 @@ impl Router {
                     info!("USB command {}", input);
                 }
             },
-            RouterEvent::DmxPacket(input) => {
-                // info!("Router got DMX data");
-                // for i in 0..8 {
-                //     // +1 because we skip the address bit
-                //     info!("{}",input[(i*64+1)..(i*64-1+1)]);
-                // }
-                // The first byte should be 0x00 to start the packet transmission
-                // info!("{}",input[1..11]);
-                self.data.dmx = input;
 
-                let _ = self.channel_pwm.try_send(PwmEvent::Value([input[1], input[2], input[3]]));
-                let _ = self.channel_pwm_i2c.try_send(PwmEvent::Value([input[1], input[2], input[3]]));
-                let _ = self.channel_smart_led.try_send(
-                    SmartLedEvent::Value([input[1], input[2], input[3], input[4]])
-                );
-                // let _ = self.channel_smart_led.try_send(SmartLedEvent::Value([input[1], input[2], input[3]]));
-            },
             RouterEvent::Button((btn, evt)) => {
                 info!("Button event {} {}", btn, evt);
                 match btn {
@@ -136,6 +127,29 @@ impl Router {
             }
         }
     }
+    pub async fn process_dmx(&mut self, event: DmxEvent) {
+        match event {
+            DmxEvent::DmxPacket(input) => {
+                // info!("Router got DMX data");
+                // for i in 0..8 {
+                //     // +1 because we skip the address bit
+                //     info!("{}",input[(i*64+1)..(i*64-1+1)]);
+                // }
+                // The first byte should be 0x00 to start the packet transmission
+                // info!("{}",input[1..11]);
+                
+                // self.data.dmx = input;
+
+                let _ = self.channel_pwm.try_send(PwmEvent::Value([input[1], input[2], input[3]]));
+                let _ = self.channel_pwm_i2c.try_send(PwmEvent::Value([input[1], input[2], input[3]]));
+                let _ = self.channel_smart_led.try_send(
+                    SmartLedEvent::Value([input[1], input[2], input[3], input[4]])
+                );
+                // let _ = self.channel_smart_led.try_send(SmartLedEvent::Value([input[1], input[2], input[3]]));
+            },
+            
+        }
+    }
 }
 
 #[embassy_executor::task]
@@ -145,6 +159,10 @@ pub async fn event_router(mut router: Router) {
             with_timeout(Duration::from_millis(10), router.channel.receive()).await
         {
             router.process_event(new_message).await;
+        }
+
+        if let Ok(dmx_message) = router.channel_dmx.try_receive() {
+            router.process_dmx(dmx_message).await;
         }
     }
 }

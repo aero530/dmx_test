@@ -3,7 +3,7 @@ use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMu
 use embassy_sync::channel::{Channel, Receiver, Sender};
 use embassy_sync::watch::{Receiver as WatchReceiver, Sender as WatchSender, Watch};
 
-use crate::event_router::{GlobalData, RouterEvent};
+use crate::event_router::{GlobalData, RouterEvent, DmxEvent};
 // use crate::led::LedEvent;
 use crate::pwm::PwmEvent;
 use crate::smart_led::SmartLedEvent;
@@ -15,6 +15,11 @@ pub type RouterChannel = Channel<ThreadModeRawMutex, RouterEvent, 10>;
 pub type RouterChannelRx = Receiver<'static, ThreadModeRawMutex, RouterEvent, 10>;
 pub type RouterChannelTx = Sender<'static, ThreadModeRawMutex, RouterEvent, 10>;
 pub static CHANNEL: RouterChannel = Channel::new();
+
+pub type DmxChannel = Channel<ThreadModeRawMutex, DmxEvent, 1>;
+pub type DmxChannelRx = Receiver<'static, ThreadModeRawMutex, DmxEvent, 1>;
+pub type DmxChannelTx = Sender<'static, ThreadModeRawMutex, DmxEvent, 1>;
+pub static CHANNEL_DMX: DmxChannel = Channel::new();
 
 // pub type LedChannel = Channel<ThreadModeRawMutex, LedEvent, 1>;
 // pub type LedChannelRx = Receiver<'static, ThreadModeRawMutex, LedEvent, 1>;

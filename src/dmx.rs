@@ -1,19 +1,19 @@
 //! DMX interaction
-use defmt::info;
+use defmt::{error, info};
 use embassy_stm32::exti::ExtiInput;
-use embassy_time::{Instant, Timer};
+use embassy_time::Instant;
 
 use embassy_stm32::usart::Uart;
 
 use static_cell::StaticCell;
 
-use crate::channels::RouterChannelTx;
-use crate::event_router::RouterEvent;
+use crate::channels::DmxChannelTx;
+use crate::event_router::DmxEvent;
 
 
 /// Monitor dmx_break_pin interrupt
 #[embassy_executor::task]
-pub async fn dmx_task(mut usart: Uart<'static, embassy_stm32::mode::Async>, mut dmx_break_pin: ExtiInput<'static>, tx: RouterChannelTx) {
+pub async fn dmx_task(mut usart: Uart<'static, embassy_stm32::mode::Async>, mut dmx_break_pin: ExtiInput<'static>, tx: DmxChannelTx) {
 
     const MAB_DELAY: u64 = 8;
     const BREAK_DELAY: u64 = 88;
@@ -51,9 +51,13 @@ pub async fn dmx_task(mut usart: Uart<'static, embassy_stm32::mode::Async>, mut 
         if usart.read(dmx_buffer).await.is_ok() {
             if dmx_buffer[0] == 0x00 {
                 // info!("DMX sending packet to router");
-                let _ = tx.try_send(RouterEvent::DmxPacket(
-                    *dmx_buffer
-                ));
+                if tx.is_full() {
+                    tx.clear(); // clear any existing message on the channel
+                }
+                match tx.try_send(DmxEvent::DmxPacket(*dmx_buffer)) { // since we just cleared the buffer this should complete immediately
+                        Ok(()) => {},
+                        Err(e) => error!("DMX channel error {}", e)
+                }
             } else {
                 info!("DMX packet start byte was not 0x00");
             }

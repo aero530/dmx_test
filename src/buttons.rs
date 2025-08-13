@@ -1,5 +1,5 @@
 //! Button interaction
-use defmt::{info, Format};
+use defmt::{error, Format};
 use embassy_time::Timer;
 
 use embassy_stm32::gpio::{Input, OutputOpenDrain};
@@ -140,11 +140,12 @@ pub async fn button_task(
 
         // send pressed buttons to router
         for (l, e) in events.iter().enumerate() {
-            // if *e == KeyPadEvent::Pressed || *e == KeyPadEvent::Released {
-            //     info!("Event {} {} {}", l, KeyPadButton::at(l), e);
-            // }
             if *e == KeyPadEvent::Released {
-                tx.send(RouterEvent::Button((KeyPadButton::at(l), KeyPadEvent::Released))).await;
+                match tx.try_send(RouterEvent::Button((KeyPadButton::at(l), KeyPadEvent::Released))) {
+                    Ok(_) => {},
+                    Err(e) => error!("Message dropped. Channel full. {}",e)
+                };
+
             }
         }
 

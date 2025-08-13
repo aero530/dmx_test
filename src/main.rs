@@ -48,7 +48,6 @@ use embassy_stm32::{eth, rng};
 
 
 
-
 mod buttons;
 use buttons::button_task;
 
@@ -85,7 +84,7 @@ mod ui;
 use ui::ui_task;
 
 mod artnet;
-use crate::artnet::artnet_task;
+// use crate::artnet::artnet_task;
 
 type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async>>;
 
@@ -138,7 +137,7 @@ async fn main(spawner: Spawner) {
     // -----------------------------------
     // CN7 Pin 2 / D15 - PB8 - I2C_A_SCL (I2C1)
     // CN7 Pin 4 / D14 - PB9 - I2C_A_SDA (I2C1)
-    let mut i2c_led = I2c::new(
+    let i2c_led = I2c::new(
         p.I2C4,
         p.PF14,
         p.PF15,
@@ -162,7 +161,7 @@ async fn main(spawner: Spawner) {
     // CN7 Pin 4 / D14 - PB9 - I2C_A_SDA (I2C1)
     let mut cfg : I2cConfig = I2cConfig::default();
     cfg.timeout = Duration::from_millis(200);
-    let mut i2c_display = I2c::new(
+    let i2c_display = I2c::new(
         p.I2C1,
         p.PB8,
         p.PB9,
@@ -297,7 +296,7 @@ async fn main(spawner: Spawner) {
     // let dmx_break_pin = ExtiInput::new(p.PD7, p.EXTI7, Pull::None);
     let dmx_break_pin = ExtiInput::new(p.PE8, p.EXTI8, Pull::None);
     spawner
-        .spawn(dmx_task(usart, dmx_break_pin, CHANNEL.sender()))
+        .spawn(dmx_task(usart, dmx_break_pin, CHANNEL_DMX.sender()))
         .unwrap();
 
     // -----------------------------------
@@ -368,6 +367,7 @@ async fn main(spawner: Spawner) {
 
     let router = Router::new(
         CHANNEL.receiver(),
+        CHANNEL_DMX.receiver(),
         // CHANNEL_LED.sender(),
         CHANNEL_PWM.sender(),
         CHANNEL_PWM_I2C.sender(),

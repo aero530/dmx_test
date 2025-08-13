@@ -15,7 +15,7 @@ pub struct PwmI2c<I2C: embedded_hal_async::i2c::I2c> {
 
 impl<I2C: embedded_hal_async::i2c::I2c> PwmI2c<I2C> {
     pub fn new(i2c: I2C, address: u8, rx: PwmChannelRx) -> Self {
-        let mut pwm = Pca9685::new(i2c, address).unwrap();
+        let pwm = Pca9685::new(i2c, address).unwrap();
         Self { pwm, rx }
     }
 

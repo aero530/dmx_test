@@ -147,12 +147,12 @@ impl Router {
                 );
                 // let _ = self.channel_smart_led.try_send(SmartLedEvent::Value([input[1], input[2], input[3]]));
             },
-            
         }
     }
 }
 
 #[embassy_executor::task]
+
 pub async fn event_router(mut router: Router) {
     loop {
         if let Ok(new_message) =
@@ -162,6 +162,7 @@ pub async fn event_router(mut router: Router) {
         }
 
         if let Ok(dmx_message) = router.channel_dmx.try_receive() {
+            
             router.process_dmx(dmx_message).await;
         }
     }

@@ -135,6 +135,7 @@ impl Router {
                 //     // +1 because we skip the address bit
                 //     info!("{}",input[(i*64+1)..(i*64-1+1)]);
                 // }
+                // info!("{}",input[0..12]);
                 // The first byte should be 0x00 to start the packet transmission
                 // info!("{}",input[1..11]);
                 

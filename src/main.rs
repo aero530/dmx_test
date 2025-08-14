@@ -74,8 +74,10 @@ use channels::*;
 
 mod ansi;
 
-mod dmx;
-use dmx::dmx_task;
+// mod dmx;
+// use dmx::dmx_task;
+mod dmx_i2c;
+use dmx_i2c::dmx_task;
 
 mod smart_led;
 use smart_led::smart_led_task;
@@ -152,6 +154,9 @@ async fn main(spawner: Spawner) {
     let i2c_led_bus_manager = I2C_BUS_LED.init(i2c_led_bus);
     spawner
         .spawn(pwm_i2c_task(i2c_led_bus_manager, 0x40, CHANNEL_PWM.receiver()))
+        .unwrap();
+    spawner
+        .spawn(dmx_task(i2c_led_bus_manager, 0x33, CHANNEL_DMX.sender()))
         .unwrap();
 
     // -----------------------------------
@@ -264,40 +269,40 @@ async fn main(spawner: Spawner) {
         d
     };
 
-    spawner
-        .spawn(usb_task(driver, CHANNEL_USB.receiver(), CHANNEL.sender()))
-        .unwrap();
+    // spawner
+    //     .spawn(usb_task(driver, CHANNEL_USB.receiver(), CHANNEL.sender()))
+    //     .unwrap();
 
-    spawner
-        .spawn(log_task(
-            CHANNEL.sender(),
-            CHANNEL_LOG.receiver().unwrap(),
-            CHANNEL_USB.sender(),
-        ))
-        .unwrap();
+    // spawner
+    //     .spawn(log_task(
+    //         CHANNEL.sender(),
+    //         CHANNEL_LOG.receiver().unwrap(),
+    //         CHANNEL_USB.sender(),
+    //     ))
+    //     .unwrap();
 
 
-    // -----------------------------------
-    // Setup USART for RS485 / DMX
-    // https://ww1.microchip.com/downloads/aemDocuments/documents/OTH/ApplicationNotes/ApplicationNotes/00001659A.pdf
-    // -----------------------------------
+    // // -----------------------------------
+    // // Setup USART for RS485 / DMX
+    // // https://ww1.microchip.com/downloads/aemDocuments/documents/OTH/ApplicationNotes/ApplicationNotes/00001659A.pdf
+    // // -----------------------------------
 
-    //A data byte is a Start bit, eight data bits and two Stop bits with LSB sent first
-    let mut usart_config = UsartConfig::default();
+    // //A data byte is a Start bit, eight data bits and two Stop bits with LSB sent first
+    // let mut usart_config = UsartConfig::default();
     
-    usart_config.baudrate = 250000;
-    usart_config.data_bits = DataBits::DataBits9; // set to 9 data bits but we will ignore the start bit
-    usart_config.stop_bits = StopBits::STOP2; //StopBits::STOP2;
+    // usart_config.baudrate = 250000;
+    // usart_config.data_bits = DataBits::DataBits9; // set to 9 data bits but we will ignore the start bit
+    // usart_config.stop_bits = StopBits::STOP2; //StopBits::STOP2;
 
-    // CN10 pin 14 (D1) = p.PG14, CN10 pin 16 (D0) = p.PG9
-    let usart = Uart::new(p.USART6, p.PG9, p.PG14, Irqs, p.DMA2_CH7, p.DMA2_CH2, usart_config).unwrap();
+    // // CN10 pin 14 (D1) = p.PG14, CN10 pin 16 (D0) = p.PG9
+    // let usart = Uart::new(p.USART6, p.PG9, p.PG14, Irqs, p.DMA2_CH7, p.DMA2_CH2, usart_config).unwrap();
     
-    // Connect this pin to RX pin so we can detect DMX BREAK and MAB independent of the USART peripheral
-    // let dmx_break_pin = ExtiInput::new(p.PD7, p.EXTI7, Pull::None);
-    let dmx_break_pin = ExtiInput::new(p.PE8, p.EXTI8, Pull::None);
-    spawner
-        .spawn(dmx_task(usart, dmx_break_pin, CHANNEL_DMX.sender()))
-        .unwrap();
+    // // Connect this pin to RX pin so we can detect DMX BREAK and MAB independent of the USART peripheral
+    // // let dmx_break_pin = ExtiInput::new(p.PD7, p.EXTI7, Pull::None);
+    // let dmx_break_pin = ExtiInput::new(p.PE8, p.EXTI8, Pull::None);
+    // spawner
+    //     .spawn(dmx_task(usart, dmx_break_pin, CHANNEL_DMX.sender()))
+    //     .unwrap();
 
     // -----------------------------------
     // Config SPI for WS2812B

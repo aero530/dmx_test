@@ -22,6 +22,7 @@ pub async fn dmx_task(mut usart: Uart<'static, embassy_stm32::mode::Async>, mut 
     static DMX_BUFFER: StaticCell<[u8; 513]> = StaticCell::new();
     let dmx_buffer = DMX_BUFFER.init([0_u8; 513]);
 
+    
     loop {
         dmx_break_pin.wait_for_falling_edge().await;
         let break_fall = Instant::now();
@@ -39,7 +40,6 @@ pub async fn dmx_task(mut usart: Uart<'static, embassy_stm32::mode::Async>, mut 
         dmx_break_pin.wait_for_falling_edge().await;
         let mab_fall = Instant::now();
 
-
         let mab_time = (mab_fall - rise).as_micros();
         if (mab_time >= MAB_DELAY) & (mab_time < BREAK_TIMEOUT) {
             // info!("DMX MAB detected");
@@ -47,23 +47,43 @@ pub async fn dmx_task(mut usart: Uart<'static, embassy_stm32::mode::Async>, mut 
             info!("DMX MAB timeout {}", mab_time);
             continue
         }
-
-        if usart.read(dmx_buffer).await.is_ok() {
-            if dmx_buffer[0] == 0x00 {
-                // info!("DMX sending packet to router");
-                if tx.is_full() {
-                    tx.clear(); // clear any existing message on the channel
-                }
-                match tx.try_send(DmxEvent::DmxPacket(*dmx_buffer)) { // since we just cleared the buffer this should complete immediately
+        
+        match usart.read(dmx_buffer).await {
+            Ok(()) => {
+                if dmx_buffer[0] == 0x00 {
+                    // info!("DMX sending packet to router");
+                    if tx.is_full() {
+                        tx.clear(); // clear any existing message on the channel
+                    }
+                    match tx.try_send(DmxEvent::DmxPacket(*dmx_buffer)) { // since we just cleared the buffer this should complete immediately
                         Ok(()) => {},
                         Err(e) => error!("DMX channel error {}", e)
+                    }
+                } else {
+                    info!("DMX packet start byte was not 0x00");
                 }
-            } else {
-                info!("DMX packet start byte was not 0x00");
+            },
+            Err(e) => {
+                error!("DMX error reading data break: {}, mab: {}", break_time, mab_time);
+                error!("DMX error {}", e);
             }
-        } else {
-            info!("DMX error reading data break: {}, mab: {}", break_time, mab_time);
         }
+        // if usart.read(dmx_buffer).await.is_ok() {
+        //     if dmx_buffer[0] == 0x00 {
+        //         // info!("DMX sending packet to router");
+        //         if tx.is_full() {
+        //             tx.clear(); // clear any existing message on the channel
+        //         }
+        //         match tx.try_send(DmxEvent::DmxPacket(*dmx_buffer)) { // since we just cleared the buffer this should complete immediately
+        //             Ok(()) => {},
+        //             Err(e) => error!("DMX channel error {}", e)
+        //         }
+        //     } else {
+        //         info!("DMX packet start byte was not 0x00");
+        //     }
+        // } else {
+        //     error!("DMX error reading data break: {}, mab: {}", break_time, mab_time);
+        // }
     }
 }
 

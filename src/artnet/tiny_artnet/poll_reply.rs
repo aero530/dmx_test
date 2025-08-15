@@ -112,22 +112,22 @@ impl<'a> PollReply<'a> {
     /// Serializes the PollReply into the provided buffer.
     ///
     /// Note: short name, long name and report will be truncated to 18, 64, and 64 bytes respectively
-    pub fn ser(&self) -> [u8; 207] {
+    pub fn ser(&self) -> [u8; 239] {
 
-        let mut buf = [0_u8; 207];
+        let mut buf = [0_u8; 239];
         let mut loc: usize = 0;
 
         // buf.put_slice(super::ID);
         loc = put_slice::<8>(&mut buf, loc, super::ID);
         // buf[0..8].iter_mut().enumerate().for_each(|(i, v)| *v = super::ID[i]);
-        
+
         // buf.put_u16_le(OP_POLL_REPLY);
         loc = put_u16_le(&mut buf,loc,  OP_POLL_REPLY);
-        
+
         // buf.put_slice(self.ip_address);
         // buf[10..14].iter_mut().enumerate().for_each(|(i, v)| *v = self.ip_address[i]);
         loc = put_slice::<4>(&mut buf, loc, self.ip_address);
-        
+
         // buf.put_u16_le(self.port);
         loc = put_u16_le(&mut buf,loc, self.port);
         
@@ -145,7 +145,7 @@ impl<'a> PollReply<'a> {
         
         // buf.put_u8(self.ubea_version);
         loc = put_u8(&mut buf,loc, self.ubea_version);
-        
+
         // buf.put_u8(self.status1);
         loc = put_u8(&mut buf,loc, self.status1);
         
@@ -217,7 +217,6 @@ impl<'a> PollReply<'a> {
 
         // buf.put_slice(self.default_responder_uid);
         loc = put_slice::<6>(&mut buf, loc, self.default_responder_uid);
-        
 
         // Filler
         // buf.put_slice(&[0u8; 15]);
@@ -230,12 +229,12 @@ impl<'a> PollReply<'a> {
 
 }
 
-fn put_str<const N: usize>(buf: &mut [u8; 207], s: usize, value: &str) -> usize  {
+fn put_str<const N: usize>(buf: &mut [u8; 239], s: usize, value: &str) -> usize  {
     let str_len = value.len();
     let bytes = value.as_bytes();
     let l = N;
-    buf[s..l+1].iter_mut().enumerate().for_each(|(i, v)| 
-        if i < str_len+1 {
+    buf[s..s+l].iter_mut().enumerate().for_each(|(i, v)| 
+        if i < str_len {
             *v = bytes[i];
         } else {
             *v = 0x00;
@@ -244,26 +243,26 @@ fn put_str<const N: usize>(buf: &mut [u8; 207], s: usize, value: &str) -> usize 
     s+l
 }
 
-fn put_u16_be(buf: &mut [u8; 207], s: usize, value: u16) -> usize  {
+fn put_u16_be(buf: &mut [u8; 239], s: usize, value: u16) -> usize  {
    buf[s] = value.to_be_bytes()[0];
    buf[s+1] = value.to_be_bytes()[1];
    s+2
 }
 
-fn put_u16_le(buf: &mut [u8; 207], s: usize, value: u16) -> usize  {
+fn put_u16_le(buf: &mut [u8; 239], s: usize, value: u16) -> usize  {
    buf[s] = value.to_le_bytes()[0];
    buf[s+1] = value.to_le_bytes()[1];
    s+2
 }
 
-fn put_u8(buf: &mut [u8; 207], s: usize, value: u8) -> usize  {
+fn put_u8(buf: &mut [u8; 239], s: usize, value: u8) -> usize  {
     buf[s] = value;
     s+1
 }
 
-fn put_slice<const N: usize>(buf: &mut [u8; 207], s: usize, value: &[u8; N]) -> usize {
+fn put_slice<const N: usize>(buf: &mut [u8; 239], s: usize, value: &[u8; N]) -> usize {
     let l = value.len();
-    buf[s..l+1].iter_mut().enumerate().for_each(|(i, v)| 
+    buf[s..s+l].iter_mut().enumerate().for_each(|(i, v)| 
         *v = value[i]
     );
     s+l

@@ -47,6 +47,8 @@ pub async fn artnet_task(stack: Stack<'static>, runner: Runner<'static, Ethernet
     let mut tx_meta = [PacketMetadata::EMPTY; 16];
     // let mut buf = [0; 4096];
 
+    info!("Network buffers initialized");
+
     let mut socket = UdpSocket::new(stack,  &mut rx_meta, &mut rx_buffer, &mut tx_meta, &mut tx_buffer);
 
     let port = tiny_artnet::PORT;
@@ -54,12 +56,17 @@ pub async fn artnet_task(stack: Stack<'static>, runner: Runner<'static, Ethernet
     socket.bind(port).unwrap();
 
 
+    info!("Socked bound");
+
     let mut buf = [0; 65_507];
+
+    info!("Buffer created");
 
     loop {
         let (len, from_addr) = socket.recv_from(&mut buf).await.unwrap();
 
-        info!("{:?}", buf);
+        // info!("{:?}", buf);
+
         match tiny_artnet::from_slice(&buf[..len]) {
             Ok(Art::Dmx(dmx)) => {
                 info!(
@@ -72,8 +79,13 @@ pub async fn artnet_task(stack: Stack<'static>, runner: Runner<'static, Ethernet
                 
                 // package the dmx data into 513 bytes
                 let mut buf = [0_u8; 513];
-                dmx.data.iter().enumerate().for_each(|(i,v)| buf[i] = *v);
+                // dmx.data does not include the DMX start byte. The packet exepcted by 
+                dmx.data.iter().enumerate().for_each(|(i,v)| buf[i+1] = *v);
 
+                if !tx.is_empty() {
+                    info!("Clearing DMX channel");
+                    tx.clear(); // clear any existing message on the channel
+                }
                 match tx.try_send(DmxEvent::DmxPacket(buf)) {
                     Ok(_) => {},
                     Err(_) => error!("Unable to send DMX Event packet"),
@@ -86,7 +98,7 @@ pub async fn artnet_task(stack: Stack<'static>, runner: Runner<'static, Ethernet
                 // info!("RX: ArtPoll - Someone is looking for ArtNet nodes. Let's respond to them to make this node discoverable! {:?}", poll);
                 info!("RX: ArtPoll - Someone is looking for ArtNet nodes. Let's respond to them to make this node discoverable!");
                 
-                info!("poll: {:?} {:?} {:?}", poll.flags, poll.min_diagnostic_priority, poll.target_port_addresses);
+                // info!("poll: {:?} {:?} {:?}", poll.flags, poll.min_diagnostic_priority, poll.target_port_addresses);
 
                 let poll_reply = tiny_artnet::PollReply {
                     ip_address: &local_addr.octets(),
@@ -105,7 +117,6 @@ pub async fn artnet_task(stack: Stack<'static>, runner: Runner<'static, Ethernet
                     ..Default::default()
                 };
 
-                
                 let reply_message = poll_reply.ser();
                 // let msg_len = poll_reply.serialize(&mut buf);
 
@@ -122,10 +133,7 @@ pub async fn artnet_task(stack: Stack<'static>, runner: Runner<'static, Ethernet
                 // broadcast
                 //     .send_to(&buf[..msg_len], "255.255.255.255")
                 //     .unwrap();
-
-                info!("TX: Sent ArtPollReply to {:?}:{:?}", from_addr.endpoint.addr, from_addr.endpoint.port );
-                info!("{:?}", poll_reply);
-
+                info!("Sent ArtPollReply to {:?}:{:?} {:?}",from_addr.endpoint.addr, from_addr.endpoint.port, poll_reply);
                 // info!("TX: Sent ArtPollReply");
             }
             Ok(Art::Command(command)) => {

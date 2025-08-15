@@ -247,39 +247,39 @@ async fn main(spawner: Spawner) {
     // USB
     // -----------------------------------
 
-    // Setup needed for nucleo-stm32f303ze
-    let mut dp_pullup = Output::new(p.PG6, Level::Low, Speed::Medium);
-    Timer::after_millis(10).await;
-    dp_pullup.set_high();
+    // // Setup needed for nucleo-stm32f303ze
+    // let mut dp_pullup = Output::new(p.PG6, Level::Low, Speed::Medium);
+    // Timer::after_millis(10).await;
+    // dp_pullup.set_high();
 
-    // Create the driver, from the HAL.
-    // let mut ep_out_buffer = [0u8; 256];
-    let mut config = embassy_stm32::usb::Config::default();
+    // // Create the driver, from the HAL.
+    // // let mut ep_out_buffer = [0u8; 256];
+    // let mut config = embassy_stm32::usb::Config::default();
 
-    // Do not enable vbus_detection. This is a safe default that works in all boards.
-    // However, if your USB device is self-powered (can stay powered on if USB is unplugged), you need
-    // to enable vbus_detection to comply with the USB spec. If you enable it, the board
-    // has to support it or USB won't work at all. See docs on `vbus_detection` for details.
-    config.vbus_detection = false;
+    // // Do not enable vbus_detection. This is a safe default that works in all boards.
+    // // However, if your USB device is self-powered (can stay powered on if USB is unplugged), you need
+    // // to enable vbus_detection to comply with the USB spec. If you enable it, the board
+    // // has to support it or USB won't work at all. See docs on `vbus_detection` for details.
+    // config.vbus_detection = false;
 
-    // Create the driver, from the HAL.
-    let driver = {
-        static EP_OUT: StaticCell<[u8; 256]> = StaticCell::new();
-        let d = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, EP_OUT.init([0; 256]), config);
-        d
-    };
+    // // Create the driver, from the HAL.
+    // let driver = {
+    //     static EP_OUT: StaticCell<[u8; 256]> = StaticCell::new();
+    //     let d = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, EP_OUT.init([0; 256]), config);
+    //     d
+    // };
 
-    spawner
-        .spawn(usb_task(driver, CHANNEL_USB.receiver(), CHANNEL.sender()))
-        .unwrap();
+    // spawner
+    //     .spawn(usb_task(driver, CHANNEL_USB.receiver(), CHANNEL.sender()))
+    //     .unwrap();
 
-    spawner
-        .spawn(log_task(
-            CHANNEL.sender(),
-            CHANNEL_LOG.receiver().unwrap(),
-            CHANNEL_USB.sender(),
-        ))
-        .unwrap();
+    // spawner
+    //     .spawn(log_task(
+    //         CHANNEL.sender(),
+    //         CHANNEL_LOG.receiver().unwrap(),
+    //         CHANNEL_USB.sender(),
+    //     ))
+    //     .unwrap();
 
 
     // // -----------------------------------

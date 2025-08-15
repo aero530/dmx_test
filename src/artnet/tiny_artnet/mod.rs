@@ -1,5 +1,5 @@
 mod poll_reply;
-use defmt::Format;
+use defmt::{info, Format};
 pub use poll_reply::PollReply;
 
 use core::ops::RangeInclusive;
@@ -53,12 +53,15 @@ impl<'a> From<nom::Err<nom::error::Error<&'a [u8]>>> for Error {
 }
 
 pub fn from_slice<'a>(s: &'a [u8]) -> Result<Art<'a>, Error> {
+
     // ID
-    let (s, _) = tag(&ID[..])(s)?;
+    let (s,a) = tag(&ID[..])(s)?;
 
     let (s, op_code) = le_u16(s)?;
     let (s, protocol_version): (&'a [u8], u16) = be_u16(s)?;
 
+    info!("RX op code {}", op_code);
+    
     if protocol_version > 14 {
         return Err(Error::UnsupportedProtocolVersion(protocol_version));
     }

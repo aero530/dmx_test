@@ -5,14 +5,14 @@
 #[allow(unused_imports)]
 use defmt::{panic, *};
 use embassy_executor::Spawner;
-use embassy_stm32::exti::ExtiInput;
+// use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, OutputOpenDrain, OutputType, Pull, Speed};
 use embassy_stm32::time::{hz, Hertz};
 use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::i2c::{I2c, Config as I2cConfig};
 use embassy_stm32::usb::Driver;
-use embassy_stm32::usart::{Config as UsartConfig, DataBits, StopBits, Uart};
+// use embassy_stm32::usart::{Config as UsartConfig, DataBits, StopBits, Uart};
 use embassy_stm32::spi::{Config as SpiConfig, Mode as SpiMode, Spi, Phase, Polarity};
 use embassy_stm32::{bind_interrupts, i2c, peripherals, usb, usart, Config};
 use embassy_time::{Duration, Timer};
@@ -86,7 +86,7 @@ mod ui;
 use ui::ui_task;
 
 mod artnet;
-// use crate::artnet::artnet_task;
+use crate::artnet::artnet_task;
 
 type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async>>;
 
@@ -269,17 +269,17 @@ async fn main(spawner: Spawner) {
         d
     };
 
-    // spawner
-    //     .spawn(usb_task(driver, CHANNEL_USB.receiver(), CHANNEL.sender()))
-    //     .unwrap();
+    spawner
+        .spawn(usb_task(driver, CHANNEL_USB.receiver(), CHANNEL.sender()))
+        .unwrap();
 
-    // spawner
-    //     .spawn(log_task(
-    //         CHANNEL.sender(),
-    //         CHANNEL_LOG.receiver().unwrap(),
-    //         CHANNEL_USB.sender(),
-    //     ))
-    //     .unwrap();
+    spawner
+        .spawn(log_task(
+            CHANNEL.sender(),
+            CHANNEL_LOG.receiver().unwrap(),
+            CHANNEL_USB.sender(),
+        ))
+        .unwrap();
 
 
     // // -----------------------------------
@@ -359,9 +359,9 @@ async fn main(spawner: Spawner) {
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(ethernet_device, config, RESOURCES.init(StackResources::new()), seed);
 
-    // spawner
-    //     .spawn(artnet_task(stack, runner, spawner.clone(), CHANNEL_ARTNET.receiver()))
-    //     .unwrap();
+    spawner
+        .spawn(artnet_task(stack, runner, spawner.clone(), CHANNEL_DMX.sender()))
+        .unwrap();
 
 
     // -----------------------------------

@@ -141,7 +141,7 @@ impl<DV, DI> Ui<DV, DI> where DI: AsyncWriteOnlyDataCommand, DV: display::Displa
 // pub async fn ui_task(mut i2c: I2c<'static, embassy_stm32::mode::Async>, rx: UiChannelRx) {
 pub async fn ui_task(i2c_bus_manager: &'static I2c1Bus, rx: UiChannelRx) {
 
-    type I2cDisplay = I2cDevice<'static, embassy_sync::blocking_mutex::raw::NoopRawMutex, I2c<'static, embassy_stm32::mode::Async>>;
+    type I2cDisplay = I2cDevice<'static, embassy_sync::blocking_mutex::raw::NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, embassy_stm32::i2c::mode::Master>>;
     type I2cInterface = display_interface_i2c::I2CInterface<I2cDisplay>;
 
     let i2c_bus_dev = I2cDevice::new(i2c_bus_manager);

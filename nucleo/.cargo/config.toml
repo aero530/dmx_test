@@ -1,9 +1,10 @@
-[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+# [target.'cfg(all(target_arch = "arm", target_os = "none"))']
+[target.thumbv8m.main-none-eabihf]
 runner = [
   "probe-rs",
   "run",
   "--chip",
-  "STM32F746ZG",
+  "STM32H563ZI", #STM32H563ZITx
   "--log-format",
   "{t:blue} {L} {s} {f:magenta}:{l:magenta}",
 ]
@@ -12,7 +13,8 @@ runner = [
 
 [build]
 # target = "thumbv7em-none-eabi"
-target = "thumbv7em-none-eabihf"
+# target = "thumbv7em-none-eabihf"
+target = "thumbv8m.main-none-eabihf"
 
 # trace, debug, info, warn, error
 [env]

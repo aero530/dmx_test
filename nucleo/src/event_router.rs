@@ -1,9 +1,10 @@
 //! Event router to send commands between tasks
-use crate::buttons::{KeyPadButton, KeyPadEvent};
+use crate::button_array::{KeyPadButton, KeyPadEvent};
+use crate::button::ButtonEvent;
 use crate::ui::UiEvent;
 use crate::{channels::*};
 // use crate::led::LedEvent;
-use crate::pwm::PwmEvent;
+use crate::pwm_i2c::PwmEvent;
 use crate::smart_led::SmartLedEvent;
 use defmt::*;
 use embassy_time::{with_timeout, Duration};
@@ -28,7 +29,8 @@ impl Default for GlobalData {
 #[derive(Format)]
 pub enum RouterEvent {
     UsbCommand(u8),
-    Button((KeyPadButton, KeyPadEvent)),
+    ButtonArray((KeyPadButton, KeyPadEvent)),
+    Button(ButtonEvent),
 }
 
 #[derive(Format)]
@@ -45,7 +47,7 @@ pub struct Router {
     // pub channel_led: LedChannelTx,
 
     /// Channel to send LED events
-    pub channel_pwm: PwmChannelTx,
+    // pub channel_pwm: PwmChannelTx,
     pub channel_pwm_i2c: PwmChannelTx,
     
     /// Channel to send Smart Led events
@@ -55,7 +57,7 @@ pub struct Router {
     pub channel_ui: UiChannelTx,
 
     /// Channel to send global data events
-    // pub channel_log: GlobalDataChannelTx,
+    pub channel_log: GlobalDataChannelTx,
 
     // Global data store
     pub data: GlobalData,
@@ -67,21 +69,21 @@ impl Router {
         channel: RouterChannelRx,
         channel_dmx: DmxChannelRx,
         // channel_led: LedChannelTx,
-        channel_pwm: PwmChannelTx,
+        // channel_pwm: PwmChannelTx,
         channel_pwm_i2c: PwmChannelTx,
         channel_smart_led: SmartLedChannelTx,
         channel_ui: UiChannelTx,
-        // channel_log: GlobalDataChannelTx,
+        channel_log: GlobalDataChannelTx,
     ) -> Self {
         Self {
             channel,
             channel_dmx,
             // channel_led,
-            channel_pwm,
+            // channel_pwm,
             channel_pwm_i2c,
             channel_smart_led,
             channel_ui,
-            // channel_log,
+            channel_log,
             data: GlobalData::default(),
         }
     }
@@ -102,9 +104,11 @@ impl Router {
                     info!("USB command {}", input);
                 }
             },
-
-            RouterEvent::Button((btn, evt)) => {
-                info!("Button event {} {}", btn, evt);
+            RouterEvent::Button(evt) => {
+                info!("Button event {}", evt);
+            }
+            RouterEvent::ButtonArray((btn, evt)) => {
+                info!("Button array event {} {}", btn, evt);
                 match btn {
                     KeyPadButton::A => {},
                     KeyPadButton::B => {},
@@ -141,7 +145,7 @@ impl Router {
                 
                 // self.data.dmx = input;
 
-                let _ = self.channel_pwm.try_send(PwmEvent::Value([input[1], input[2], input[3]]));
+                // let _ = self.channel_pwm.try_send(PwmEvent::Value([input[1], input[2], input[3]]));
                 let _ = self.channel_pwm_i2c.try_send(PwmEvent::Value([input[1], input[2], input[3]]));
                 let _ = self.channel_smart_led.try_send(
                     SmartLedEvent::Value([input[1], input[2], input[3], input[4]])

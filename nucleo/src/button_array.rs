@@ -91,7 +91,7 @@ impl KeyPadButton {
 }
 
 #[embassy_executor::task]
-pub async fn button_task(
+pub async fn button_array_task(
     cols: [Input<'static>; 4],
     mut rows: [OutputOpenDrain<'static>; 4],
     tx: RouterChannelTx
@@ -141,7 +141,7 @@ pub async fn button_task(
         // send pressed buttons to router
         for (l, e) in events.iter().enumerate() {
             if *e == KeyPadEvent::Released {
-                match tx.try_send(RouterEvent::Button((KeyPadButton::at(l), KeyPadEvent::Released))) {
+                match tx.try_send(RouterEvent::ButtonArray((KeyPadButton::at(l), KeyPadEvent::Released))) {
                     Ok(_) => {},
                     Err(e) => error!("Message dropped. Channel full. {}",e)
                 };

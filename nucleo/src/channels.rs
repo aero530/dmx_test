@@ -5,7 +5,7 @@ use embassy_sync::watch::{Receiver as WatchReceiver, Sender as WatchSender, Watc
 
 use crate::event_router::{GlobalData, RouterEvent, DmxEvent};
 // use crate::led::LedEvent;
-use crate::pwm::PwmEvent;
+use crate::pwm_i2c::PwmEvent;
 use crate::smart_led::SmartLedEvent;
 // use crate::artnet::ArtNetEvent;
 use crate::ui::UiEvent;

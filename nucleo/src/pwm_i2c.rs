@@ -1,11 +1,19 @@
 //! LED & Button interaction
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_time::{with_timeout, Duration};
+use defmt::Format;
 use pwm_pca9685::{Channel, Pca9685};
 
 use crate::channels::PwmChannelRx;
-use crate::pwm::PwmEvent;
 use crate::I2c1Bus;
+
+
+#[derive(Format)]
+pub enum PwmEvent {
+    // On,
+    // Off,
+    Value([u8;3]),
+}
 
 pub struct PwmI2c<I2C: embedded_hal_async::i2c::I2c> {
     pwm: Pca9685<I2C>,

@@ -84,12 +84,12 @@ pub async fn process_data<'d, T: Instance + 'd>(
 }
 
 #[embassy_executor::task(pool_size = 1)]
-pub async fn usb_task(driver: Driver<'static, peripherals::USB_OTG_FS>, rx: UsbChannelRx, router_tx: RouterChannelTx) {
+pub async fn usb_task(driver: Driver<'static, peripherals::USB>, rx: UsbChannelRx, router_tx: RouterChannelTx) {
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
-    config.manufacturer = Some("us");
-    config.product = Some("DMX POC");
+    config.manufacturer = Some("Zatetic");
+    config.product = Some("USB DMX Device");
     config.serial_number = Some("12345678");
 
     // Create embassy-usb DeviceBuilder using the driver and config.

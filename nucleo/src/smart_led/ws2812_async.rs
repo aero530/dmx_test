@@ -1,4 +1,3 @@
-
 use core::marker::PhantomData;
 
 use embedded_hal_async::spi::{ErrorType, SpiBus};
@@ -34,7 +33,7 @@ impl OrderedColors for Grb {
 /// N = 12 * NUM_LEDS
 pub struct Ws2812<SPI: SpiBus<u8>, C: OrderedColors> {
     spi: SPI,
-    data: [u8; NUM_LEDS_MAX*BYTES_PER_LED],
+    data: [u8; NUM_LEDS_MAX * BYTES_PER_LED],
     _color_order: PhantomData<C>,
 }
 
@@ -44,7 +43,7 @@ impl<SPI: SpiBus<u8>, C: OrderedColors> Ws2812<SPI, C> {
     pub fn new(spi: SPI) -> Self {
         Self {
             spi,
-            data: [0; NUM_LEDS_MAX*BYTES_PER_LED],
+            data: [0; NUM_LEDS_MAX * BYTES_PER_LED],
             _color_order: PhantomData,
         }
     }

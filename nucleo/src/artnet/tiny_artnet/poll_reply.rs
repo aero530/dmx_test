@@ -113,7 +113,6 @@ impl<'a> PollReply<'a> {
     ///
     /// Note: short name, long name and report will be truncated to 18, 64, and 64 bytes respectively
     pub fn ser(&self) -> [u8; 239] {
-
         let mut buf = [0_u8; 239];
         let mut loc: usize = 0;
 
@@ -122,48 +121,48 @@ impl<'a> PollReply<'a> {
         // buf[0..8].iter_mut().enumerate().for_each(|(i, v)| *v = super::ID[i]);
 
         // buf.put_u16_le(OP_POLL_REPLY);
-        loc = put_u16_le(&mut buf,loc,  OP_POLL_REPLY);
+        loc = put_u16_le(&mut buf, loc, OP_POLL_REPLY);
 
         // buf.put_slice(self.ip_address);
         // buf[10..14].iter_mut().enumerate().for_each(|(i, v)| *v = self.ip_address[i]);
         loc = put_slice::<4>(&mut buf, loc, self.ip_address);
 
         // buf.put_u16_le(self.port);
-        loc = put_u16_le(&mut buf,loc, self.port);
-        
+        loc = put_u16_le(&mut buf, loc, self.port);
+
         // buf.put_u16(self.firmware_version);
-        loc = put_u16_be(&mut buf,loc, self.firmware_version);
-        
+        loc = put_u16_be(&mut buf, loc, self.firmware_version);
+
         // buf.put_u8(self.net_switch);
-        loc = put_u8(&mut buf,loc, self.net_switch);
-        
+        loc = put_u8(&mut buf, loc, self.net_switch);
+
         // buf.put_u8(self.sub_switch);
-        loc = put_u8(&mut buf,loc, self.sub_switch);
-        
+        loc = put_u8(&mut buf, loc, self.sub_switch);
+
         // buf.put_u16(self.oem);
-        loc = put_u16_be(&mut buf,loc, self.oem);
-        
+        loc = put_u16_be(&mut buf, loc, self.oem);
+
         // buf.put_u8(self.ubea_version);
-        loc = put_u8(&mut buf,loc, self.ubea_version);
+        loc = put_u8(&mut buf, loc, self.ubea_version);
 
         // buf.put_u8(self.status1);
-        loc = put_u8(&mut buf,loc, self.status1);
-        
+        loc = put_u8(&mut buf, loc, self.status1);
+
         // put_esta_manufacturer_code(&mut buf, &self.esta_manufacturer_code);
-        loc = put_u8(&mut buf,loc, self.esta_manufacturer_code.0 as u8);
-        loc = put_u8(&mut buf,loc, self.esta_manufacturer_code.1 as u8);
+        loc = put_u8(&mut buf, loc, self.esta_manufacturer_code.0 as u8);
+        loc = put_u8(&mut buf, loc, self.esta_manufacturer_code.1 as u8);
 
         // super::put_padded_str::<18, _>(&mut buf, &self.short_name);
-        loc = put_str::<18>(&mut buf,loc, self.short_name);
+        loc = put_str::<18>(&mut buf, loc, self.short_name);
 
         // super::put_padded_str::<64, _>(&mut buf, &self.long_name);
-        loc = put_str::<64>(&mut buf,loc, self.long_name);
+        loc = put_str::<64>(&mut buf, loc, self.long_name);
 
         // super::put_padded_str::<64, _>(&mut buf, &self.node_report);
-        loc = put_str::<64>(&mut buf,loc, self.node_report);
+        loc = put_str::<64>(&mut buf, loc, self.node_report);
 
         // buf.put_u16(self.num_ports);
-        loc = put_u16_be(&mut buf,loc, self.num_ports);
+        loc = put_u16_be(&mut buf, loc, self.num_ports);
 
         // buf.put_slice(self.port_types);
         loc = put_slice::<4>(&mut buf, loc, self.port_types);
@@ -181,39 +180,38 @@ impl<'a> PollReply<'a> {
         loc = put_slice::<4>(&mut buf, loc, self.swout);
 
         // buf.put_u8(self.acn_priority);
-        loc = put_u8(&mut buf,loc, self.acn_priority);
+        loc = put_u8(&mut buf, loc, self.acn_priority);
 
         // buf.put_u8(self.sw_macro);
-        loc = put_u8(&mut buf,loc, self.sw_macro);
+        loc = put_u8(&mut buf, loc, self.sw_macro);
 
         // buf.put_u8(self.sw_remote);
-        loc = put_u8(&mut buf,loc, self.sw_remote);
-
+        loc = put_u8(&mut buf, loc, self.sw_remote);
 
         // Spare
         // buf.put_slice(&[0u8; 3]);
         loc = put_slice::<3>(&mut buf, loc, &[0u8; 3]);
 
         // buf.put_u8(self.style);
-        loc = put_u8(&mut buf,loc, self.style);
+        loc = put_u8(&mut buf, loc, self.style);
 
         // buf.put_slice(self.mac_address);
         loc = put_slice::<6>(&mut buf, loc, self.mac_address);
-        
+
         // buf.put_slice(self.bind_ip_address);
         loc = put_slice::<4>(&mut buf, loc, self.bind_ip_address);
-        
+
         // buf.put_u8(self.bind_index);
-        loc = put_u8(&mut buf,loc, self.bind_index);
+        loc = put_u8(&mut buf, loc, self.bind_index);
 
         // buf.put_u8(self.status2);
-        loc = put_u8(&mut buf,loc, self.status2);
+        loc = put_u8(&mut buf, loc, self.status2);
 
         // buf.put_slice(self.good_output_b);
         loc = put_slice::<4>(&mut buf, loc, self.good_output_b);
-        
+
         // buf.put_u8(self.status3);
-        loc = put_u8(&mut buf,loc, self.status3);
+        loc = put_u8(&mut buf, loc, self.status3);
 
         // buf.put_slice(self.default_responder_uid);
         loc = put_slice::<6>(&mut buf, loc, self.default_responder_uid);
@@ -226,44 +224,44 @@ impl<'a> PollReply<'a> {
         buf
         // return initial_buf_len - buf.len();
     }
-
 }
 
-fn put_str<const N: usize>(buf: &mut [u8; 239], s: usize, value: &str) -> usize  {
+fn put_str<const N: usize>(buf: &mut [u8; 239], s: usize, value: &str) -> usize {
     let str_len = value.len();
     let bytes = value.as_bytes();
     let l = N;
-    buf[s..s+l].iter_mut().enumerate().for_each(|(i, v)| 
+    buf[s..s + l].iter_mut().enumerate().for_each(|(i, v)| {
         if i < str_len {
             *v = bytes[i];
         } else {
             *v = 0x00;
         }
-    );
-    s+l
+    });
+    s + l
 }
 
-fn put_u16_be(buf: &mut [u8; 239], s: usize, value: u16) -> usize  {
-   buf[s] = value.to_be_bytes()[0];
-   buf[s+1] = value.to_be_bytes()[1];
-   s+2
+fn put_u16_be(buf: &mut [u8; 239], s: usize, value: u16) -> usize {
+    buf[s] = value.to_be_bytes()[0];
+    buf[s + 1] = value.to_be_bytes()[1];
+    s + 2
 }
 
-fn put_u16_le(buf: &mut [u8; 239], s: usize, value: u16) -> usize  {
-   buf[s] = value.to_le_bytes()[0];
-   buf[s+1] = value.to_le_bytes()[1];
-   s+2
+fn put_u16_le(buf: &mut [u8; 239], s: usize, value: u16) -> usize {
+    buf[s] = value.to_le_bytes()[0];
+    buf[s + 1] = value.to_le_bytes()[1];
+    s + 2
 }
 
-fn put_u8(buf: &mut [u8; 239], s: usize, value: u8) -> usize  {
+fn put_u8(buf: &mut [u8; 239], s: usize, value: u8) -> usize {
     buf[s] = value;
-    s+1
+    s + 1
 }
 
 fn put_slice<const N: usize>(buf: &mut [u8; 239], s: usize, value: &[u8; N]) -> usize {
     let l = value.len();
-    buf[s..s+l].iter_mut().enumerate().for_each(|(i, v)| 
-        *v = value[i]
-    );
-    s+l
+    buf[s..s + l]
+        .iter_mut()
+        .enumerate()
+        .for_each(|(i, v)| *v = value[i]);
+    s + l
 }

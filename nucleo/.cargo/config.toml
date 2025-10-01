@@ -4,7 +4,7 @@ runner = [
   "probe-rs",
   "run",
   "--chip",
-  "STM32H563ZI", #STM32H563ZITx
+  "STM32H563ZITx",
   "--log-format",
   "{t:blue} {L} {s} {f:magenta}:{l:magenta}",
 ]
@@ -18,4 +18,4 @@ target = "thumbv8m.main-none-eabihf"
 
 # trace, debug, info, warn, error
 [env]
-DEFMT_LOG = "info"
+DEFMT_LOG = "debug"

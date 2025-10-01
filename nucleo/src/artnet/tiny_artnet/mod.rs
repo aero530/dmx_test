@@ -8,8 +8,7 @@ use nom::{
     bytes::complete::tag,
     number::complete as number,
     number::complete::{be_u16, le_u16},
-    IResult,
-    Parser,
+    IResult, Parser,
 };
 
 const ID: &'static [u8; 8] = b"Art-Net\0";
@@ -39,12 +38,9 @@ pub enum Error {
 impl<'a> From<nom::Err<nom::error::Error<&'a [u8]>>> for Error {
     fn from(err: nom::Err<nom::error::Error<&'a [u8]>>) -> Self {
         match err {
-            nom::Err::Incomplete(needed) => {
-                match needed {
-                    nom::Needed::Unknown => Error::ParseIncomplete(None),
-                    nom::Needed::Size(non_zero) => Error::ParseIncomplete(Some(usize::from(non_zero))),
-                }
-                
+            nom::Err::Incomplete(needed) => match needed {
+                nom::Needed::Unknown => Error::ParseIncomplete(None),
+                nom::Needed::Size(non_zero) => Error::ParseIncomplete(Some(usize::from(non_zero))),
             },
             nom::Err::Error(e) => Error::ParseError(e.code as usize),
             nom::Err::Failure(_f) => Error::ParseFailure,
@@ -53,15 +49,14 @@ impl<'a> From<nom::Err<nom::error::Error<&'a [u8]>>> for Error {
 }
 
 pub fn from_slice<'a>(s: &'a [u8]) -> Result<Art<'a>, Error> {
-
     // ID
-    let (s,a) = tag(&ID[..])(s)?;
+    let (s, a) = tag(&ID[..])(s)?;
 
     let (s, op_code) = le_u16(s)?;
     let (s, protocol_version): (&'a [u8], u16) = be_u16(s)?;
 
     info!("RX op code {}", op_code);
-    
+
     if protocol_version > 14 {
         return Err(Error::UnsupportedProtocolVersion(protocol_version));
     }
@@ -110,17 +105,15 @@ pub struct PortAddress {
 fn parse_port_address<'a>(s: &'a [u8]) -> IResult<&'a [u8], PortAddress> {
     use nom::bits::complete as bits;
 
-    let (s, (sub_net, universe, _, net)): (&[u8], (u8, u8, u8, u8)) = 
-    nom::bits::bits(
-    (
-            // Low Byte (SubUni)
-            bits::take::<&[u8], u8, usize, nom::error::Error<(&[u8], usize)>>(4usize),
-            bits::take(4usize),
-            // High Byte (Net)
-            bits::take(1usize),
-            bits::take(7usize),
-        )
-    ).parse(s)?;
+    let (s, (sub_net, universe, _, net)): (&[u8], (u8, u8, u8, u8)) = nom::bits::bits((
+        // Low Byte (SubUni)
+        bits::take::<&[u8], u8, usize, nom::error::Error<(&[u8], usize)>>(4usize),
+        bits::take(4usize),
+        // High Byte (Net)
+        bits::take(1usize),
+        bits::take(7usize),
+    ))
+    .parse(s)?;
 
     let port_address = PortAddress {
         net,

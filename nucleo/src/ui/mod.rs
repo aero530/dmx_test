@@ -12,9 +12,9 @@ use crate::I2c1Bus;
 
 // https://github.com/cschuhen/oled_drivers/blob/master/examples/i2c.rs
 
-use oled_async::{prelude::*, Builder as OledBuilder};
-use oled_async::displayrotation::DisplayRotation;
 use oled_async::display;
+use oled_async::displayrotation::DisplayRotation;
+use oled_async::{prelude::*, Builder as OledBuilder};
 
 use embedded_graphics::{
     mono_font::{ascii::FONT_6X10, iso_8859_4::FONT_10X20, MonoTextStyleBuilder},
@@ -45,28 +45,34 @@ pub enum UiEvent {
     PreviousTab,
 }
 
-pub struct Ui<DV, DI> where DI: AsyncWriteOnlyDataCommand, DV: display::DisplayVariant{
+pub struct Ui<DV, DI>
+where
+    DI: AsyncWriteOnlyDataCommand,
+    DV: display::DisplayVariant,
+{
     disp: GraphicsMode<DV, DI>,
     rx: UiChannelRx,
     app: App,
 }
 
-impl<DV, DI> Ui<DV, DI> where DI: AsyncWriteOnlyDataCommand, DV: display::DisplayVariant {
+impl<DV, DI> Ui<DV, DI>
+where
+    DI: AsyncWriteOnlyDataCommand,
+    DV: display::DisplayVariant,
+{
     pub fn new(disp: GraphicsMode<DV, DI>, rx: UiChannelRx) -> Self {
-        Self { 
-            disp, 
-            rx, 
+        Self {
+            disp,
+            rx,
             app: App::default(),
         }
     }
 
     pub async fn run(&mut self) {
-
         let mut menu0 = Menu::build("Tab 0")
             .add_item("Check this 2", false, |b| 30 + b as i32)
             .add_item("Check this 3", TestEnum::A, |b| 40 + b as i32)
             .build();
-        
 
         let mut menu1 = Menu::build("Tab 1")
             .add_item("Foo", ">", |_| 1)
@@ -85,32 +91,33 @@ impl<DV, DI> Ui<DV, DI> where DI: AsyncWriteOnlyDataCommand, DV: display::Displa
             .build();
 
         loop {
-
             self.disp.clear();
 
             match self.app.current_tab() {
                 SelectedTab::Tab0 => {
                     menu0.update(&self.disp);
                     let _ = menu0.draw(&mut self.disp);
-                },
+                }
                 SelectedTab::Tab1 => {
                     menu1.update(&self.disp);
                     let _ = menu1.draw(&mut self.disp).unwrap();
-                },
+                }
                 SelectedTab::Tab2 => {
                     menu2.update(&self.disp);
                     let _ = menu2.draw(&mut self.disp).unwrap();
-                },
+                }
                 SelectedTab::Tab3 => {
                     menu3.update(&self.disp);
                     let _ = menu3.draw(&mut self.disp).unwrap();
-                },
+                }
             }
 
             let _ = self.disp.flush().await; // unwrap
-            // self.app.render();
+                                             // self.app.render();
 
-            if let Ok(new_message) = with_timeout(Duration::from_millis(250), self.rx.receive()).await {
+            if let Ok(new_message) =
+                with_timeout(Duration::from_millis(250), self.rx.receive()).await
+            {
                 self.process_event(new_message).await;
             }
         }
@@ -132,23 +139,23 @@ impl<DV, DI> Ui<DV, DI> where DI: AsyncWriteOnlyDataCommand, DV: display::Displa
             }
         }
     }
-    
 }
-
-
 
 #[embassy_executor::task]
 // pub async fn ui_task(mut i2c: I2c<'static, embassy_stm32::mode::Async>, rx: UiChannelRx) {
 pub async fn ui_task(i2c_bus_manager: &'static I2c1Bus, rx: UiChannelRx) {
-
-    type I2cDisplay = I2cDevice<'static, embassy_sync::blocking_mutex::raw::NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, embassy_stm32::i2c::mode::Master>>;
+    type I2cDisplay = I2cDevice<
+        'static,
+        embassy_sync::blocking_mutex::raw::NoopRawMutex,
+        I2c<'static, embassy_stm32::mode::Async, embassy_stm32::i2c::mode::Master>,
+    >;
     type I2cInterface = display_interface_i2c::I2CInterface<I2cDisplay>;
 
     let i2c_bus_dev = I2cDevice::new(i2c_bus_manager);
     let di: I2cInterface = display_interface_i2c::I2CInterface::new(
-        i2c_bus_dev,  // I2C
-        0x3C, // I2C Address 3C or 61
-        0x40, // Data byte
+        i2c_bus_dev, // I2C
+        0x3C,        // I2C Address 3C or 61
+        0x40,        // Data byte
     );
     let raw_disp = OledBuilder::new(oled_async::displays::sh1106::Sh1106_128_64 {})
         .with_rotation(DisplayRotation::Rotate0)
@@ -160,18 +167,18 @@ pub async fn ui_task(i2c_bus_manager: &'static I2c1Bus, rx: UiChannelRx) {
     let a = disp.display_on(true).await;
     match a {
         Ok(()) => info!("Display on"),
-        Err(e) => error!("{}",e)
+        Err(e) => error!("{}", e),
     }
 
-// Timer::after_millis(50).await;
-//     let a = disp.set_rotation(DisplayRotation::Rotate0).await;
-//     match a {
-//         Ok(()) => info!("Display rotated"),
-//         Err(e) => error!("{}",e)
-//     }
-// Timer::after_millis(50).await;
+    // Timer::after_millis(50).await;
+    //     let a = disp.set_rotation(DisplayRotation::Rotate0).await;
+    //     match a {
+    //         Ok(()) => info!("Display rotated"),
+    //         Err(e) => error!("{}",e)
+    //     }
+    // Timer::after_millis(50).await;
 
-// let _ = disp.init().await; // unwrap
+    // let _ = disp.init().await; // unwrap
     // let _ = disp.flush().await; // unwrap
     // disp.clear();
     // let _ = disp.flush().await; // unwrap
@@ -195,5 +202,3 @@ pub async fn ui_task(i2c_bus_manager: &'static I2c1Bus, rx: UiChannelRx) {
     let mut ui = Ui::new(disp, rx);
     ui.run().await
 }
-
-

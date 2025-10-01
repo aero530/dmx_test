@@ -1,8 +1,8 @@
 //! USB <-> Serial / CDC Interface
 use defmt::{panic, *};
 use embassy_futures::join::join;
-use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::peripherals;
+use embassy_stm32::usb::{Driver, Instance};
 use embassy_time::{with_timeout, Duration};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
@@ -84,8 +84,11 @@ pub async fn process_data<'d, T: Instance + 'd>(
 }
 
 #[embassy_executor::task(pool_size = 1)]
-pub async fn usb_task(driver: Driver<'static, peripherals::USB>, rx: UsbChannelRx, router_tx: RouterChannelTx) {
-
+pub async fn usb_task(
+    driver: Driver<'static, peripherals::USB>,
+    rx: UsbChannelRx,
+    router_tx: RouterChannelTx,
+) {
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
     config.manufacturer = Some("Zatetic");
@@ -109,7 +112,6 @@ pub async fn usb_task(driver: Driver<'static, peripherals::USB>, rx: UsbChannelR
         );
         builder
     };
-
 
     // Create classes on the builder.
     let mut class = {

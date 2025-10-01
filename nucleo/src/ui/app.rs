@@ -36,7 +36,6 @@ impl SelectedTab {
     }
 }
 
-
 #[derive(Default)]
 pub struct App {
     selected_tab: SelectedTab,
@@ -50,7 +49,6 @@ impl App {
     pub fn goto_previous_tab(&mut self) {
         self.selected_tab = self.selected_tab.previous();
     }
-
 
     pub fn current_tab(&mut self) -> SelectedTab {
         self.selected_tab

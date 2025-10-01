@@ -3,9 +3,7 @@
 use crate::ansi::{cyan, magenta, yellow, Color, Colorable, WithForeground};
 use crate::channels::{GlobalDataChannelRx, RouterChannelTx, UsbChannelTx};
 
-
 use embassy_time::{Instant, Timer};
-
 
 #[embassy_executor::task(pool_size = 1)]
 pub async fn log_task(
@@ -49,7 +47,6 @@ pub async fn log_task(
         Timer::after_millis(100).await;
     }
 }
-
 
 /// Formatted display for a bool as colored "high" and "low"
 fn high_low_color(input: bool) -> WithForeground<&'static str, Color> {

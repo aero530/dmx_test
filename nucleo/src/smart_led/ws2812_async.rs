@@ -1,5 +1,6 @@
 use core::marker::PhantomData;
 
+use defmt::debug;
 use embedded_hal_async::spi::{ErrorType, SpiBus};
 use smart_leds_trait::{SmartLedsWriteAsync, RGB8};
 
@@ -30,10 +31,15 @@ impl OrderedColors for Grb {
     }
 }
 
-/// N = 12 * NUM_LEDS
+/// N = 12 * NUM_LEDS + 1
+/// 1 byte added to pad the front of the data package with 0.
+/// Some microcontrollers pull MOSI high too early at the beginning of a
+/// data transmission if the first bit is high.  This causes color errors 
+/// in the LEDs. Including a 0 byte at the beginning of the data prevents
+/// this errant high signal from impacting the LED data.
 pub struct Ws2812<SPI: SpiBus<u8>, C: OrderedColors> {
     spi: SPI,
-    data: [u8; NUM_LEDS_MAX * BYTES_PER_LED],
+    data: [u8; NUM_LEDS_MAX * BYTES_PER_LED + 1],
     _color_order: PhantomData<C>,
 }
 
@@ -43,7 +49,7 @@ impl<SPI: SpiBus<u8>, C: OrderedColors> Ws2812<SPI, C> {
     pub fn new(spi: SPI) -> Self {
         Self {
             spi,
-            data: [0; NUM_LEDS_MAX * BYTES_PER_LED],
+            data: [0; NUM_LEDS_MAX * BYTES_PER_LED + 1],
             _color_order: PhantomData,
         }
     }
@@ -61,7 +67,10 @@ where
         T: IntoIterator<Item = I>,
         I: Into<Self::Color>,
     {
-        for (led_bytes, rgb8) in self.data.chunks_mut(BYTES_PER_LED).zip(iter) {
+        // STM32H563 pulls MOSI high prior to sending SPI data which messes up the first LED.
+        // Here we force an additional 0 byte to hold MOSI low at the start of the data being sent.
+        // skip processing the first byte of self.data to ensure it remains 0x00
+        for (led_bytes, rgb8) in self.data[1..(NUM_LEDS_MAX * BYTES_PER_LED+1)].chunks_mut(BYTES_PER_LED).zip(iter) {
             let colors = C::order(rgb8.into());
             for (i, mut color) in colors.into_iter().enumerate() {
                 for ii in 0..4 {
@@ -70,6 +79,15 @@ where
                 }
             }
         }
+
+        // // STM32H563 pulls MOSI high prior to sending SPI data which messes up the first LED.
+        // // Here we force an additional 0 byte to hold MOSI low at the start of the data being sent.
+        // let mut d: [u8; NUM_LEDS_MAX * BYTES_PER_LED+1] = [0; NUM_LEDS_MAX * BYTES_PER_LED+1];
+        // for (i,x) in self.data.iter().enumerate() {
+        //     d[i+1]=*x;
+        // }
+        
+        // self.spi.write(&d).await?;
         self.spi.write(&self.data).await?;
         let blank = [0_u8; 140];
         self.spi.write(&blank).await

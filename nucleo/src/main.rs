@@ -375,15 +375,15 @@ async fn main(spawner: Spawner) {
     };
 
     let spi_1 = Spi::new_txonly(p.SPI1, p.PA5, p.PD7, p.GPDMA2_CH0, spi_config);
-    // let spi_2 = Spi::new_txonly(p.SPI2, p.PB10, p.PC3, p.GPDMA2_CH1, spi_config);
-    // let spi_3 = Spi::new_txonly(p.SPI3, p.PC10, p.PB2, p.GPDMA2_CH2, spi_config);
-    // let spi_4 = Spi::new_txonly(p.SPI4, p.PE12, p.PE14, p.GPDMA2_CH3, spi_config);
+    let spi_2 = Spi::new_txonly(p.SPI2, p.PB10, p.PC3, p.GPDMA2_CH1, spi_config);
+    let spi_3 = Spi::new_txonly(p.SPI3, p.PC10, p.PB2, p.GPDMA2_CH2, spi_config);
+    let spi_4 = Spi::new_txonly(p.SPI4, p.PE12, p.PE14, p.GPDMA2_CH3, spi_config);
     spawner
         .spawn(smart_led_task(
             spi_1,
-            // spi_2,
-            // spi_3,
-            // spi_4,
+            spi_2,
+            spi_3,
+            spi_4,
             CHANNEL_SMART_LED.receiver(),
         ))
         .unwrap();

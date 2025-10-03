@@ -129,13 +129,7 @@ pub async fn smart_led_task(
     spi_4: Spi<'static, Async>,
     rx: SmartLedChannelRx,
 ) {
-    let mut smart_led = SmartLed::new(
-        spi_1, 
-        spi_2, 
-        spi_3, 
-        spi_4, 
-        5, 
-        rx);
+    let mut smart_led = SmartLed::new(spi_1, spi_2, spi_3, spi_4, 5, rx);
     smart_led.enable().await;
     loop {
         smart_led.show().await;

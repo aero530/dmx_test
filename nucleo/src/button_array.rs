@@ -156,3 +156,67 @@ pub async fn button_array_task(
         Timer::after_millis(125).await;
     }
 }
+
+
+
+#[embassy_executor::task]
+pub async fn button_row_task(
+    row: [Input<'static>; 4],
+    tx: RouterChannelTx,
+) {
+    // let mut pressed : [KeyPadButton; 16];
+    let mut pressed: [bool; 4];
+    let mut events: [KeyPadEvent; 16];
+    let mut location = 0;
+    events = [KeyPadEvent::None; 16];
+    let map = [12, 13, 14, 15];
+
+    loop {
+        // set values to default
+        // pressed = [KeyPadButton::None; 16];
+        pressed = [false; 4];
+        location = 0;
+
+        // iterate through rows / cols to check if button is pressed
+        row.iter().for_each(|r| {
+            
+            if r.is_low() {
+                // check each col for low value (button pressed)
+                pressed[location] = true;
+                match events[map[location]] {
+                    KeyPadEvent::None => events[map[location]] = KeyPadEvent::Pressed,
+                    KeyPadEvent::Pressed => events[map[location]] = KeyPadEvent::Held,
+                    KeyPadEvent::Released => events[map[location]] = KeyPadEvent::Pressed,
+                    KeyPadEvent::Held => events[map[location]] = KeyPadEvent::Held,
+                }
+            } else {
+                // button not pressed
+                match events[map[location]] {
+                    KeyPadEvent::None => events[map[location]] = KeyPadEvent::None,
+                    KeyPadEvent::Pressed => events[map[location]] = KeyPadEvent::Released,
+                    KeyPadEvent::Released => events[map[location]] = KeyPadEvent::None,
+                    KeyPadEvent::Held => events[map[location]] = KeyPadEvent::Released,
+                }
+                pressed[location] = false;
+            }
+            location += 1;
+            
+        });
+
+        // send pressed buttons to router
+        for (l, e) in events.iter().enumerate() {
+            if *e == KeyPadEvent::Released {
+                match tx.try_send(RouterEvent::ButtonArray((
+                    KeyPadButton::at(l),
+                    KeyPadEvent::Released,
+                ))) {
+                    Ok(_) => {}
+                    Err(e) => error!("Message dropped. Channel full. {}", e),
+                };
+            }
+        }
+
+        // wait to check again
+        Timer::after_millis(125).await;
+    }
+}

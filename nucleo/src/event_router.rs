@@ -139,8 +139,8 @@ impl Router {
         match event {
             DmxEvent::DmxPacket(input) => {
                 info!("Router got DMX data");
-                info!("{}",input[0..24]);
-                
+                info!("{}", input[0..24]);
+
                 // self.data.dmx = input;
 
                 // let _ = self.channel_pwm.try_send(PwmEvent::Value([input[1], input[2], input[3]]));
@@ -151,10 +151,10 @@ impl Router {
                 //     input[1], input[2], input[3], input[4],
                 // ]));
 
-                let _ = self.channel_smart_led.try_send(SmartLedEvent::Value([
-                    100, 100, 100, 100,
-                ]));
-                
+                let _ = self
+                    .channel_smart_led
+                    .try_send(SmartLedEvent::Value([input[1], input[2], input[3], input[4]]));
+
                 // let _ = self.channel_smart_led.try_send(SmartLedEvent::Value([input[1], input[2], input[3]]));
             }
         }

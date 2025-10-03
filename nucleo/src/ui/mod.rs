@@ -1,35 +1,61 @@
 //! UI hardware interface
 
 use defmt::{error, info, Format};
-use display_interface::AsyncWriteOnlyDataCommand;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
+use embassy_stm32::gpio::{Input, Level, Output, OutputOpenDrain, OutputType, Pull, Speed};
 use embassy_stm32::i2c::I2c;
-use embassy_time::{with_timeout, Duration, Timer};
+use embassy_stm32::mode::Async;
+use embassy_stm32::spi::Spi;
+use embassy_time::{with_timeout, Delay, Duration, Timer};
+
+use embedded_hal_async::delay::DelayNs;
+use embedded_hal_bus::spi::ExclusiveDevice;
+use mipidsi::interface::SpiInterface;
+use mipidsi::options::{Orientation, Rotation};
+use mipidsi::{models::ST7789, options::ColorInversion, Builder};
+
+use embedded_graphics::{
+    mono_font::MonoTextStyle,
+    pixelcolor::Rgb565,
+    prelude::*,
+    primitives::{Circle, Primitive, PrimitiveStyle, Triangle},
+    text::Text,
+};
+
+use static_cell::StaticCell;
 
 use crate::channels::UiChannelRx;
 use crate::ui::app::SelectedTab;
 use crate::I2c1Bus;
 
-// https://github.com/cschuhen/oled_drivers/blob/master/examples/i2c.rs
-
-use oled_async::display;
-use oled_async::displayrotation::DisplayRotation;
-use oled_async::{prelude::*, Builder as OledBuilder};
+use crate::{DISPLAY_HEIGHT, DISPLAY_OFFSET, DISPLAY_WIDTH};
 
 use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, iso_8859_4::FONT_10X20, MonoTextStyleBuilder},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    text::{Baseline, Text},
+    mono_font::{iso_8859_4::FONT_10X20,  MonoTextStyleBuilder},
+    // pixelcolor::BinaryColor,
+    text::Baseline,
 };
 
 use embedded_menu::{
     interaction::{Action, Interaction, Navigation},
-    Menu, SelectValue,
+    Menu, MenuStyle, SelectValue,
+    theme::Theme,
 };
 
 mod app;
 use app::App;
+
+type SpiDisplay = mipidsi::Display<
+    SpiInterface<
+        'static,
+        ExclusiveDevice<Spi<'static, Async>, Output<'static>, embedded_hal_bus::spi::NoDelay>,
+        Output<'static>,
+    >,
+    ST7789,
+    Output<'static>,
+>;
+
+static SPI_DISP_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
 
 #[derive(Copy, Clone, PartialEq, SelectValue)]
 pub enum TestEnum {
@@ -45,22 +71,37 @@ pub enum UiEvent {
     PreviousTab,
 }
 
-pub struct Ui<DV, DI>
-where
-    DI: AsyncWriteOnlyDataCommand,
-    DV: display::DisplayVariant,
-{
-    disp: GraphicsMode<DV, DI>,
+pub struct Ui {
+    disp: SpiDisplay,
     rx: UiChannelRx,
     app: App,
 }
 
-impl<DV, DI> Ui<DV, DI>
-where
-    DI: AsyncWriteOnlyDataCommand,
-    DV: display::DisplayVariant,
-{
-    pub fn new(disp: GraphicsMode<DV, DI>, rx: UiChannelRx) -> Self {
+#[derive(Clone, Copy)]
+struct ExampleTheme;
+
+impl Theme for ExampleTheme {
+    type Color = Rgb565;
+
+    fn text_color(&self) -> Self::Color {
+        Rgb565::WHITE
+    }
+
+    fn selected_text_color(&self) -> Self::Color {
+        Rgb565::BLUE
+    }
+
+    fn selection_color(&self) -> Self::Color {
+        Rgb565::new(51, 255, 51)
+    }
+}
+
+
+impl Ui {
+    pub fn new(
+        disp: SpiDisplay,
+        rx: UiChannelRx,
+    ) -> Self {
         Self {
             disp,
             rx,
@@ -69,30 +110,41 @@ where
     }
 
     pub async fn run(&mut self) {
-        let mut menu0 = Menu::build("Tab 0")
+        let mut menu0 = Menu::with_style(
+            "   Tab 0",
+            MenuStyle::new(ExampleTheme).with_font(&FONT_10X20).with_title_font(&FONT_10X20)
+            )
             .add_item("Check this 2", false, |b| 30 + b as i32)
             .add_item("Check this 3", TestEnum::A, |b| 40 + b as i32)
             .build();
 
-        let mut menu1 = Menu::build("Tab 1")
+        let mut menu1 = Menu::with_style(
+            "   Tab 1",
+            MenuStyle::new(ExampleTheme).with_font(&FONT_10X20).with_title_font(&FONT_10X20)
+            )
             .add_item("Foo", ">", |_| 1)
             .add_section_title("===== Section =====")
             .add_item("Check this 5", false, |b| 30 + b as i32)
             .build();
 
-        let mut menu2 = Menu::build("Tab 2")
+        let mut menu2 = Menu::with_style(
+            "   Tab 2",
+            MenuStyle::new(ExampleTheme).with_font(&FONT_10X20).with_title_font(&FONT_10X20)
+            )
             .add_item("Bar", ">", |_| 1)
             .add_item("More stuff", false, |b| 20 + b as i32)
             .build();
 
-        let mut menu3 = Menu::build("Tab 3")
+        let mut menu3 = Menu::with_style(
+            "   Tab 3",
+            MenuStyle::new(ExampleTheme).with_font(&FONT_10X20).with_title_font(&FONT_10X20)
+            )
             .add_item("Cat", ">", |_| 1)
             .add_section_title("===== Section =====")
             .build();
 
-        loop {
-            self.disp.clear();
 
+        loop {
             match self.app.current_tab() {
                 SelectedTab::Tab0 => {
                     menu0.update(&self.disp);
@@ -112,12 +164,10 @@ where
                 }
             }
 
-            let _ = self.disp.flush().await; // unwrap
-                                             // self.app.render();
-
             if let Ok(new_message) =
                 with_timeout(Duration::from_millis(250), self.rx.receive()).await
             {
+                self.disp.clear(Rgb565::BLACK).unwrap();
                 self.process_event(new_message).await;
             }
         }
@@ -140,65 +190,45 @@ where
         }
     }
 }
-
+    
 #[embassy_executor::task]
-// pub async fn ui_task(mut i2c: I2c<'static, embassy_stm32::mode::Async>, rx: UiChannelRx) {
-pub async fn ui_task(i2c_bus_manager: &'static I2c1Bus, rx: UiChannelRx) {
-    type I2cDisplay = I2cDevice<
-        'static,
-        embassy_sync::blocking_mutex::raw::NoopRawMutex,
-        I2c<'static, embassy_stm32::mode::Async, embassy_stm32::i2c::mode::Master>,
-    >;
-    type I2cInterface = display_interface_i2c::I2CInterface<I2cDisplay>;
+pub async fn ui_task_spi(
+    bus: Spi<'static, Async>,
+    cs: Output<'static>,
+    dc: Output<'static>,
+    reset: Output<'static>,
+    mut backlight: OutputOpenDrain<'static>,
+    rx: UiChannelRx,
+) {
+    let spi_device = ExclusiveDevice::new_no_delay(bus, cs).unwrap();
 
-    let i2c_bus_dev = I2cDevice::new(i2c_bus_manager);
-    let di: I2cInterface = display_interface_i2c::I2CInterface::new(
-        i2c_bus_dev, // I2C
-        0x3C,        // I2C Address 3C or 61
-        0x40,        // Data byte
-    );
-    let raw_disp = OledBuilder::new(oled_async::displays::sh1106::Sh1106_128_64 {})
-        .with_rotation(DisplayRotation::Rotate0)
-        .connect(di);
+    // let mut buffer = [0_u8; 512];
+    let mut buffer = SPI_DISP_BUFFER.init([0_u8; 512]);
 
-    let mut disp: GraphicsMode<_, _> = raw_disp.into();
-    Timer::after_millis(50).await;
+    // Define the display interface with no chip select
+    let di = SpiInterface::new(spi_device, dc, buffer);
 
-    let a = disp.display_on(true).await;
-    match a {
-        Ok(()) => info!("Display on"),
-        Err(e) => error!("{}", e),
-    }
+    let mut delay = Delay;
 
-    // Timer::after_millis(50).await;
-    //     let a = disp.set_rotation(DisplayRotation::Rotate0).await;
-    //     match a {
-    //         Ok(()) => info!("Display rotated"),
-    //         Err(e) => error!("{}",e)
-    //     }
-    // Timer::after_millis(50).await;
+    // Define the display from the display interface and initialize it
+    let mut display = Builder::new(ST7789, di)
+        .reset_pin(reset)
+        .display_size(DISPLAY_WIDTH, DISPLAY_HEIGHT)
+        .display_offset(DISPLAY_OFFSET, 0)
+        .orientation(Orientation::new().rotate(Rotation::Deg90))
+        .invert_colors(ColorInversion::Inverted)
+        .init(&mut delay)
+        .unwrap();
 
-    // let _ = disp.init().await; // unwrap
-    // let _ = disp.flush().await; // unwrap
-    // disp.clear();
-    // let _ = disp.flush().await; // unwrap
-    // info!("clear");
-    // let text_style = MonoTextStyleBuilder::new()
-    //     .font(&FONT_10X20)
-    //     .text_color(BinaryColor::On)
-    //     .build();
-    // Text::with_baseline("Hello world!", Point::zero(), text_style, Baseline::Top)
-    //     .draw(&mut disp)
-    //     .unwrap();
-    // disp.set_pixel(0, 0, 255); // top left
-    // disp.set_pixel(127, 63, 255); // bottom right
-    // disp.set_pixel(64, 0, 255);
-    // disp.set_pixel(64, 63, 255);
-    // disp.set_pixel(0, 32, 255);
-    // disp.set_pixel(127, 32, 255);
-    // let _ = disp.flush().await; // unwrap
-    // info!("hello");
+    // Make the display all black
+    display.clear(Rgb565::BLACK).unwrap();
 
-    let mut ui = Ui::new(disp, rx);
+    // Turn on backlight
+    backlight.set_high();
+
+    // // Draw a smiley face with white eyes and a red mouth
+    // draw_smiley(&mut display).unwrap();
+
+    let mut ui = Ui::new(display, rx);
     ui.run().await
 }

@@ -57,11 +57,10 @@ smart-leds = "0.4.0"
 smart-leds-trait = "0.3.1"
 
 # Display
-# oled_async = "0.2.0"
-oled_async = {path="../oled/"}
+mipidsi = "0.9.0"
+embedded-hal-bus = "0.3.0"
+
 embedded-graphics = "0.8.1"
-display-interface = {version="0.5.0", features = ["defmt-03"]}
-display-interface-i2c = "0.5.0"
 embedded-alloc = "0.6.0"
 embedded-menu = "0.6.1"
 

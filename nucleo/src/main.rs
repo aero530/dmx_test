@@ -14,6 +14,7 @@ use embassy_stm32::{bind_interrupts, i2c, peripherals, usb, Config};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::Duration;
+use embassy_time::{Delay, Timer};
 
 use static_cell::StaticCell;
 
@@ -57,7 +58,7 @@ mod button;
 use button::button_task;
 
 mod button_array;
-use button_array::button_array_task;
+use button_array::button_row_task;
 
 mod usb_io;
 use usb_io::usb_task;
@@ -86,7 +87,7 @@ mod smart_led;
 use smart_led::smart_led_task;
 
 mod ui;
-use ui::ui_task;
+use ui::ui_task_spi;
 
 type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, Master>>;
 
@@ -251,16 +252,16 @@ async fn main(spawner: Spawner) {
     // SDA: PF0
     // Alert#: PF2
     // Reset: PF3
-    let mut cfg: I2cConfig = I2cConfig::default();
-    cfg.timeout = Duration::from_millis(200);
-    cfg.frequency = Hertz(1_000_000);
-    let i2c_display = I2c::new(p.I2C2, p.PF1, p.PF0, Irqs, p.GPDMA1_CH2, p.GPDMA1_CH3, cfg);
 
-    let i2c_display_bus = Mutex::new(i2c_display);
-    let i2c_display_bus_manager = I2C_BUS_DISPLAY.init(i2c_display_bus);
-    spawner
-        .spawn(ui_task(i2c_display_bus_manager, CHANNEL_UI.receiver()))
-        .unwrap();
+    // let mut cfg: I2cConfig = I2cConfig::default();
+    // cfg.timeout = Duration::from_millis(200);
+    // cfg.frequency = Hertz(100_000);
+    // let i2c_display = I2c::new(p.I2C2, p.PF1, p.PF0, Irqs, p.GPDMA1_CH2, p.GPDMA1_CH3, cfg);
+    // let i2c_display_bus = Mutex::new(i2c_display);
+    // let i2c_display_bus_manager = I2C_BUS_DISPLAY.init(i2c_display_bus);
+    // spawner
+    //     .spawn(ui_task(i2c_display_bus_manager, CHANNEL_UI.receiver()))
+    //     .unwrap();
 
     // -----------------------------------
     // Configure I2C for DMX
@@ -296,19 +297,30 @@ async fn main(spawner: Spawner) {
     // -----------------------------------
     // Display board buttons
     // -----------------------------------
+    // spawner
+    //     .spawn(button_array_task(
+    //         [
+    //             Input::new(p.PE7, Pull::Up),
+    //             Input::new(p.PE8, Pull::Up),
+    //             Input::new(p.PE9, Pull::Up),
+    //             Input::new(p.PE10, Pull::Up),
+    //         ],
+    //         [
+    //             OutputOpenDrain::new(p.PD10, Level::High, Speed::Medium),
+    //             OutputOpenDrain::new(p.PD11, Level::High, Speed::Medium),
+    //             OutputOpenDrain::new(p.PD12, Level::High, Speed::Medium),
+    //             OutputOpenDrain::new(p.PD13, Level::High, Speed::Medium),
+    //         ],
+    //         CHANNEL.sender(),
+    //     ))
+    //     .unwrap();
     spawner
-        .spawn(button_array_task(
+        .spawn(button_row_task(
             [
-                Input::new(p.PE7, Pull::Up),
-                Input::new(p.PE8, Pull::Up),
-                Input::new(p.PE9, Pull::Up),
-                Input::new(p.PE10, Pull::Up),
-            ],
-            [
-                OutputOpenDrain::new(p.PD10, Level::High, Speed::Medium),
-                OutputOpenDrain::new(p.PD11, Level::High, Speed::Medium),
-                OutputOpenDrain::new(p.PD12, Level::High, Speed::Medium),
-                OutputOpenDrain::new(p.PD13, Level::High, Speed::Medium),
+                Input::new(p.PD10, Pull::Up),
+                Input::new(p.PD11, Pull::Up),
+                Input::new(p.PD12, Pull::Up),
+                Input::new(p.PD13, Pull::Up),
             ],
             CHANNEL.sender(),
         ))
@@ -388,7 +400,6 @@ async fn main(spawner: Spawner) {
         ))
         .unwrap();
 
-        
     // -----------------------------------
     // Config SPI for Display
     // -----------------------------------
@@ -396,13 +407,13 @@ async fn main(spawner: Spawner) {
     // SCK: F7, MISO: F8, MOSI: F9, CS1: F6, CS2: F10, CS3: F11 - SPI5
 
     let mut spi_config = SpiConfig::default();
-    spi_config.frequency = Hertz(3_000_000);
+    spi_config.frequency = Hertz(100_000_000);
     spi_config.mode = SpiMode {
         polarity: Polarity::IdleLow,
         phase: Phase::CaptureOnFirstTransition,
     };
 
-    let _spi_display = Spi::new(
+    let spi_display: Spi<'_, embassy_stm32::mode::Async> = Spi::new(
         p.SPI5,
         p.PF7,
         p.PF9,
@@ -411,9 +422,21 @@ async fn main(spawner: Spawner) {
         p.GPDMA2_CH5,
         spi_config,
     );
-    // spawner
-    //     .spawn(ui_task(spi_display, CHANNEL_UI.receiver()))
-    //     .unwrap();
+    let mut display_cs = Output::new(p.PF6, Level::High, Speed::Low);
+    let mut display_dc = Output::new(p.PF11, Level::High, Speed::Low);
+    let mut display_reset = Output::new(p.PF10, Level::High, Speed::Low);
+    let mut display_backlight = OutputOpenDrain::new(p.PF3, Level::Low, Speed::Low); // using display reset from i2c which is pulled high
+
+    spawner
+        .spawn(ui_task_spi(
+            spi_display,
+            display_cs,
+            display_dc,
+            display_reset,
+            display_backlight,
+            CHANNEL_UI.receiver(),
+        ))
+        .unwrap();
 
     // -----------------------------------
     // Config SPI for DMX
@@ -510,3 +533,35 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(event_router(router)).unwrap();
 }
+
+// fn draw_smiley<T: DrawTarget<Color = Rgb565>>(display: &mut T) -> Result<(), T::Error> {
+//     // Draw the left eye as a circle located at (50, 100), with a diameter of 40, filled with white
+//     Circle::new(Point::new(50, 100), 40)
+//         .into_styled(PrimitiveStyle::with_fill(Rgb565::WHITE))
+//         .draw(display)?;
+
+//     // Draw the right eye as a circle located at (50, 200), with a diameter of 40, filled with white
+//     Circle::new(Point::new(50, 200), 40)
+//         .into_styled(PrimitiveStyle::with_fill(Rgb565::WHITE))
+//         .draw(display)?;
+
+//     // Draw an upside down red triangle to represent a smiling mouth
+//     Triangle::new(
+//         Point::new(130, 140),
+//         Point::new(130, 200),
+//         Point::new(160, 170),
+//     )
+//     .into_styled(PrimitiveStyle::with_fill(Rgb565::RED))
+//     .draw(display)?;
+
+//     // Cover the top part of the mouth with a black triangle so it looks closed instead of open
+//     Triangle::new(
+//         Point::new(130, 150),
+//         Point::new(130, 190),
+//         Point::new(150, 170),
+//     )
+//     .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
+//     .draw(display)?;
+
+//     Ok(())
+// }

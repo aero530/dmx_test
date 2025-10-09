@@ -4,7 +4,7 @@
 use cfg_if::cfg_if;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{Input, Level, Output, OutputOpenDrain, OutputType, Pull, Speed};
+use embassy_stm32::gpio::{Input, Level, Output, OutputOpenDrain, Pull, Speed};
 use embassy_stm32::i2c::{Config as I2cConfig, I2c, Master};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
@@ -14,7 +14,6 @@ use embassy_stm32::{bind_interrupts, i2c, peripherals, usb, Config};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::Duration;
-use embassy_time::{Delay, Timer};
 
 use static_cell::StaticCell;
 
@@ -422,10 +421,10 @@ async fn main(spawner: Spawner) {
         p.GPDMA2_CH5,
         spi_config,
     );
-    let mut display_cs = Output::new(p.PF6, Level::High, Speed::Low);
-    let mut display_dc = Output::new(p.PF11, Level::High, Speed::Low);
-    let mut display_reset = Output::new(p.PF10, Level::High, Speed::Low);
-    let mut display_backlight = OutputOpenDrain::new(p.PF3, Level::Low, Speed::Low); // using display reset from i2c which is pulled high
+    let display_cs = Output::new(p.PF6, Level::High, Speed::Low);
+    let display_dc = Output::new(p.PF11, Level::High, Speed::Low);
+    let display_reset = Output::new(p.PF10, Level::High, Speed::Low);
+    let display_backlight = OutputOpenDrain::new(p.PF3, Level::Low, Speed::Low); // using display reset from i2c which is pulled high
 
     spawner
         .spawn(ui_task_spi(

@@ -60,9 +60,15 @@ smart-leds-trait = "0.3.1"
 mipidsi = "0.9.0"
 embedded-hal-bus = "0.3.0"
 
+
 embedded-graphics = "0.8.1"
+az = "1.2.1"
+arrayvec = {version = "0.7.6", default-features = false }
 embedded-alloc = "0.6.0"
-embedded-menu = "0.6.1"
+embedded-text = "0.7.2"
+embedded-layout = "0.4.2"
+
+# embedded-menu = "0.6.1"
 
 # PCA9685
 pwm-pca9685 = { version = "1.0.0", features = ["async"] }

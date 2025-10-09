@@ -1,6 +1,5 @@
 use core::marker::PhantomData;
 
-use defmt::debug;
 use embedded_hal_async::spi::{ErrorType, SpiBus};
 use smart_leds_trait::{SmartLedsWriteAsync, RGB8};
 

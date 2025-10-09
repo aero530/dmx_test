@@ -81,10 +81,10 @@ impl KeyPadButton {
             9 => Self::N8,
             10 => Self::N9,
             11 => Self::C,
-            12 => Self::Star,
-            13 => Self::N0,
-            14 => Self::Pound,
-            15 => Self::D,
+            12 => Self::Star,   // single row button 0
+            13 => Self::N0,     // single row button 1
+            14 => Self::Pound,  // single row button 2
+            15 => Self::D,      // single row button 3
             _ => Self::None,
         }
     }
@@ -169,6 +169,7 @@ pub async fn button_row_task(
     let mut events: [KeyPadEvent; 16];
     let mut location = 0;
     events = [KeyPadEvent::None; 16];
+
     let map = [12, 13, 14, 15];
 
     loop {

@@ -808,29 +808,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "embedded-menu"
-version = "0.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7b3cfae11ab1bf4ae3e0c27bfaa9a8d1424e3e41c151286116827bac72e3a91"
-dependencies = [
- "embedded-graphics",
- "embedded-layout",
- "embedded-menu-macros",
- "embedded-text",
-]
-
-[[package]]
-name = "embedded-menu-macros"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6c77b3b54aa226f35a3d97e2db53bb9e97b5b1feb674d4dcb041c07305f0704"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.106",
-]
-
-[[package]]
 name = "embedded-nal"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1256,6 +1233,8 @@ dependencies = [
 name = "nucleo"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
+ "az",
  "cfg-if",
  "cortex-m",
  "cortex-m-rt",
@@ -1277,9 +1256,10 @@ dependencies = [
  "embedded-hal-async",
  "embedded-hal-bus",
  "embedded-io-async",
- "embedded-menu",
+ "embedded-layout",
  "embedded-nal-async",
  "embedded-storage",
+ "embedded-text",
  "format_no_std",
  "heapless",
  "micromath",

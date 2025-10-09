@@ -1,49 +1,47 @@
 //! UI hardware interface
 
-use defmt::{error, info, Format};
-use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
-use embassy_stm32::gpio::{Input, Level, Output, OutputOpenDrain, OutputType, Pull, Speed};
-use embassy_stm32::i2c::I2c;
+
+use defmt::Format;
+use embassy_stm32::gpio::{Output, OutputOpenDrain};
 use embassy_stm32::mode::Async;
 use embassy_stm32::spi::Spi;
-use embassy_time::{with_timeout, Delay, Duration, Timer};
+use embassy_time::Delay;
 
-use embedded_hal_async::delay::DelayNs;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use mipidsi::interface::SpiInterface;
 use mipidsi::options::{Orientation, Rotation};
 use mipidsi::{models::ST7789, options::ColorInversion, Builder};
 
 use embedded_graphics::{
-    mono_font::MonoTextStyle,
+    mono_font::{MonoTextStyle, iso_8859_4::FONT_10X20},
     pixelcolor::Rgb565,
-    prelude::*,
-    primitives::{Circle, Primitive, PrimitiveStyle, Triangle},
-    text::Text,
+    prelude::{Point, RgbColor},
+    geometry::Dimensions,
+    draw_target::DrawTarget,
+    Drawable,
 };
+use embedded_layout::{
+    layout::linear::{
+        spacing::FixedMargin,
+        LinearLayout, 
+    },
+    prelude::*
+};
+
 
 use static_cell::StaticCell;
 
 use crate::channels::UiChannelRx;
-use crate::ui::app::SelectedTab;
-use crate::I2c1Bus;
 
 use crate::{DISPLAY_HEIGHT, DISPLAY_OFFSET, DISPLAY_WIDTH};
 
-use embedded_graphics::{
-    mono_font::{iso_8859_4::FONT_10X20,  MonoTextStyleBuilder},
-    // pixelcolor::BinaryColor,
-    text::Baseline,
-};
+mod menu_item;
+use menu_item::MenuItem;
 
-use embedded_menu::{
-    interaction::{Action, Interaction, Navigation},
-    Menu, MenuStyle, SelectValue,
-    theme::Theme,
-};
 
-mod app;
-use app::App;
+
+// mod app;
+// use app::App;
 
 type SpiDisplay = mipidsi::Display<
     SpiInterface<
@@ -57,45 +55,122 @@ type SpiDisplay = mipidsi::Display<
 
 static SPI_DISP_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
 
-#[derive(Copy, Clone, PartialEq, SelectValue)]
-pub enum TestEnum {
-    A,
-    B,
-    C,
-}
-
 #[derive(Format)]
 pub enum UiEvent {
-    // Value([u8;3]),
+    Up,
+    Down,
+    Next,
+    Select,
     NextTab,
-    PreviousTab,
 }
 
-pub struct Ui {
-    disp: SpiDisplay,
-    rx: UiChannelRx,
-    app: App,
+#[derive(Default, Clone, Copy, PartialEq)]
+enum TestEnum {
+    #[default]
+    _0,
+    _1,
+    _2,
+    _3,
+    _4,
+    _5,
+    _6,
+    _7,
+    _8,
+    _9,
 }
 
 #[derive(Clone, Copy)]
-struct ExampleTheme;
+struct PwmSettings {
+    freq: u8,
+}
 
-impl Theme for ExampleTheme {
-    type Color = Rgb565;
+#[derive(Default, Clone, Copy)]
+struct SmartLedSettings {
+    leds_per_port: (u16, u16, u16, u16),
+    address_mode: SmartLedGroupingAddressing,
+    grouping: SmartLedGrouping,
+}
 
-    fn text_color(&self) -> Self::Color {
-        Rgb565::WHITE
-    }
+#[derive(Default, Clone, Copy, PartialEq)]
+enum SmartLedGroupingAddressing {
+    #[default]
+    RGB,
+    RGBW,
+}
 
-    fn selected_text_color(&self) -> Self::Color {
-        Rgb565::BLUE
-    }
+#[derive(Default, Clone, Copy, PartialEq)]
+enum SmartLedGrouping {
+    #[default]
+    Individual,
+    CombineByPort,
+    CombineByModule,
+}
 
-    fn selection_color(&self) -> Self::Color {
-        Rgb565::new(51, 255, 51)
+#[derive(Clone, Copy)]
+enum ModuleSettings {
+    SmartLed(SmartLedSettings),
+    Pwm(PwmSettings),
+}
+
+#[derive(Clone, Copy)]
+struct MenuData {
+    dmx_address: u16,
+    ip: (u8,u8,u8,u8),
+    module: ModuleSettings,
+}
+
+impl Default for MenuData {
+    fn default() -> Self {
+        Self{
+            dmx_address:0,
+            ip: (0,0,0,0),
+            module: ModuleSettings::SmartLed(SmartLedSettings::default()),
+        }
     }
 }
 
+#[derive(Clone, Copy)]
+struct MenuTab<D> {
+    name: &'static str,
+    content: D,
+}
+
+
+
+// #[derive(Default, Clone, Copy)]
+// enum MenuEvent {
+//     SliceCheckbox(usize, bool),
+//     // Select(TestEnum),
+//     #[default]
+//     Nothing,
+//     Quit,
+// }
+
+
+//<T> where T: Drawable
+pub struct Ui {
+    disp: SpiDisplay,
+    rx: UiChannelRx,
+    // tabs: [MenuTab;4],
+    current_tab: usize,
+    menu_data: MenuData,
+    menu_event: Option<UiEvent>,
+}
+
+// #[derive(Clone, Copy)]
+// struct MyTheme;
+// impl Theme for MyTheme {
+//     type Color = Rgb565;
+//     fn text_color(&self) -> Self::Color {
+//         Rgb565::WHITE
+//     }
+//     fn selected_text_color(&self) -> Self::Color {
+//         Rgb565::BLUE
+//     }
+//     fn selection_color(&self) -> Self::Color {
+//         Rgb565::new(51, 255, 51)
+//     }
+// }
 
 impl Ui {
     pub fn new(
@@ -105,89 +180,138 @@ impl Ui {
         Self {
             disp,
             rx,
-            app: App::default(),
+            menu_data: MenuData::default(),
+            menu_event: None,
+            // tabs: [],
+            current_tab: 0,
         }
     }
 
     pub async fn run(&mut self) {
-        let mut menu0 = Menu::with_style(
-            "   Tab 0",
-            MenuStyle::new(ExampleTheme).with_font(&FONT_10X20).with_title_font(&FONT_10X20)
-            )
-            .add_item("Check this 2", false, |b| 30 + b as i32)
-            .add_item("Check this 3", TestEnum::A, |b| 40 + b as i32)
-            .build();
+        // let mut menu0 = Menu::with_style(
+        //     "   Tab 0",
+        //     MenuStyle::new(ExampleTheme).with_font(&FONT_10X20).with_title_font(&FONT_10X20)
+        //     )
+        //     // .add_item("DMX:", self.menu.dmx_address, |_| 1)
+        //     .add_item("Check this 2", false, |b| 30 + b as i32)
+        //     .add_item("Check this 3", false, |b| 30 + b as i32)
+        //     .add_item("Check this 4", false, |b| 30 + b as i32)
+        //     // .add_item("Next Tab", ">>", |_| {self.menu_event=UiEvent::NextTab; ()})
+        //     .add_item("Check this 3", TestEnum::_0, |b| b as i32)
+        //     .build();
 
-        let mut menu1 = Menu::with_style(
-            "   Tab 1",
-            MenuStyle::new(ExampleTheme).with_font(&FONT_10X20).with_title_font(&FONT_10X20)
-            )
-            .add_item("Foo", ">", |_| 1)
-            .add_section_title("===== Section =====")
-            .add_item("Check this 5", false, |b| 30 + b as i32)
-            .build();
+        // let mut menu1 = Menu::with_style(
+        //     "   Tab 1",
+        //     MenuStyle::new(ExampleTheme).with_font(&FONT_10X20).with_title_font(&FONT_10X20)
+        //     )
+        //     .add_item("Foo", ">", |_| 1)
+        //     .add_section_title("===== Section =====")
+        //     .add_item("Check this 5", false, |b| 30 + b as i32)
+        //     .build();
 
-        let mut menu2 = Menu::with_style(
-            "   Tab 2",
-            MenuStyle::new(ExampleTheme).with_font(&FONT_10X20).with_title_font(&FONT_10X20)
-            )
-            .add_item("Bar", ">", |_| 1)
-            .add_item("More stuff", false, |b| 20 + b as i32)
-            .build();
+        // let mut menu2 = Menu::with_style(
+        //     "   Tab 2",
+        //     MenuStyle::new(ExampleTheme).with_font(&FONT_10X20).with_title_font(&FONT_10X20)
+        //     )
+        //     .add_item("Bar", ">", |_| 1)
+        //     .add_item("More stuff", false, |b| 20 + b as i32)
+        //     .build();
 
-        let mut menu3 = Menu::with_style(
-            "   Tab 3",
-            MenuStyle::new(ExampleTheme).with_font(&FONT_10X20).with_title_font(&FONT_10X20)
-            )
-            .add_item("Cat", ">", |_| 1)
-            .add_section_title("===== Section =====")
-            .build();
+        // let mut menu3 = Menu::with_style(
+        //     "   Tab 3",
+        //     MenuStyle::new(ExampleTheme).with_font(&FONT_10X20).with_title_font(&FONT_10X20)
+        //     )
+        //     .add_item("Cat", ">", |_| 1)
+        //     .add_section_title("===== Section =====")
+        //     .build();
+        
 
+        // let tab1 = [
+        //     MenuItem::new("iotme name", 7, Point::zero(), text_style),
+        //     MenuItem::new("sad name", 9, Point::zero(), text_style)
+        // ];
 
-        loop {
-            match self.app.current_tab() {
-                SelectedTab::Tab0 => {
-                    menu0.update(&self.disp);
-                    let _ = menu0.draw(&mut self.disp);
-                }
-                SelectedTab::Tab1 => {
-                    menu1.update(&self.disp);
-                    let _ = menu1.draw(&mut self.disp).unwrap();
-                }
-                SelectedTab::Tab2 => {
-                    menu2.update(&self.disp);
-                    let _ = menu2.draw(&mut self.disp).unwrap();
-                }
-                SelectedTab::Tab3 => {
-                    menu3.update(&self.disp);
-                    let _ = menu3.draw(&mut self.disp).unwrap();
-                }
-            }
+        // Create a Rectangle from the display's dimensions
+        let display_area = self.disp.bounding_box();
 
-            if let Ok(new_message) =
-                with_timeout(Duration::from_millis(250), self.rx.receive()).await
-            {
-                self.disp.clear(Rgb565::BLACK).unwrap();
-                self.process_event(new_message).await;
-            }
-        }
+        let text_style = MonoTextStyle::new(&FONT_10X20, Rgb565::GREEN);
+        
+        let q = LinearLayout::vertical(
+            Chain::new(MenuItem::new("iotme name", 7, Point::zero(), text_style))
+            .append(MenuItem::new("other thing", 9, Point::zero(), text_style))
+        )
+            .with_spacing(FixedMargin(4))
+            .arrange()
+            .align_to(&display_area, horizontal::Center, vertical::Top)
+            .draw(&mut self.disp);
+        
+
+        // self.tabs[0] = menu0;
+
+        // loop {
+        //     match self.app.current_tab() {
+        //         SelectedTab::Tab0 => {
+        //             menu0.update(&self.disp);
+        //             let _ = menu0.draw(&mut self.disp);
+        //         }
+        //         SelectedTab::Tab1 => {
+        //             menu1.update(&self.disp);
+        //             let _ = menu1.draw(&mut self.disp).unwrap();
+        //         }
+        //         SelectedTab::Tab2 => {
+        //             menu2.update(&self.disp);
+        //             let _ = menu2.draw(&mut self.disp).unwrap();
+        //         }
+        //         SelectedTab::Tab3 => {
+        //             menu3.update(&self.disp);
+        //             let _ = menu3.draw(&mut self.disp).unwrap();
+        //         }
+        //     }
+
+        //     if let Ok(new_message) =
+        //         with_timeout(Duration::from_millis(250), self.rx.receive()).await
+        //     {
+        //         self.disp.clear(Rgb565::BLACK).unwrap();
+        //         // self.process_event(new_message).await;
+        //         match new_message {
+        //             UiEvent::Up => {
+        //                 menu0.interact(Interaction::Navigation(Navigation::Next));
+        //             },
+        //             UiEvent::Down => {
+        //                 menu0.interact(Interaction::Navigation(Navigation::Previous));
+        //             },
+        //             UiEvent::Next => {
+        //                 menu0.interact(Interaction::Navigation(Navigation::Next));
+        //             },
+        //             UiEvent::Select => {
+        //                 menu0.interact(Interaction::Action(Action::Select));
+        //             },
+        //             UiEvent::NextTab => {
+        //                 self.app.goto_next_tab();
+        //             },
+
+        //         };
+        //     };
+        // }
     }
 
     async fn process_event(&mut self, event: UiEvent) {
-        match event {
-            // UiEvent::Value(_) => {
-            //     // self.channels_a.ch1.set_duty_cycle_fraction(values[0] as u16, 255);
-            //     // self.channels_b.ch3.set_duty_cycle_fraction(values[1] as u16, 255);
-            //     // self.channels_c.ch2.set_duty_cycle_fraction(values[2] as u16, 255);
-            //     // set pwm to value
-            // },
-            UiEvent::NextTab => {
-                self.app.goto_next_tab();
-            }
-            UiEvent::PreviousTab => {
-                self.app.goto_previous_tab();
-            }
-        }
+        self.menu_event = Some(event);
+        // match event {
+        //     UiEvent::Up => {
+        //         self.menu_event = Some(event);
+        //         self.app.goto_next_tab();
+        //     }
+        //     UiEvent::Down => {
+        //         self.app.goto_previous_tab();
+        //     }
+        //     UiEvent::Next => {
+        //         self.app.goto_previous_tab();
+        //     }
+        //     UiEvent::Select => {
+        //         self.app.current_tab();
+        //     },
+        // }
     }
 }
     
@@ -203,7 +327,7 @@ pub async fn ui_task_spi(
     let spi_device = ExclusiveDevice::new_no_delay(bus, cs).unwrap();
 
     // let mut buffer = [0_u8; 512];
-    let mut buffer = SPI_DISP_BUFFER.init([0_u8; 512]);
+    let buffer = SPI_DISP_BUFFER.init([0_u8; 512]);
 
     // Define the display interface with no chip select
     let di = SpiInterface::new(spi_device, dc, buffer);

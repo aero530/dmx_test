@@ -113,8 +113,12 @@ impl Router {
                     KeyPadButton::A => {}
                     KeyPadButton::B => {}
                     KeyPadButton::C => {}
-                    KeyPadButton::D => {}
-                    KeyPadButton::N0 => {}
+                    KeyPadButton::D => {
+                        let _ = self.channel_ui.try_send(UiEvent::Down);
+                    }
+                    KeyPadButton::N0 => {
+                        let _ = self.channel_ui.try_send(UiEvent::Select);
+                    }
                     KeyPadButton::N1 => {}
                     KeyPadButton::N2 => {}
                     KeyPadButton::N3 => {}
@@ -125,10 +129,10 @@ impl Router {
                     KeyPadButton::N8 => {}
                     KeyPadButton::N9 => {}
                     KeyPadButton::Star => {
-                        let _ = self.channel_ui.try_send(UiEvent::PreviousTab);
+                        let _ = self.channel_ui.try_send(UiEvent::Next);
                     }
                     KeyPadButton::Pound => {
-                        let _ = self.channel_ui.try_send(UiEvent::NextTab);
+                        let _ = self.channel_ui.try_send(UiEvent::Up);
                     }
                     KeyPadButton::None => {}
                 }
@@ -138,8 +142,7 @@ impl Router {
     pub async fn process_dmx(&mut self, event: DmxEvent) {
         match event {
             DmxEvent::DmxPacket(input) => {
-                info!("Router got DMX data");
-                info!("{}", input[0..24]);
+                info!("Router got DMX data {}", input[0..24]);
 
                 // self.data.dmx = input;
 

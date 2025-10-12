@@ -23,11 +23,7 @@ impl From<EndpointError> for Disconnected {
     }
 }
 
-pub async fn process_data<'d, T: Instance + 'd>(
-    class: &mut CdcAcmClass<'d, Driver<'d, T>>,
-    rx: UsbChannelRx,
-    router_tx: RouterChannelTx,
-) -> Result<(), Disconnected> {
+pub async fn process_data<'d, T: Instance + 'd>(class: &mut CdcAcmClass<'d, Driver<'d, T>>, rx: UsbChannelRx, router_tx: RouterChannelTx) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
     loop {
         // Try to read input
@@ -41,25 +37,19 @@ pub async fn process_data<'d, T: Instance + 'd>(
                         0x31 => {
                             // 0x31 = ascii "1"
                             if !router_tx.is_full() {
-                                router_tx
-                                    .try_send(RouterEvent::UsbCommand(1))
-                                    .map_err(|_| Disconnected {})?;
+                                router_tx.try_send(RouterEvent::UsbCommand(1)).map_err(|_| Disconnected {})?;
                             }
                         }
                         0x32 => {
                             // 0x32 = ascii "2"
                             if !router_tx.is_full() {
-                                router_tx
-                                    .try_send(RouterEvent::UsbCommand(2))
-                                    .map_err(|_| Disconnected {})?;
+                                router_tx.try_send(RouterEvent::UsbCommand(2)).map_err(|_| Disconnected {})?;
                             }
                         }
                         0x33 => {
                             // 0x33 = ascii "3"
                             if !router_tx.is_full() {
-                                router_tx
-                                    .try_send(RouterEvent::UsbCommand(3))
-                                    .map_err(|_| Disconnected {})?;
+                                router_tx.try_send(RouterEvent::UsbCommand(3)).map_err(|_| Disconnected {})?;
                             }
                         }
                         _ => {
@@ -71,12 +61,7 @@ pub async fn process_data<'d, T: Instance + 'd>(
             }
         }
         if let Ok(new_message) = with_timeout(Duration::from_millis(2), rx.receive()).await {
-            let len = new_message
-                .iter()
-                .enumerate()
-                .find(|&n| n.1 == &0)
-                .map(|x| x.0)
-                .unwrap_or(63);
+            let len = new_message.iter().enumerate().find(|&n| n.1 == &0).map(|x| x.0).unwrap_or(63);
 
             class.write_packet(&new_message[0..len]).await?;
         }
@@ -84,11 +69,7 @@ pub async fn process_data<'d, T: Instance + 'd>(
 }
 
 #[embassy_executor::task(pool_size = 1)]
-pub async fn usb_task(
-    driver: Driver<'static, peripherals::USB>,
-    rx: UsbChannelRx,
-    router_tx: RouterChannelTx,
-) {
+pub async fn usb_task(driver: Driver<'static, peripherals::USB>, rx: UsbChannelRx, router_tx: RouterChannelTx) {
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
     config.manufacturer = Some("Zatetic");

@@ -115,11 +115,7 @@ fn parse_port_address<'a>(s: &'a [u8]) -> IResult<&'a [u8], PortAddress> {
     ))
     .parse(s)?;
 
-    let port_address = PortAddress {
-        net,
-        sub_net,
-        universe,
-    };
+    let port_address = PortAddress { net, sub_net, universe };
 
     Ok((s, port_address))
 }
@@ -188,10 +184,7 @@ fn parse_command<'a>(s: &'a [u8]) -> Result<Command<'a>, Error> {
 
     let data = &s[..length as usize];
 
-    Ok(Command {
-        esta_manufacturer_code,
-        data,
-    })
+    Ok(Command { esta_manufacturer_code, data })
 }
 
 #[derive(Debug, Format)]

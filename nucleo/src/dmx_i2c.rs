@@ -16,20 +16,11 @@ pub async fn dmx_task(i2c_bus_manager: &'static I2c1Bus, address: u8, tx: DmxCha
     let mut data_buffer = [0_u8; DMX_BUFF_SIZE];
 
     loop {
-        match i2c_bus_dev
-            .write_read(address, &[0x01], &mut data_buffer[0..199])
-            .await
-        {
+        match i2c_bus_dev.write_read(address, &[0x01], &mut data_buffer[0..199]).await {
             Ok(()) => {
-                match i2c_bus_dev
-                    .write_read(address, &[0x01], &mut data_buffer[200..299])
-                    .await
-                {
+                match i2c_bus_dev.write_read(address, &[0x01], &mut data_buffer[200..299]).await {
                     Ok(()) => {
-                        match i2c_bus_dev
-                            .write_read(address, &[0x01], &mut data_buffer[400..513])
-                            .await
-                        {
+                        match i2c_bus_dev.write_read(address, &[0x01], &mut data_buffer[400..513]).await {
                             Ok(()) => tx.send(DmxEvent::DmxPacket(data_buffer)).await,
                             Err(e) => {
                                 error!("Error {}", e);

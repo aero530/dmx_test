@@ -28,14 +28,7 @@ pub struct SmartLed<'a> {
 }
 
 impl<'a> SmartLed<'a> {
-    pub fn new(
-        spi_1: Spi<'a, Async>,
-        spi_2: Spi<'a, Async>,
-        spi_3: Spi<'a, Async>,
-        spi_4: Spi<'a, Async>,
-        num_leds: usize,
-        rx: SmartLedChannelRx,
-    ) -> Self {
+    pub fn new(spi_1: Spi<'a, Async>, spi_2: Spi<'a, Async>, spi_3: Spi<'a, Async>, spi_4: Spi<'a, Async>, num_leds: usize, rx: SmartLedChannelRx) -> Self {
         let ws_1: Ws2812<_, Grb> = Ws2812::new(spi_1);
         let ws_2: Ws2812<_, Grb> = Ws2812::new(spi_2);
         let ws_3: Ws2812<_, Grb> = Ws2812::new(spi_3);
@@ -88,7 +81,7 @@ impl<'a> SmartLed<'a> {
             // }
             SmartLedEvent::Value(values) => {
                 let prev_length = self.num_leds;
-                self.num_leds = ((values[3] as usize) * 100) / 255 * 3 as usize;
+                self.num_leds = ((values[3] as usize) * 100) / 255 * 3_usize;
 
                 for i in 0..self.num_leds {
                     self.data[i] = RGB8::new(values[0], values[1], values[2]);
@@ -103,13 +96,7 @@ impl<'a> SmartLed<'a> {
     }
 
     async fn send_to_leds(&mut self) -> Result<(), &'static str> {
-        let results = embassy_futures::join::join_array([
-            self.ws_1.write(self.data),
-            self.ws_2.write(self.data),
-            self.ws_3.write(self.data),
-            self.ws_4.write(self.data),
-        ])
-        .await;
+        let results = embassy_futures::join::join_array([self.ws_1.write(self.data), self.ws_2.write(self.data), self.ws_3.write(self.data), self.ws_4.write(self.data)]).await;
 
         let a = results.iter().filter(|&&r| r.is_err()).count();
 
@@ -122,13 +109,7 @@ impl<'a> SmartLed<'a> {
 }
 
 #[embassy_executor::task]
-pub async fn smart_led_task(
-    spi_1: Spi<'static, Async>,
-    spi_2: Spi<'static, Async>,
-    spi_3: Spi<'static, Async>,
-    spi_4: Spi<'static, Async>,
-    rx: SmartLedChannelRx,
-) {
+pub async fn smart_led_task(spi_1: Spi<'static, Async>, spi_2: Spi<'static, Async>, spi_3: Spi<'static, Async>, spi_4: Spi<'static, Async>, rx: SmartLedChannelRx) {
     let mut smart_led = SmartLed::new(spi_1, spi_2, spi_3, spi_4, 5, rx);
     smart_led.enable().await;
     loop {

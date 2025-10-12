@@ -6,11 +6,7 @@ use crate::channels::{GlobalDataChannelRx, RouterChannelTx, UsbChannelTx};
 use embassy_time::{Instant, Timer};
 
 #[embassy_executor::task(pool_size = 1)]
-pub async fn log_task(
-    router_tx: RouterChannelTx,
-    mut rx_data: GlobalDataChannelRx,
-    usb_tx: UsbChannelTx,
-) {
+pub async fn log_task(router_tx: RouterChannelTx, mut rx_data: GlobalDataChannelRx, usb_tx: UsbChannelTx) {
     let mut buf = [0u8; 64];
 
     loop {
@@ -22,8 +18,7 @@ pub async fn log_task(
                 home(usb_tx, &mut buf).await;
 
                 buf.fill(0_u8);
-                let _ =
-                    format_no_std::show(&mut buf, format_args!("{}sec ", now.fg(cyan()))).unwrap();
+                let _ = format_no_std::show(&mut buf, format_args!("{}sec ", now.fg(cyan()))).unwrap();
                 usb_tx.send(buf).await;
                 new_line(usb_tx, &mut buf).await;
 

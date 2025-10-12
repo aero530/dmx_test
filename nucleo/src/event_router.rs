@@ -11,19 +11,10 @@ use defmt::*;
 use embassy_time::{with_timeout, Duration};
 
 /// Data stored for global use (primarily for logging / terminal display)
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Default)]
 pub struct GlobalData {
     pub dmx_address: u16,
     // pub dmx: [u8; DMX_BUFF_SIZE],
-}
-
-impl Default for GlobalData {
-    fn default() -> Self {
-        Self {
-            dmx_address: 0,
-            // dmx: [0; DMX_BUFF_SIZE]
-        }
-    }
 }
 
 /// Events the router watches for.  These trigger the router to pass along an event to another object.
@@ -90,20 +81,9 @@ impl Router {
 
     pub async fn process_event(&mut self, event: RouterEvent) {
         match event {
-            RouterEvent::UsbCommand(input) => match input {
-                // 1 => {
-                //     let _ = self.channel_led.try_send(LedEvent::On);
-                // }
-                // 2 => {
-                //     let _ = self.channel_led.try_send(LedEvent::Off);
-                // }
-                // _ => {
-                //     let _ = self.channel_led.try_send(LedEvent::Blink);
-                // }
-                _ => {
-                    info!("USB command {}", input);
-                }
-            },
+            RouterEvent::UsbCommand(input) => {
+                info!("USB command {}", input);
+            }
             RouterEvent::Button(evt) => {
                 info!("Button event {}", evt);
             }
@@ -129,7 +109,7 @@ impl Router {
                     KeyPadButton::N8 => {}
                     KeyPadButton::N9 => {}
                     KeyPadButton::Star => {
-                        let _ = self.channel_ui.try_send(UiEvent::Next);
+                        let _ = self.channel_ui.try_send(UiEvent::Esc);
                     }
                     KeyPadButton::Pound => {
                         let _ = self.channel_ui.try_send(UiEvent::Up);
@@ -142,21 +122,17 @@ impl Router {
     pub async fn process_dmx(&mut self, event: DmxEvent) {
         match event {
             DmxEvent::DmxPacket(input) => {
-                info!("Router got DMX data {}", input[0..24]);
+                trace!("Router got DMX data {}", input[0..24]);
 
                 // self.data.dmx = input;
 
                 // let _ = self.channel_pwm.try_send(PwmEvent::Value([input[1], input[2], input[3]]));
-                let _ = self
-                    .channel_pwm_i2c
-                    .try_send(PwmEvent::Value([input[1], input[2], input[3]]));
+                let _ = self.channel_pwm_i2c.try_send(PwmEvent::Value([input[1], input[2], input[3]]));
                 // let _ = self.channel_smart_led.try_send(SmartLedEvent::Value([
                 //     input[1], input[2], input[3], input[4],
                 // ]));
 
-                let _ = self
-                    .channel_smart_led
-                    .try_send(SmartLedEvent::Value([input[1], input[2], input[3], input[4]]));
+                let _ = self.channel_smart_led.try_send(SmartLedEvent::Value([input[1], input[2], input[3], input[4]]));
 
                 // let _ = self.channel_smart_led.try_send(SmartLedEvent::Value([input[1], input[2], input[3]]));
             }
@@ -167,9 +143,7 @@ impl Router {
 #[embassy_executor::task]
 pub async fn event_router(mut router: Router) {
     loop {
-        if let Ok(new_message) =
-            with_timeout(Duration::from_millis(10), router.channel.receive()).await
-        {
+        if let Ok(new_message) = with_timeout(Duration::from_millis(10), router.channel.receive()).await {
             router.process_event(new_message).await;
         }
 

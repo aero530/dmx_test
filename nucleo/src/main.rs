@@ -131,9 +131,7 @@ async fn main(spawner: Spawner) {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = None;
         // config.rcc.hsi48 = Some(Default::default()); // needed for RNG
-        config.rcc.hsi48 = Some(Hsi48Config {
-            sync_from_usb: true,
-        }); // needed for USB
+        config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
         config.rcc.hse = Some(Hse {
             // High speed external clock
             freq: Hertz(8_000_000), // 4 - 26MHz
@@ -235,13 +233,7 @@ async fn main(spawner: Spawner) {
     let i2c_led = I2c::new(p.I2C4, p.PF5, p.PF15, Irqs, p.GPDMA1_CH0, p.GPDMA1_CH1, cfg);
     let i2c_led_bus = Mutex::new(i2c_led);
     let i2c_led_bus_manager = I2C_BUS_LED.init(i2c_led_bus);
-    spawner
-        .spawn(pwm_i2c_task(
-            i2c_led_bus_manager,
-            PWM_ADDRESS,
-            CHANNEL_PWM.receiver(),
-        ))
-        .unwrap();
+    spawner.spawn(pwm_i2c_task(i2c_led_bus_manager, PWM_ADDRESS, CHANNEL_PWM.receiver())).unwrap();
 
     // -----------------------------------
     // Configure I2C for display
@@ -277,21 +269,13 @@ async fn main(spawner: Spawner) {
 
     let i2c_dmx_bus = Mutex::new(i2c_dmx);
     let i2c_dmx_bus_manager = I2C_BUS_DMX.init(i2c_dmx_bus);
-    spawner
-        .spawn(dmx_task(
-            i2c_dmx_bus_manager,
-            DMX_ADDRESS,
-            CHANNEL_DMX.sender(),
-        ))
-        .unwrap();
+    spawner.spawn(dmx_task(i2c_dmx_bus_manager, DMX_ADDRESS, CHANNEL_DMX.sender())).unwrap();
 
     // -----------------------------------
     // Button (header)
     // -----------------------------------
     let button = Input::new(p.PC13, Pull::Up);
-    spawner
-        .spawn(button_task(button, CHANNEL.sender()))
-        .unwrap();
+    spawner.spawn(button_task(button, CHANNEL.sender())).unwrap();
 
     // -----------------------------------
     // Display board buttons
@@ -315,12 +299,7 @@ async fn main(spawner: Spawner) {
     //     .unwrap();
     spawner
         .spawn(button_row_task(
-            [
-                Input::new(p.PD10, Pull::Up),
-                Input::new(p.PD11, Pull::Up),
-                Input::new(p.PD12, Pull::Up),
-                Input::new(p.PD13, Pull::Up),
-            ],
+            [Input::new(p.PD10, Pull::Up), Input::new(p.PD11, Pull::Up), Input::new(p.PD12, Pull::Up), Input::new(p.PD13, Pull::Up)],
             CHANNEL.sender(),
         ))
         .unwrap();
@@ -335,17 +314,9 @@ async fn main(spawner: Spawner) {
         d
     };
 
-    spawner
-        .spawn(usb_task(driver, CHANNEL_USB.receiver(), CHANNEL.sender()))
-        .unwrap();
+    spawner.spawn(usb_task(driver, CHANNEL_USB.receiver(), CHANNEL.sender())).unwrap();
 
-    spawner
-        .spawn(log_task(
-            CHANNEL.sender(),
-            CHANNEL_LOG.receiver().unwrap(),
-            CHANNEL_USB.sender(),
-        ))
-        .unwrap();
+    spawner.spawn(log_task(CHANNEL.sender(), CHANNEL_LOG.receiver().unwrap(), CHANNEL_USB.sender())).unwrap();
 
     // // -----------------------------------
     // // Setup USART for RS485 / DMX
@@ -389,15 +360,7 @@ async fn main(spawner: Spawner) {
     let spi_2 = Spi::new_txonly(p.SPI2, p.PB10, p.PC3, p.GPDMA2_CH1, spi_config);
     let spi_3 = Spi::new_txonly(p.SPI3, p.PC10, p.PB2, p.GPDMA2_CH2, spi_config);
     let spi_4 = Spi::new_txonly(p.SPI4, p.PE12, p.PE14, p.GPDMA2_CH3, spi_config);
-    spawner
-        .spawn(smart_led_task(
-            spi_1,
-            spi_2,
-            spi_3,
-            spi_4,
-            CHANNEL_SMART_LED.receiver(),
-        ))
-        .unwrap();
+    spawner.spawn(smart_led_task(spi_1, spi_2, spi_3, spi_4, CHANNEL_SMART_LED.receiver())).unwrap();
 
     // -----------------------------------
     // Config SPI for Display
@@ -412,29 +375,14 @@ async fn main(spawner: Spawner) {
         phase: Phase::CaptureOnFirstTransition,
     };
 
-    let spi_display: Spi<'_, embassy_stm32::mode::Async> = Spi::new(
-        p.SPI5,
-        p.PF7,
-        p.PF9,
-        p.PF8,
-        p.GPDMA2_CH4,
-        p.GPDMA2_CH5,
-        spi_config,
-    );
+    let spi_display: Spi<'_, embassy_stm32::mode::Async> = Spi::new(p.SPI5, p.PF7, p.PF9, p.PF8, p.GPDMA2_CH4, p.GPDMA2_CH5, spi_config);
     let display_cs = Output::new(p.PF6, Level::High, Speed::Low);
     let display_dc = Output::new(p.PF11, Level::High, Speed::Low);
     let display_reset = Output::new(p.PF10, Level::High, Speed::Low);
     let display_backlight = OutputOpenDrain::new(p.PF3, Level::Low, Speed::Low); // using display reset from i2c which is pulled high
 
     spawner
-        .spawn(ui_task_spi(
-            spi_display,
-            display_cs,
-            display_dc,
-            display_reset,
-            display_backlight,
-            CHANNEL_UI.receiver(),
-        ))
+        .spawn(ui_task_spi(spi_display, display_cs, display_dc, display_reset, display_backlight, CHANNEL_UI.receiver()))
         .unwrap();
 
     // -----------------------------------
@@ -450,15 +398,7 @@ async fn main(spawner: Spawner) {
         phase: Phase::CaptureOnFirstTransition,
     };
 
-    let _spi_dmx = Spi::new(
-        p.SPI6,
-        p.PC12,
-        p.PG14,
-        p.PA6,
-        p.GPDMA1_CH6,
-        p.GPDMA1_CH7,
-        spi_config,
-    );
+    let _spi_dmx = Spi::new(p.SPI6, p.PC12, p.PG14, p.PA6, p.GPDMA1_CH6, p.GPDMA1_CH7, spi_config);
     // spawner
     //     .spawn(dmx_task(spi_dmx, CHANNEL_UI.receiver()))
     //     .unwrap();

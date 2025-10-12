@@ -1,0 +1,4 @@
+max_width = 200
+hard_tabs = false
+tab_spaces = 4
+edition = "2024" # Ensure consistency with your Cargo.toml

@@ -38,25 +38,13 @@ pub struct WithBackground<Item, Formatter: FormatColor> {
 pub trait Colorable: Sized {
     /// Add a background color
     #[allow(dead_code)]
-    fn bg<TFormatColor: FormatColor>(
-        self,
-        formatter: TFormatColor,
-    ) -> WithBackground<Self, TFormatColor> {
-        WithBackground {
-            item: self,
-            formatter,
-        }
+    fn bg<TFormatColor: FormatColor>(self, formatter: TFormatColor) -> WithBackground<Self, TFormatColor> {
+        WithBackground { item: self, formatter }
     }
 
     /// Add a foreground color
-    fn fg<TFormatColor: FormatColor>(
-        self,
-        formatter: TFormatColor,
-    ) -> WithForeground<Self, TFormatColor> {
-        WithForeground {
-            item: self,
-            formatter,
-        }
+    fn fg<TFormatColor: FormatColor>(self, formatter: TFormatColor) -> WithForeground<Self, TFormatColor> {
+        WithForeground { item: self, formatter }
     }
 }
 
@@ -64,9 +52,7 @@ impl<T> Colorable for T {}
 
 macro_rules! impl_me {
     ($bound:path) => {
-        impl<Item: $bound, TFormatColor: FormatColor> $bound
-            for WithForeground<Item, TFormatColor>
-        {
+        impl<Item: $bound, TFormatColor: FormatColor> $bound for WithForeground<Item, TFormatColor> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 self.formatter
                     .prelude(f, Canvas::Foreground)
@@ -74,9 +60,7 @@ macro_rules! impl_me {
                     .and_then(|_| self.formatter.epilogue(f, Canvas::Foreground))
             }
         }
-        impl<Item: $bound, TFormatColor: FormatColor> $bound
-            for WithBackground<Item, TFormatColor>
-        {
+        impl<Item: $bound, TFormatColor: FormatColor> $bound for WithBackground<Item, TFormatColor> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 self.formatter
                     .prelude(f, Canvas::Background)

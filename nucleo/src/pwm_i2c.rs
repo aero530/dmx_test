@@ -53,31 +53,13 @@ impl<I2C: embedded_hal_async::i2c::I2c> PwmI2c<I2C> {
             PwmEvent::Value(values) => {
                 // channels turn on at counter=0.  turn channels off at some other value
                 // range is [0..4095] but value comes in as [0..255] so multiply by 16
-                self.pwm
-                    .set_channel_off(Channel::C0, values[0] as u16 * 16)
-                    .await
-                    .unwrap();
-                self.pwm
-                    .set_channel_off(Channel::C1, values[1] as u16 * 16)
-                    .await
-                    .unwrap();
-                self.pwm
-                    .set_channel_off(Channel::C2, values[2] as u16 * 16)
-                    .await
-                    .unwrap();
+                self.pwm.set_channel_off(Channel::C0, values[0] as u16 * 16).await.unwrap();
+                self.pwm.set_channel_off(Channel::C1, values[1] as u16 * 16).await.unwrap();
+                self.pwm.set_channel_off(Channel::C2, values[2] as u16 * 16).await.unwrap();
 
-                self.pwm
-                    .set_channel_off(Channel::C5, values[0] as u16 * 16)
-                    .await
-                    .unwrap();
-                self.pwm
-                    .set_channel_off(Channel::C6, values[1] as u16 * 16)
-                    .await
-                    .unwrap();
-                self.pwm
-                    .set_channel_off(Channel::C7, values[2] as u16 * 16)
-                    .await
-                    .unwrap();
+                self.pwm.set_channel_off(Channel::C5, values[0] as u16 * 16).await.unwrap();
+                self.pwm.set_channel_off(Channel::C6, values[1] as u16 * 16).await.unwrap();
+                self.pwm.set_channel_off(Channel::C7, values[2] as u16 * 16).await.unwrap();
 
                 // set pwm to value
             }

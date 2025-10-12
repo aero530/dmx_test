@@ -259,9 +259,6 @@ fn put_u8(buf: &mut [u8; 239], s: usize, value: u8) -> usize {
 
 fn put_slice<const N: usize>(buf: &mut [u8; 239], s: usize, value: &[u8; N]) -> usize {
     let l = value.len();
-    buf[s..s + l]
-        .iter_mut()
-        .enumerate()
-        .for_each(|(i, v)| *v = value[i]);
+    buf[s..s + l].iter_mut().enumerate().for_each(|(i, v)| *v = value[i]);
     s + l
 }

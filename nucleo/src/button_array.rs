@@ -81,21 +81,17 @@ impl KeyPadButton {
             9 => Self::N8,
             10 => Self::N9,
             11 => Self::C,
-            12 => Self::Star,   // single row button 0
-            13 => Self::N0,     // single row button 1
-            14 => Self::Pound,  // single row button 2
-            15 => Self::D,      // single row button 3
+            12 => Self::Star,  // single row button 0
+            13 => Self::N0,    // single row button 1
+            14 => Self::Pound, // single row button 2
+            15 => Self::D,     // single row button 3
             _ => Self::None,
         }
     }
 }
 
 #[embassy_executor::task]
-pub async fn button_array_task(
-    cols: [Input<'static>; 4],
-    mut rows: [OutputOpenDrain<'static>; 4],
-    tx: RouterChannelTx,
-) {
+pub async fn button_array_task(cols: [Input<'static>; 4], mut rows: [OutputOpenDrain<'static>; 4], tx: RouterChannelTx) {
     // let mut pressed : [KeyPadButton; 16];
     let mut pressed: [bool; 16];
     let mut found: bool;
@@ -114,7 +110,7 @@ pub async fn button_array_task(
         rows.iter_mut().for_each(|r| {
             r.set_low(); // enable this row drain
             cols.iter().for_each(|c| {
-                if c.is_low() && found == false {
+                if c.is_low() && !found {
                     // check each col for low value (button pressed)
                     pressed[location] = true;
                     found = true;
@@ -142,10 +138,7 @@ pub async fn button_array_task(
         // send pressed buttons to router
         for (l, e) in events.iter().enumerate() {
             if *e == KeyPadEvent::Released {
-                match tx.try_send(RouterEvent::ButtonArray((
-                    KeyPadButton::at(l),
-                    KeyPadEvent::Released,
-                ))) {
+                match tx.try_send(RouterEvent::ButtonArray((KeyPadButton::at(l), KeyPadEvent::Released))) {
                     Ok(_) => {}
                     Err(e) => error!("Message dropped. Channel full. {}", e),
                 };
@@ -157,30 +150,23 @@ pub async fn button_array_task(
     }
 }
 
-
-
 #[embassy_executor::task]
-pub async fn button_row_task(
-    row: [Input<'static>; 4],
-    tx: RouterChannelTx,
-) {
+pub async fn button_row_task(row: [Input<'static>; 4], tx: RouterChannelTx) {
     // let mut pressed : [KeyPadButton; 16];
     let mut pressed: [bool; 4];
     let mut events: [KeyPadEvent; 16];
-    let mut location = 0;
     events = [KeyPadEvent::None; 16];
 
-    let map = [12, 13, 14, 15];
+    let map = [15, 14, 13, 12];
 
     loop {
         // set values to default
         // pressed = [KeyPadButton::None; 16];
         pressed = [false; 4];
-        location = 0;
+        let mut location = 0;
 
         // iterate through rows / cols to check if button is pressed
         row.iter().for_each(|r| {
-            
             if r.is_low() {
                 // check each col for low value (button pressed)
                 pressed[location] = true;
@@ -201,16 +187,12 @@ pub async fn button_row_task(
                 pressed[location] = false;
             }
             location += 1;
-            
         });
 
         // send pressed buttons to router
         for (l, e) in events.iter().enumerate() {
             if *e == KeyPadEvent::Released {
-                match tx.try_send(RouterEvent::ButtonArray((
-                    KeyPadButton::at(l),
-                    KeyPadEvent::Released,
-                ))) {
+                match tx.try_send(RouterEvent::ButtonArray((KeyPadButton::at(l), KeyPadEvent::Released))) {
                     Ok(_) => {}
                     Err(e) => error!("Message dropped. Channel full. {}", e),
                 };

@@ -14,12 +14,7 @@ mod tiny_artnet;
 use tiny_artnet::Art;
 
 #[embassy_executor::task]
-pub async fn artnet_task(
-    stack: Stack<'static>,
-    runner: Runner<'static, Ethernet<'static, ETH, GenericSMI>>,
-    spawner: Spawner,
-    tx: DmxChannelTx,
-) {
+pub async fn artnet_task(stack: Stack<'static>, runner: Runner<'static, Ethernet<'static, ETH, GenericSMI>>, spawner: Spawner, tx: DmxChannelTx) {
     // let mut art_net = ArtNet::new(eth, 8, rx);
 
     // art_net.enable().await;
@@ -53,13 +48,7 @@ pub async fn artnet_task(
 
     info!("Network buffers initialized");
 
-    let mut socket = UdpSocket::new(
-        stack,
-        &mut rx_meta,
-        &mut rx_buffer,
-        &mut tx_meta,
-        &mut tx_buffer,
-    );
+    let mut socket = UdpSocket::new(stack, &mut rx_meta, &mut rx_buffer, &mut tx_meta, &mut tx_buffer);
 
     let port = tiny_artnet::PORT;
     // let port = 6;
@@ -89,10 +78,7 @@ pub async fn artnet_task(
                 // package the dmx data into 513 bytes
                 let mut buf = [0_u8; DMX_BUFF_SIZE];
                 // dmx.data does not include the DMX start byte. The packet exepcted by
-                dmx.data
-                    .iter()
-                    .enumerate()
-                    .for_each(|(i, v)| buf[i + 1] = *v);
+                dmx.data.iter().enumerate().for_each(|(i, v)| buf[i + 1] = *v);
 
                 if !tx.is_empty() {
                     info!("Clearing DMX channel");
@@ -148,17 +134,11 @@ pub async fn artnet_task(
                 // broadcast
                 //     .send_to(&buf[..msg_len], "255.255.255.255")
                 //     .unwrap();
-                info!(
-                    "Sent ArtPollReply to {:?}:{:?} {:?}",
-                    from_addr.endpoint.addr, from_addr.endpoint.port, poll_reply
-                );
+                info!("Sent ArtPollReply to {:?}:{:?} {:?}", from_addr.endpoint.addr, from_addr.endpoint.port, poll_reply);
                 // info!("TX: Sent ArtPollReply");
             }
             Ok(Art::Command(command)) => {
-                info!(
-                    "command {:?} - {:?}",
-                    command.esta_manufacturer_code, command.data
-                );
+                info!("command {:?} - {:?}", command.esta_manufacturer_code, command.data);
             }
             Err(err) => {
                 // info!("Error: {:?}", err);

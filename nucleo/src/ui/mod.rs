@@ -1,252 +1,177 @@
 //! UI hardware interface
 
-
-use defmt::Format;
+use defmt::{info, Format};
 use embassy_stm32::gpio::{Output, OutputOpenDrain};
 use embassy_stm32::mode::Async;
 use embassy_stm32::spi::Spi;
 use embassy_time::Delay;
 
+use embedded_graphics::prelude::WebColors;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use mipidsi::interface::SpiInterface;
 use mipidsi::options::{Orientation, Rotation};
 use mipidsi::{models::ST7789, options::ColorInversion, Builder};
 
 use embedded_graphics::{
-    mono_font::{MonoTextStyle, iso_8859_4::FONT_10X20},
+    draw_target::DrawTarget,
+    mono_font::{iso_8859_4::FONT_10X20, MonoTextStyle},
     pixelcolor::Rgb565,
     prelude::{Point, RgbColor},
-    geometry::Dimensions,
-    draw_target::DrawTarget,
     Drawable,
 };
-use embedded_layout::{
-    layout::linear::{
-        spacing::FixedMargin,
-        LinearLayout, 
-    },
-    prelude::*
+use u8g2_fonts::{
+    fonts,
+    types::{FontColor, HorizontalAlignment, VerticalPosition},
+    Font, FontRenderer, U8g2TextStyle,
 };
 
+use embassy_time::{with_timeout, Duration};
 
 use static_cell::StaticCell;
 
 use crate::channels::UiChannelRx;
+use crate::ui::layout::NextPrev;
+use crate::ui::menu_value::ValueType;
 
 use crate::{DISPLAY_HEIGHT, DISPLAY_OFFSET, DISPLAY_WIDTH};
 
 mod menu_item;
 use menu_item::MenuItem;
 
+mod menu_tab;
+use menu_tab::MenuTab;
 
+mod layout;
+pub use layout::{IncDec, SelectionMode, View};
 
-// mod app;
-// use app::App;
+mod types;
+pub use types::*;
 
-type SpiDisplay = mipidsi::Display<
-    SpiInterface<
-        'static,
-        ExclusiveDevice<Spi<'static, Async>, Output<'static>, embedded_hal_bus::spi::NoDelay>,
-        Output<'static>,
-    >,
-    ST7789,
-    Output<'static>,
->;
+mod menu_value;
+pub use menu_value::MenuValue;
+
+type SpiDisplay = mipidsi::Display<SpiInterface<'static, ExclusiveDevice<Spi<'static, Async>, Output<'static>, embedded_hal_bus::spi::NoDelay>, Output<'static>>, ST7789, Output<'static>>;
 
 static SPI_DISP_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
+
+const COLOR_DEFAULT_TEXT: Rgb565 = Rgb565::WHITE;
+const COLOR_MENU_TEXT: Rgb565 = Rgb565::CSS_CORAL;
+
+const COLOR_ITEM_TEXT: Rgb565 = Rgb565::CSS_CORNFLOWER_BLUE;
+const COLOR_VALUE_TEXT: Rgb565 = Rgb565::CSS_CORNFLOWER_BLUE;
+const COLOR_SELECTED_TEXT: Rgb565 = Rgb565::CSS_BLUE_VIOLET;
+const COLOR_EDITING_TEXT: Rgb565 = Rgb565::CSS_DEEP_PINK;
+
+//https://github.com/olikraus/u8g2/wiki/fntlistmono#24-pixel-height
+const DEFAULT_FONT: fonts::u8g2_font_inr16_mf = fonts::u8g2_font_inr16_mf;
 
 #[derive(Format)]
 pub enum UiEvent {
     Up,
     Down,
-    Next,
     Select,
-    NextTab,
+    Esc,
 }
 
-#[derive(Default, Clone, Copy, PartialEq)]
-enum TestEnum {
-    #[default]
-    _0,
-    _1,
-    _2,
-    _3,
-    _4,
-    _5,
-    _6,
-    _7,
-    _8,
-    _9,
-}
-
-#[derive(Clone, Copy)]
-struct PwmSettings {
-    freq: u8,
-}
-
-#[derive(Default, Clone, Copy)]
-struct SmartLedSettings {
-    leds_per_port: (u16, u16, u16, u16),
-    address_mode: SmartLedGroupingAddressing,
-    grouping: SmartLedGrouping,
-}
-
-#[derive(Default, Clone, Copy, PartialEq)]
-enum SmartLedGroupingAddressing {
-    #[default]
-    RGB,
-    RGBW,
-}
-
-#[derive(Default, Clone, Copy, PartialEq)]
-enum SmartLedGrouping {
-    #[default]
-    Individual,
-    CombineByPort,
-    CombineByModule,
-}
-
-#[derive(Clone, Copy)]
-enum ModuleSettings {
-    SmartLed(SmartLedSettings),
-    Pwm(PwmSettings),
-}
-
-#[derive(Clone, Copy)]
-struct MenuData {
-    dmx_address: u16,
-    ip: (u8,u8,u8,u8),
-    module: ModuleSettings,
-}
-
-impl Default for MenuData {
-    fn default() -> Self {
-        Self{
-            dmx_address:0,
-            ip: (0,0,0,0),
-            module: ModuleSettings::SmartLed(SmartLedSettings::default()),
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-struct MenuTab<D> {
-    name: &'static str,
-    content: D,
-}
-
-
-
-// #[derive(Default, Clone, Copy)]
-// enum MenuEvent {
-//     SliceCheckbox(usize, bool),
-//     // Select(TestEnum),
-//     #[default]
-//     Nothing,
-//     Quit,
-// }
-
-
-//<T> where T: Drawable
 pub struct Ui {
     disp: SpiDisplay,
     rx: UiChannelRx,
-    // tabs: [MenuTab;4],
     current_tab: usize,
-    menu_data: MenuData,
-    menu_event: Option<UiEvent>,
 }
 
-// #[derive(Clone, Copy)]
-// struct MyTheme;
-// impl Theme for MyTheme {
-//     type Color = Rgb565;
-//     fn text_color(&self) -> Self::Color {
-//         Rgb565::WHITE
-//     }
-//     fn selected_text_color(&self) -> Self::Color {
-//         Rgb565::BLUE
-//     }
-//     fn selection_color(&self) -> Self::Color {
-//         Rgb565::new(51, 255, 51)
-//     }
-// }
-
 impl Ui {
-    pub fn new(
-        disp: SpiDisplay,
-        rx: UiChannelRx,
-    ) -> Self {
-        Self {
-            disp,
-            rx,
-            menu_data: MenuData::default(),
-            menu_event: None,
-            // tabs: [],
-            current_tab: 0,
+    pub fn new(disp: SpiDisplay, rx: UiChannelRx) -> Self {
+        Self { disp, rx, current_tab: 0 }
+    }
+
+    fn next_tab(&mut self, menu_len: usize) {
+        if self.current_tab == menu_len - 1 {
+            self.current_tab = 0;
+        } else {
+            self.current_tab = self.current_tab.saturating_add(1);
+        }
+    }
+
+    fn previous_tab(&mut self, menu_len: usize) {
+        if self.current_tab == 0 {
+            self.current_tab = menu_len - 1;
+        } else {
+            self.current_tab = self.current_tab.saturating_sub(1)
         }
     }
 
     pub async fn run(&mut self) {
-        // let mut menu0 = Menu::with_style(
-        //     "   Tab 0",
-        //     MenuStyle::new(ExampleTheme).with_font(&FONT_10X20).with_title_font(&FONT_10X20)
-        //     )
-        //     // .add_item("DMX:", self.menu.dmx_address, |_| 1)
-        //     .add_item("Check this 2", false, |b| 30 + b as i32)
-        //     .add_item("Check this 3", false, |b| 30 + b as i32)
-        //     .add_item("Check this 4", false, |b| 30 + b as i32)
-        //     // .add_item("Next Tab", ">>", |_| {self.menu_event=UiEvent::NextTab; ()})
-        //     .add_item("Check this 3", TestEnum::_0, |b| b as i32)
-        //     .build();
-
-        // let mut menu1 = Menu::with_style(
-        //     "   Tab 1",
-        //     MenuStyle::new(ExampleTheme).with_font(&FONT_10X20).with_title_font(&FONT_10X20)
-        //     )
-        //     .add_item("Foo", ">", |_| 1)
-        //     .add_section_title("===== Section =====")
-        //     .add_item("Check this 5", false, |b| 30 + b as i32)
-        //     .build();
-
-        // let mut menu2 = Menu::with_style(
-        //     "   Tab 2",
-        //     MenuStyle::new(ExampleTheme).with_font(&FONT_10X20).with_title_font(&FONT_10X20)
-        //     )
-        //     .add_item("Bar", ">", |_| 1)
-        //     .add_item("More stuff", false, |b| 20 + b as i32)
-        //     .build();
-
-        // let mut menu3 = Menu::with_style(
-        //     "   Tab 3",
-        //     MenuStyle::new(ExampleTheme).with_font(&FONT_10X20).with_title_font(&FONT_10X20)
-        //     )
-        //     .add_item("Cat", ">", |_| 1)
-        //     .add_section_title("===== Section =====")
-        //     .build();
-        
-
-        // let tab1 = [
-        //     MenuItem::new("iotme name", 7, Point::zero(), text_style),
-        //     MenuItem::new("sad name", 9, Point::zero(), text_style)
-        // ];
-
         // Create a Rectangle from the display's dimensions
-        let display_area = self.disp.bounding_box();
+        let text_style = U8g2TextStyle::new(DEFAULT_FONT, COLOR_DEFAULT_TEXT);
 
-        let text_style = MonoTextStyle::new(&FONT_10X20, Rgb565::GREEN);
-        
-        let q = LinearLayout::vertical(
-            Chain::new(MenuItem::new("iotme name", 7, Point::zero(), text_style))
-            .append(MenuItem::new("other thing", 9, Point::zero(), text_style))
-        )
-            .with_spacing(FixedMargin(4))
-            .arrange()
-            .align_to(&display_area, horizontal::Center, vertical::Top)
-            .draw(&mut self.disp);
-        
+        let mut menu0_items = [MenuItem::new("DMX", ValueType::Uint3(258), true, Point::zero(), text_style.clone())];
 
-        // self.tabs[0] = menu0;
+        let mut menu1_items = [
+            MenuItem::new("Group Mode", ValueType::SmartLedGrouping(SmartLedGrouping::CombineByPort), true, Point::zero(), text_style.clone()),
+            MenuItem::new(
+                "LED Mode",
+                ValueType::SmartLedGroupingAddressing(SmartLedGroupingAddressing::RGB),
+                true,
+                Point::zero(),
+                text_style.clone(),
+            ),
+        ];
+
+        let mut menu2_items = [
+            MenuItem::new("LEDs on Port 1", ValueType::Uint3(0), true, Point::zero(), text_style.clone()),
+            MenuItem::new("LEDs on Port 2", ValueType::Uint3(0), true, Point::zero(), text_style.clone()),
+            MenuItem::new("LEDs on Port 3", ValueType::Uint3(0), true, Point::zero(), text_style.clone()),
+            MenuItem::new("LEDs on Port 4", ValueType::Uint3(123), true, Point::zero(), text_style.clone()),
+        ];
+
+        let mut menu0 = MenuTab::new("Main Menu", &mut menu0_items);
+        let mut menu1 = MenuTab::new("LED Settings 1", &mut menu1_items);
+        let mut menu2 = MenuTab::new("LED Settings 2", &mut menu2_items);
+
+        menu0.arrange();
+        menu1.arrange();
+        menu2.arrange();
+
+        let mut menus = [menu0, menu1, menu2];
+
+        menus[self.current_tab].update();
+        let _ = menus[self.current_tab].draw(&mut self.disp);
+
+        loop {
+            if let Ok(new_message) = with_timeout(Duration::from_millis(250), self.rx.receive()).await {
+                self.disp.clear(Rgb565::BLACK).unwrap();
+                // self.process_event(new_message).await;
+                match new_message {
+                    UiEvent::Up => {
+                        match menus[self.current_tab].next() {
+                            Some(_x) => {}
+                            None => self.next_tab(menus.len()),
+                        };
+                    }
+                    UiEvent::Down => {
+                        match menus[self.current_tab].previous() {
+                            Some(_x) => {}
+                            None => self.previous_tab(menus.len()),
+                        };
+                    }
+                    UiEvent::Esc => {
+                        if !menus[self.current_tab].editing() {
+                            self.next_tab(menus.len());
+                        }
+                    }
+                    UiEvent::Select => {
+                        if menus[self.current_tab].editing() {
+                            menus[self.current_tab].set_editing(false);
+                        } else {
+                            menus[self.current_tab].set_editing(true);
+                        }
+                    }
+                };
+
+                menus[self.current_tab].update();
+                let _ = menus[self.current_tab].draw(&mut self.disp);
+            };
+        }
 
         // loop {
         //     match self.app.current_tab() {
@@ -289,41 +214,33 @@ impl Ui {
         //             UiEvent::NextTab => {
         //                 self.app.goto_next_tab();
         //             },
-
         //         };
         //     };
         // }
     }
 
-    async fn process_event(&mut self, event: UiEvent) {
-        self.menu_event = Some(event);
-        // match event {
-        //     UiEvent::Up => {
-        //         self.menu_event = Some(event);
-        //         self.app.goto_next_tab();
-        //     }
-        //     UiEvent::Down => {
-        //         self.app.goto_previous_tab();
-        //     }
-        //     UiEvent::Next => {
-        //         self.app.goto_previous_tab();
-        //     }
-        //     UiEvent::Select => {
-        //         self.app.current_tab();
-        //     },
-        // }
-    }
+    // async fn process_event(&mut self, event: UiEvent) {
+    //     self.menu_event = Some(event);
+    //     match event {
+    //         UiEvent::Up => {
+    //             self.menu_event = Some(event);
+    //             self.app.goto_next_tab();
+    //         }
+    //         UiEvent::Down => {
+    //             self.app.goto_previous_tab();
+    //         }
+    //         UiEvent::Next => {
+    //             self.app.goto_previous_tab();
+    //         }
+    //         UiEvent::Select => {
+    //             self.app.current_tab();
+    //         },
+    //     }
+    // }
 }
-    
+
 #[embassy_executor::task]
-pub async fn ui_task_spi(
-    bus: Spi<'static, Async>,
-    cs: Output<'static>,
-    dc: Output<'static>,
-    reset: Output<'static>,
-    mut backlight: OutputOpenDrain<'static>,
-    rx: UiChannelRx,
-) {
+pub async fn ui_task_spi(bus: Spi<'static, Async>, cs: Output<'static>, dc: Output<'static>, reset: Output<'static>, mut backlight: OutputOpenDrain<'static>, rx: UiChannelRx) {
     let spi_device = ExclusiveDevice::new_no_delay(bus, cs).unwrap();
 
     // let mut buffer = [0_u8; 512];
@@ -349,9 +266,6 @@ pub async fn ui_task_spi(
 
     // Turn on backlight
     backlight.set_high();
-
-    // // Draw a smiley face with white eyes and a red mouth
-    // draw_smiley(&mut display).unwrap();
 
     let mut ui = Ui::new(display, rx);
     ui.run().await

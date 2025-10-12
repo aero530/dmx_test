@@ -1,42 +1,57 @@
-
 use embedded_graphics::{
-    mono_font::MonoTextStyle,
-    primitives::Rectangle,
-    pixelcolor::Rgb565,
-    text::{Text, renderer::{CharacterStyle, TextRenderer}},
-    prelude::{Point, RgbColor, Size, WebColors},
     draw_target::DrawTarget,
+    mono_font::MonoTextStyle,
+    pixelcolor::Rgb565,
+    prelude::{Point, RgbColor, Size, Transform, WebColors},
+    primitives::Rectangle,
+    text::renderer::{CharacterStyle, TextRenderer},
     Drawable,
 };
-use embedded_layout::{
-    layout::linear::{
-        spacing::DistributeFill,
-        LinearLayout, 
-    },
-    prelude::*
-};
 
-use arrayvec::ArrayString;
-use core::fmt::Write;
+use embedded_text::{alignment::HorizontalAlignment, TextBox};
+use u8g2_fonts::U8g2TextStyle;
 
+use crate::ui::{layout::NextPrev, COLOR_ITEM_TEXT, COLOR_MENU_TEXT};
 
+use super::{MenuValue, View};
 
+use crate::ui::menu_value::ValueType;
 use crate::DISPLAY_HEIGHT;
 
+#[derive(Clone)]
 pub struct MenuItem<'a> {
     name: &'a str,
-    value: usize,
+    pub value: MenuValue,
+    // pub value_index: usize,
+    // pub value_count: usize,
     bounds: Rectangle,
-    character_style: MonoTextStyle<'a, Rgb565>,
+    character_style: U8g2TextStyle<Rgb565>,
+    // pub selection_mode: [SelectionMode; 4],
+    pub editable: bool,
 }
 impl<'a> MenuItem<'a> {
-    pub fn new(name: &'a str, value: usize, position: Point, character_style: MonoTextStyle<'a, Rgb565>) -> Self {
+    pub fn new(name: &'a str, value: ValueType, editable: bool, position: Point, character_style: U8g2TextStyle<Rgb565>) -> Self {
         Self {
             name,
-            value,
+            value: MenuValue::new(value, character_style.clone(), position),
             bounds: Rectangle::new(position, Size::new(DISPLAY_HEIGHT.into(), character_style.line_height())),
             character_style,
+            editable,
         }
+    }
+}
+
+impl<'a> NextPrev for MenuItem<'a> {
+    fn next(&mut self) -> Option<usize> {
+        self.value.next()
+    }
+
+    fn previous(&mut self) -> Option<usize> {
+        self.value.previous()
+    }
+
+    fn size(&self) -> usize {
+        self.value.size()
     }
 }
 
@@ -47,6 +62,7 @@ impl<'a> View for MenuItem<'a> {
     fn translate_impl(&mut self, by: Point) {
         // make sure you don't accidentally call `translate`!
         self.bounds.translate_mut(by);
+        self.value.bounds.translate_mut(by);
     }
 
     #[inline]
@@ -61,25 +77,12 @@ impl<'a> Drawable for MenuItem<'a> {
     type Output = ();
 
     fn draw<D: DrawTarget<Color = Rgb565>>(&self, display: &mut D) -> Result<(), D::Error> {
-
         let mut text_style = self.character_style.clone();
 
-        text_style.set_text_color(Some(Rgb565::YELLOW));
-        let text_label = Text::new(self.name, Point::zero(), text_style);
-        
-        text_style.set_text_color(Some(Rgb565::CSS_BLUE_VIOLET));
-        
-        let mut buf = ArrayString::<20>::new();
-        write!(&mut buf, "{}", self.value).expect("Can't write");
-        
-        
-        let text_value = Text::new(&buf, Point::zero(), text_style);
+        text_style.set_text_color(Some(COLOR_ITEM_TEXT));
+        let _ = TextBox::with_alignment(self.name, self.bounds, text_style, HorizontalAlignment::Left).draw(display);
 
-        LinearLayout::horizontal(Chain::new(text_label).append(text_value))
-            .with_spacing(DistributeFill(DISPLAY_HEIGHT.into()))
-            .align_to(&self.bounds, horizontal::Left, vertical::Center)
-            .arrange()
-            .draw(display)?;
+        self.value.draw(display)?;
 
         Ok(())
     }

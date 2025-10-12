@@ -13,6 +13,7 @@ pub trait OrderedColors {
 }
 
 /// Marker struct for RGB order
+#[allow(unused)]
 pub struct Rgb;
 
 /// Marker struct for GRB order
@@ -69,10 +70,7 @@ where
         // STM32H563 pulls MOSI high prior to sending SPI data which messes up the first LED.
         // Here we force an additional 0 byte to hold MOSI low at the start of the data being sent.
         // skip processing the first byte of self.data to ensure it remains 0x00
-        for (led_bytes, rgb8) in self.data[1..(NUM_LEDS_MAX * BYTES_PER_LED + 1)]
-            .chunks_mut(BYTES_PER_LED)
-            .zip(iter)
-        {
+        for (led_bytes, rgb8) in self.data[1..(NUM_LEDS_MAX * BYTES_PER_LED + 1)].chunks_mut(BYTES_PER_LED).zip(iter) {
             let colors = C::order(rgb8.into());
             for (i, mut color) in colors.into_iter().enumerate() {
                 for ii in 0..4 {

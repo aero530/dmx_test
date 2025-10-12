@@ -1,0 +1,381 @@
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   C:\Users\phil\Documents\code\dmx_interface_firmware\nucleo\Cargo.toml
+workspace: C:\Users\phil\Documents\code\dmx_interface_firmware\Cargo.toml
+   0.161884400s  INFO prepare_target{force=false package_id=nucleo v0.1.0 (C:\Users\phil\Documents\code\dmx_interface_firmware\nucleo) target="nucleo"}: cargo::core::compiler::fingerprint: fingerprint error for nucleo v0.1.0 (C:\Users\phil\Documents\code\dmx_interface_firmware\nucleo)/Check { test: false }/TargetInner { name: "nucleo", tested: false, doc: true, ..: with_path("C:\\Users\\phil\\Documents\\code\\dmx_interface_firmware\\nucleo\\src\\main.rs", Edition2021) }
+   0.161915600s  INFO prepare_target{force=false package_id=nucleo v0.1.0 (C:\Users\phil\Documents\code\dmx_interface_firmware\nucleo) target="nucleo"}: cargo::core::compiler::fingerprint:     err: failed to read `C:\Users\phil\Documents\code\dmx_interface_firmware\target\debug\.fingerprint\nucleo-5ecb1655022d7758\bin-nucleo`
+
+Caused by:
+    The system cannot find the file specified. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_path
+   6: git_filter_source_path
+   7: git_filter_source_path
+   8: git_filter_source_path
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: <unknown>
+  15: <unknown>
+  16: git_midx_writer_dump
+  17: git_filter_source_repo
+  18: git_midx_writer_dump
+  19: BaseThreadInitThunk
+  20: RtlUserThreadStart
+   0.168611400s  INFO prepare_target{force=false package_id=cortex-m v0.7.7 target="cortex_m"}: cargo::core::compiler::fingerprint: fingerprint error for cortex-m v0.7.7/Check { test: false }/TargetInner { name_inferred: true, ..: lib_target("cortex_m", ["lib"], "C:\\Users\\phil\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\cortex-m-0.7.7\\src\\lib.rs", Edition2018) }
+   0.168628100s  INFO prepare_target{force=false package_id=cortex-m v0.7.7 target="cortex_m"}: cargo::core::compiler::fingerprint:     err: failed to read `C:\Users\phil\Documents\code\dmx_interface_firmware\target\debug\.fingerprint\cortex-m-916dbe554678c296\lib-cortex_m`
+
+Caused by:
+    The system cannot find the file specified. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_path
+   6: git_filter_source_path
+   7: git_filter_source_path
+   8: git_filter_source_path
+   9: git_filter_source_path
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_filter_source_repo
+  15: <unknown>
+  16: <unknown>
+  17: git_midx_writer_dump
+  18: git_filter_source_repo
+  19: git_midx_writer_dump
+  20: BaseThreadInitThunk
+  21: RtlUserThreadStart
+   0.173667100s  INFO prepare_target{force=false package_id=embassy-embedded-hal v0.5.0 target="embassy_embedded_hal"}: cargo::core::compiler::fingerprint: fingerprint error for embassy-embedded-hal v0.5.0/Check { test: false }/TargetInner { ..: lib_target("embassy_embedded_hal", ["lib"], "C:\\Users\\phil\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\embassy-embedded-hal-0.5.0\\src\\lib.rs", Edition2021) }
+   0.173678200s  INFO prepare_target{force=false package_id=embassy-embedded-hal v0.5.0 target="embassy_embedded_hal"}: cargo::core::compiler::fingerprint:     err: failed to read `C:\Users\phil\Documents\code\dmx_interface_firmware\target\debug\.fingerprint\embassy-embedded-hal-1f1d400bbc936d7c\lib-embassy_embedded_hal`
+
+Caused by:
+    The system cannot find the file specified. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_path
+   6: git_filter_source_path
+   7: git_filter_source_path
+   8: git_filter_source_path
+   9: git_filter_source_path
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_filter_source_repo
+  15: <unknown>
+  16: <unknown>
+  17: git_midx_writer_dump
+  18: git_filter_source_repo
+  19: git_midx_writer_dump
+  20: BaseThreadInitThunk
+  21: RtlUserThreadStart
+   0.174019300s  INFO prepare_target{force=false package_id=embassy-hal-internal v0.3.0 target="embassy_hal_internal"}: cargo::core::compiler::fingerprint: fingerprint error for embassy-hal-internal v0.3.0/Check { test: false }/TargetInner { ..: lib_target("embassy_hal_internal", ["lib"], "C:\\Users\\phil\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\embassy-hal-internal-0.3.0\\src\\lib.rs", Edition2021) }
+   0.174029700s  INFO prepare_target{force=false package_id=embassy-hal-internal v0.3.0 target="embassy_hal_internal"}: cargo::core::compiler::fingerprint:     err: failed to read `C:\Users\phil\Documents\code\dmx_interface_firmware\target\debug\.fingerprint\embassy-hal-internal-798bac86fd5872e1\lib-embassy_hal_internal`
+
+Caused by:
+    The system cannot find the file specified. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_path
+   6: git_filter_source_path
+   7: git_filter_source_path
+   8: git_filter_source_path
+   9: git_filter_source_path
+  10: git_filter_source_path
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_filter_source_repo
+  15: git_filter_source_repo
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.177838300s  INFO prepare_target{force=false package_id=embassy-executor v0.9.1 target="embassy_executor"}: cargo::core::compiler::fingerprint: fingerprint error for embassy-executor v0.9.1/Check { test: false }/TargetInner { ..: lib_target("embassy_executor", ["lib"], "C:\\Users\\phil\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\embassy-executor-0.9.1\\src\\lib.rs", Edition2021) }
+   0.177849600s  INFO prepare_target{force=false package_id=embassy-executor v0.9.1 target="embassy_executor"}: cargo::core::compiler::fingerprint:     err: failed to read `C:\Users\phil\Documents\code\dmx_interface_firmware\target\debug\.fingerprint\embassy-executor-c8bab15078ff6abb\lib-embassy_executor`
+
+Caused by:
+    The system cannot find the file specified. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_path
+   6: git_filter_source_path
+   7: git_filter_source_path
+   8: git_filter_source_path
+   9: git_filter_source_path
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_filter_source_repo
+  15: <unknown>
+  16: <unknown>
+  17: git_midx_writer_dump
+  18: git_filter_source_repo
+  19: git_midx_writer_dump
+  20: BaseThreadInitThunk
+  21: RtlUserThreadStart
+   0.179594400s  INFO prepare_target{force=false package_id=embassy-stm32 v0.4.0 target="embassy_stm32"}: cargo::core::compiler::fingerprint: fingerprint error for embassy-stm32 v0.4.0/Check { test: false }/TargetInner { ..: lib_target("embassy_stm32", ["lib"], "C:\\Users\\phil\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\embassy-stm32-0.4.0\\src\\lib.rs", Edition2021) }
+   0.179605500s  INFO prepare_target{force=false package_id=embassy-stm32 v0.4.0 target="embassy_stm32"}: cargo::core::compiler::fingerprint:     err: failed to read `C:\Users\phil\Documents\code\dmx_interface_firmware\target\debug\.fingerprint\embassy-stm32-0f28877bda3c5872\lib-embassy_stm32`
+
+Caused by:
+    The system cannot find the file specified. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_path
+   6: git_filter_source_path
+   7: git_filter_source_path
+   8: git_filter_source_path
+   9: git_filter_source_path
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_filter_source_repo
+  15: <unknown>
+  16: <unknown>
+  17: git_midx_writer_dump
+  18: git_filter_source_repo
+  19: git_midx_writer_dump
+  20: BaseThreadInitThunk
+  21: RtlUserThreadStart
+   0.184089100s  INFO prepare_target{force=false package_id=stm32-metapac v18.0.0 target="stm32_metapac"}: cargo::core::compiler::fingerprint: fingerprint error for stm32-metapac v18.0.0/Check { test: false }/TargetInner { ..: lib_target("stm32_metapac", ["lib"], "C:\\Users\\phil\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\stm32-metapac-18.0.0\\src\\lib.rs", Edition2021) }
+   0.184101100s  INFO prepare_target{force=false package_id=stm32-metapac v18.0.0 target="stm32_metapac"}: cargo::core::compiler::fingerprint:     err: failed to read `C:\Users\phil\Documents\code\dmx_interface_firmware\target\debug\.fingerprint\stm32-metapac-1dac702a8941ed5d\lib-stm32_metapac`
+
+Caused by:
+    The system cannot find the file specified. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_path
+   6: git_filter_source_path
+   7: git_filter_source_path
+   8: git_filter_source_path
+   9: git_filter_source_path
+  10: git_filter_source_path
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_filter_source_repo
+  15: git_filter_source_repo
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.190762800s  INFO prepare_target{force=false package_id=panic-probe v1.0.0 target="panic_probe"}: cargo::core::compiler::fingerprint: fingerprint error for panic-probe v1.0.0/Check { test: false }/TargetInner { ..: lib_target("panic_probe", ["lib"], "C:\\Users\\phil\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\panic-probe-1.0.0\\src\\lib.rs", Edition2021) }
+   0.190774300s  INFO prepare_target{force=false package_id=panic-probe v1.0.0 target="panic_probe"}: cargo::core::compiler::fingerprint:     err: failed to read `C:\Users\phil\Documents\code\dmx_interface_firmware\target\debug\.fingerprint\panic-probe-fe856a660429bc46\lib-panic_probe`
+
+Caused by:
+    The system cannot find the file specified. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_path
+   6: git_filter_source_path
+   7: git_filter_source_path
+   8: git_filter_source_path
+   9: git_filter_source_path
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_filter_source_repo
+  15: <unknown>
+  16: <unknown>
+  17: git_midx_writer_dump
+  18: git_filter_source_repo
+  19: git_midx_writer_dump
+  20: BaseThreadInitThunk
+  21: RtlUserThreadStart
+   0.192765800s  INFO prepare_target{force=false package_id=nucleo v0.1.0 (C:\Users\phil\Documents\code\dmx_interface_firmware\nucleo) target="nucleo"}: cargo::core::compiler::fingerprint: fingerprint error for nucleo v0.1.0 (C:\Users\phil\Documents\code\dmx_interface_firmware\nucleo)/Check { test: true }/TargetInner { name: "nucleo", tested: false, doc: true, ..: with_path("C:\\Users\\phil\\Documents\\code\\dmx_interface_firmware\\nucleo\\src\\main.rs", Edition2021) }
+   0.192778700s  INFO prepare_target{force=false package_id=nucleo v0.1.0 (C:\Users\phil\Documents\code\dmx_interface_firmware\nucleo) target="nucleo"}: cargo::core::compiler::fingerprint:     err: failed to read `C:\Users\phil\Documents\code\dmx_interface_firmware\target\debug\.fingerprint\nucleo-44b6513a0a3c823d\test-bin-nucleo`
+
+Caused by:
+    The system cannot find the file specified. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_path
+   6: git_filter_source_path
+   7: git_filter_source_path
+   8: git_filter_source_path
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: <unknown>
+  15: <unknown>
+  16: git_midx_writer_dump
+  17: git_filter_source_repo
+  18: git_midx_writer_dump
+  19: BaseThreadInitThunk
+  20: RtlUserThreadStart
+   0.201174000s  INFO prepare_target{force=false package_id=rp2040_dmx v0.1.0 (C:\Users\phil\Documents\code\dmx_interface_firmware\rp2040_dmx) target="rp2040_dmx"}: cargo::core::compiler::fingerprint: fingerprint error for rp2040_dmx v0.1.0 (C:\Users\phil\Documents\code\dmx_interface_firmware\rp2040_dmx)/Check { test: false }/TargetInner { name: "rp2040_dmx", doc: true, ..: with_path("C:\\Users\\phil\\Documents\\code\\dmx_interface_firmware\\rp2040_dmx\\src\\main.rs", Edition2024) }
+   0.201188700s  INFO prepare_target{force=false package_id=rp2040_dmx v0.1.0 (C:\Users\phil\Documents\code\dmx_interface_firmware\rp2040_dmx) target="rp2040_dmx"}: cargo::core::compiler::fingerprint:     err: failed to read `C:\Users\phil\Documents\code\dmx_interface_firmware\target\debug\.fingerprint\rp2040_dmx-59732b63968ea2f0\bin-rp2040_dmx`
+
+Caused by:
+    The system cannot find the file specified. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_path
+   6: git_filter_source_path
+   7: git_filter_source_path
+   8: git_filter_source_path
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: <unknown>
+  15: <unknown>
+  16: git_midx_writer_dump
+  17: git_filter_source_repo
+  18: git_midx_writer_dump
+  19: BaseThreadInitThunk
+  20: RtlUserThreadStart
+   0.201736700s  INFO prepare_target{force=false package_id=embassy-rp v0.8.0 target="embassy_rp"}: cargo::core::compiler::fingerprint: fingerprint error for embassy-rp v0.8.0/Check { test: false }/TargetInner { ..: lib_target("embassy_rp", ["lib"], "C:\\Users\\phil\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\embassy-rp-0.8.0\\src\\lib.rs", Edition2021) }
+   0.201748600s  INFO prepare_target{force=false package_id=embassy-rp v0.8.0 target="embassy_rp"}: cargo::core::compiler::fingerprint:     err: failed to read `C:\Users\phil\Documents\code\dmx_interface_firmware\target\debug\.fingerprint\embassy-rp-c353a986eeee0214\lib-embassy_rp`
+
+Caused by:
+    The system cannot find the file specified. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_path
+   6: git_filter_source_path
+   7: git_filter_source_path
+   8: git_filter_source_path
+   9: git_filter_source_path
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_filter_source_repo
+  15: <unknown>
+  16: <unknown>
+  17: git_midx_writer_dump
+  18: git_filter_source_repo
+  19: git_midx_writer_dump
+  20: BaseThreadInitThunk
+  21: RtlUserThreadStart
+   0.208505100s  INFO prepare_target{force=false package_id=rp-pac v7.0.0 target="rp_pac"}: cargo::core::compiler::fingerprint: fingerprint error for rp-pac v7.0.0/Check { test: false }/TargetInner { ..: lib_target("rp_pac", ["lib"], "C:\\Users\\phil\\.cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\rp-pac-7.0.0\\src\\lib.rs", Edition2021) }
+   0.208516900s  INFO prepare_target{force=false package_id=rp-pac v7.0.0 target="rp_pac"}: cargo::core::compiler::fingerprint:     err: failed to read `C:\Users\phil\Documents\code\dmx_interface_firmware\target\debug\.fingerprint\rp-pac-53f9f6ba45c08c59\lib-rp_pac`
+
+Caused by:
+    The system cannot find the file specified. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_path
+   6: git_filter_source_path
+   7: git_filter_source_path
+   8: git_filter_source_path
+   9: git_filter_source_path
+  10: git_filter_source_path
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: git_filter_source_repo
+  15: git_filter_source_repo
+  16: <unknown>
+  17: <unknown>
+  18: git_midx_writer_dump
+  19: git_filter_source_repo
+  20: git_midx_writer_dump
+  21: BaseThreadInitThunk
+  22: RtlUserThreadStart
+   0.211533900s  INFO prepare_target{force=false package_id=rp2040_dmx v0.1.0 (C:\Users\phil\Documents\code\dmx_interface_firmware\rp2040_dmx) target="rp2040_dmx"}: cargo::core::compiler::fingerprint: fingerprint error for rp2040_dmx v0.1.0 (C:\Users\phil\Documents\code\dmx_interface_firmware\rp2040_dmx)/Check { test: true }/TargetInner { name: "rp2040_dmx", doc: true, ..: with_path("C:\\Users\\phil\\Documents\\code\\dmx_interface_firmware\\rp2040_dmx\\src\\main.rs", Edition2024) }
+   0.211545800s  INFO prepare_target{force=false package_id=rp2040_dmx v0.1.0 (C:\Users\phil\Documents\code\dmx_interface_firmware\rp2040_dmx) target="rp2040_dmx"}: cargo::core::compiler::fingerprint:     err: failed to read `C:\Users\phil\Documents\code\dmx_interface_firmware\target\debug\.fingerprint\rp2040_dmx-5183452f00ee19b5\test-bin-rp2040_dmx`
+
+Caused by:
+    The system cannot find the file specified. (os error 2)
+
+Stack backtrace:
+   0: git_midx_writer_dump
+   1: git_midx_writer_dump
+   2: git_midx_writer_dump
+   3: git_midx_writer_dump
+   4: git_filter_source_repo
+   5: git_filter_source_path
+   6: git_filter_source_path
+   7: git_filter_source_path
+   8: git_filter_source_path
+   9: git_filter_source_repo
+  10: git_filter_source_repo
+  11: git_filter_source_repo
+  12: git_filter_source_repo
+  13: git_filter_source_repo
+  14: <unknown>
+  15: <unknown>
+  16: git_midx_writer_dump
+  17: git_filter_source_repo
+  18: git_midx_writer_dump
+  19: BaseThreadInitThunk
+  20: RtlUserThreadStart
+    Checking cortex-m v0.7.7
+error: could not compile `cortex-m` (lib) due to 6 previous errors

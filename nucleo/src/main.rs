@@ -17,6 +17,9 @@ use embassy_time::Duration;
 
 use static_cell::StaticCell;
 
+use crate::eeprom::EepromEvent;
+use crate::ui::ModuleType;
+
 use {defmt_rtt as _, panic_probe as _};
 
 // Eth
@@ -87,6 +90,9 @@ use smart_led::smart_led_task;
 
 mod ui;
 use ui::ui_task_spi;
+
+mod eeprom;
+use eeprom::eeprom_i2c_task;
 
 type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, Master>>;
 
@@ -229,11 +235,18 @@ async fn main(spawner: Spawner) {
     // Alert#: PF13
     // Reset: PF14
     let mut cfg: I2cConfig = I2cConfig::default();
-    cfg.frequency = Hertz(1_000_000);
+    cfg.frequency = Hertz(100_000);
+    cfg.timeout = Duration::from_millis(25); // need to keep the timeout low to ensure there is not a conflict between different uses on the shared bus.
     let i2c_led = I2c::new(p.I2C4, p.PF5, p.PF15, Irqs, p.GPDMA1_CH0, p.GPDMA1_CH1, cfg);
     let i2c_led_bus = Mutex::new(i2c_led);
     let i2c_led_bus_manager = I2C_BUS_LED.init(i2c_led_bus);
-    spawner.spawn(pwm_i2c_task(i2c_led_bus_manager, PWM_ADDRESS, CHANNEL_PWM.receiver())).unwrap();
+    // spawner.spawn(pwm_i2c_task(i2c_led_bus_manager, PWM_ADDRESS, CHANNEL_PWM.receiver())).unwrap();
+    spawner.spawn(eeprom_i2c_task(i2c_led_bus_manager, EEPROM_ADDRESS, CHANNEL_EEPROM.receiver(), CHANNEL.sender())).unwrap();
+
+    // info!("Try store module type");
+    // let a = CHANNEL_EEPROM.try_send(EepromEvent::StoreModuleType(ModuleType::SmartLed));
+
+
 
     // -----------------------------------
     // Configure I2C for display
@@ -360,6 +373,7 @@ async fn main(spawner: Spawner) {
     let spi_2 = Spi::new_txonly(p.SPI2, p.PB10, p.PC3, p.GPDMA2_CH1, spi_config);
     let spi_3 = Spi::new_txonly(p.SPI3, p.PC10, p.PB2, p.GPDMA2_CH2, spi_config);
     let spi_4 = Spi::new_txonly(p.SPI4, p.PE12, p.PE14, p.GPDMA2_CH3, spi_config);
+
     spawner.spawn(smart_led_task(spi_1, spi_2, spi_3, spi_4, CHANNEL_SMART_LED.receiver())).unwrap();
 
     // -----------------------------------
@@ -382,7 +396,7 @@ async fn main(spawner: Spawner) {
     let display_backlight = OutputOpenDrain::new(p.PF3, Level::Low, Speed::Low); // using display reset from i2c which is pulled high
 
     spawner
-        .spawn(ui_task_spi(spi_display, display_cs, display_dc, display_reset, display_backlight, CHANNEL_UI.receiver()))
+        .spawn(ui_task_spi(spi_display, display_cs, display_dc, display_reset, display_backlight, CHANNEL_UI.receiver(), CHANNEL.sender()))
         .unwrap();
 
     // -----------------------------------
@@ -467,8 +481,18 @@ async fn main(spawner: Spawner) {
         CHANNEL_PWM_I2C.sender(),
         CHANNEL_SMART_LED.sender(),
         CHANNEL_UI.sender(),
+        CHANNEL_EEPROM.sender(),
         CHANNEL_LOG.sender(),
     );
+
+    // info!("Try to write module type");
+    // let _ = CHANNEL_EEPROM.try_send(EepromEvent::StoreModuleType(ModuleType::SmartLed));
+
+    info!("Try to read module type");
+    let _ = CHANNEL_EEPROM.try_send(EepromEvent::ReadModuleType);
+
+    info!("Try to read settings");
+    let _ = CHANNEL_EEPROM.try_send(EepromEvent::ReadSettings);
 
     spawner.spawn(event_router(router)).unwrap();
 }

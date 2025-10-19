@@ -11,7 +11,7 @@ use embedded_graphics::{
     Drawable,
 };
 
-use crate::ui::{IncDec, NextPrev, SelectionMode, SmartLedGrouping, SmartLedGroupingAddressing, Udigit};
+use crate::ui::{IncDec, MenuMovement, NextPrev, SelectionMode, SmartLedGrouping, SmartLedColorMode, Udigit};
 use crate::ui::{View, COLOR_EDITING_TEXT, COLOR_SELECTED_TEXT, COLOR_VALUE_TEXT};
 use arrayvec::ArrayString;
 use az::SaturatingAs;
@@ -46,21 +46,24 @@ impl MenuValue {
 }
 
 impl NextPrev for MenuValue {
-    fn next(&mut self) -> Option<usize> {
+    fn next(&mut self) -> MenuMovement {
         if self.value_index == self.value.size() - 1 {
-            None
+            MenuMovement::None
         } else {
             self.value_index = self.value_index.saturating_add(1);
-            Some(self.value_index)
+            // Some(self.value_index)
+            MenuMovement::NextItem
         }
     }
 
-    fn previous(&mut self) -> Option<usize> {
+    fn previous(&mut self) -> MenuMovement {
         if self.value_index == 0 {
-            None
+            // None
+            MenuMovement::None
         } else {
             self.value_index = self.value_index.saturating_sub(1);
-            Some(self.value_index)
+            // Some(self.value_index)
+            MenuMovement::PreviousItem
         }
     }
 
@@ -118,7 +121,6 @@ impl Drawable for MenuValue {
                 p.y += (self.bounds().size.height - box_size.height/2).saturating_as::<i32>();
 
                 for (index, d) in v.iter().rev().enumerate() {
-                    info!("index {}", index);
                     if self.value_index == index {
                         match self.selection_mode {
                             SelectionMode::Normal => text_style.set_text_color(Some(COLOR_VALUE_TEXT)),
@@ -152,31 +154,60 @@ impl Drawable for MenuValue {
 /// Menu Value are values that can be configured in the menu
 #[derive(Clone, Copy, PartialEq, Eq, Format)]
 pub enum ValueType {
-    // None,
+    None,
     U8(u8),
     SmartLedGrouping(SmartLedGrouping),
-    SmartLedGroupingAddressing(SmartLedGroupingAddressing),
+    SmartLedColorMode(SmartLedColorMode),
     Uint3(u16),
 }
 
 impl ValueType {
     pub fn size(&self) -> usize {
         match self {
-            // ValueType::None => 0,
+            ValueType::None => 0,
             ValueType::U8(_x) => 1,
             ValueType::SmartLedGrouping(_x) => 1,
-            ValueType::SmartLedGroupingAddressing(_x) => 1,
+            ValueType::SmartLedColorMode(_x) => 1,
             ValueType::Uint3(_x) => 3,
+        }
+    }
+
+    pub fn extract_u8(&self) -> Option<u8> {
+        match self {
+            ValueType::U8(x) => Some(*x),
+            _ => None,
+        }
+    }
+
+    pub fn extract_led_grouping(&self) -> Option<SmartLedGrouping> {
+        match self {
+            ValueType::SmartLedGrouping(x) => Some(*x),
+            _ => None,
+        }
+    }
+
+    pub fn extract_led_addressing(&self) -> Option<SmartLedColorMode> {
+        match self {
+            ValueType::SmartLedColorMode(x) => Some(*x),
+            _ => None,
+        }
+    }
+
+    pub fn extract_uint3(&self) -> Option<u16> {
+        match self {
+            ValueType::Uint3(x) => Some(*x),
+            _ => None,
         }
     }
 }
 impl IncDec for ValueType {
+
     fn increment(&self, index: usize) -> Self {
         match self {
-            // ValueType::None => ValueType::None,
+            ValueType::None => ValueType::None,
             ValueType::U8(x) => ValueType::U8(x.increment(index)),
             ValueType::SmartLedGrouping(x) => ValueType::SmartLedGrouping(x.increment(index)),
-            ValueType::SmartLedGroupingAddressing(x) => ValueType::SmartLedGroupingAddressing(x.increment(index)),
+            ValueType::SmartLedColorMode(x) => ValueType::SmartLedColorMode(x.increment(index)),
             ValueType::Uint3(x) => {
                 let mut new = *x;
                 let mut v = split_digits_no_std(new, 3);
@@ -190,10 +221,10 @@ impl IncDec for ValueType {
 
     fn decrement(&self, index: usize) -> Self {
         match self {
-            // ValueType::None => ValueType::None,
+            ValueType::None => ValueType::None,
             ValueType::U8(x) => ValueType::U8(x.decrement(index)),
             ValueType::SmartLedGrouping(x) => ValueType::SmartLedGrouping(x.decrement(index)),
-            ValueType::SmartLedGroupingAddressing(x) => ValueType::SmartLedGroupingAddressing(x.decrement(index)),
+            ValueType::SmartLedColorMode(x) => ValueType::SmartLedColorMode(x.decrement(index)),
             ValueType::Uint3(x) => {
                 let mut new = *x;
                 let mut v = split_digits_no_std(new, 3);
@@ -209,26 +240,18 @@ impl IncDec for ValueType {
 impl core::fmt::Display for ValueType {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
-            // ValueType::None => write!(f, ""),
+            ValueType::None => write!(f, ""),
             ValueType::U8(x) => write!(f, "{}", x),
             ValueType::SmartLedGrouping(x) => write!(f, "{}", x),
-            ValueType::SmartLedGroupingAddressing(x) => write!(f, "{}", x),
-            // ValueType::Digits2(x) => write!(f, "{}{}", x[0], x[1]),
-            // ValueType::Digits3(x) => write!(f, "{}{}{}", x[0], x[1], x[2]),
+            ValueType::SmartLedColorMode(x) => write!(f, "{}", x),
             ValueType::Uint3(x) => write!(f, "{}", x),
         }
     }
 }
 
 fn split_digits_no_std(mut n: u16, pad_size: usize) -> heapless::Vec<Udigit, 5> {
-    // info!("convert {}",n);
 
     let mut digits = heapless::Vec::new(); // Max 5 digits
-                                           // if n == 0 {
-                                           //     let _ = digits.push(Udigit(0));
-
-    //     return digits;
-    // }
 
     while n > 0 {
         let digit = Udigit((n % 10) as u8);
@@ -238,14 +261,12 @@ fn split_digits_no_std(mut n: u16, pad_size: usize) -> heapless::Vec<Udigit, 5> 
 
     while digits.len() < pad_size {
         let _ = digits.push(Udigit(0));
-        info!("adding 0");
     }
     digits
 }
 
 fn digits_to_u16(mut n: heapless::Vec<Udigit, 5>) -> u16 {
     let mut out = 0_u16;
-    // n.reverse();
     n.iter().enumerate().for_each(|(index, val)| out += val.0 as u16 * 10_u16.pow((index as u16).into()));
     out
 }

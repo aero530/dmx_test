@@ -35,6 +35,7 @@ impl<'a> SmartLed<'a> {
         let ws_4: Ws2812<_, Grb> = Ws2812::new(spi_4);
         // let ws = [ws_1, ws_2, ws_3, ws_4];
         let data = [RGB8::default(); NUM_LEDS_MAX];
+
         Self {
             ws_1,
             ws_2,
@@ -50,9 +51,6 @@ impl<'a> SmartLed<'a> {
         for i in 0..self.num_leds {
             self.data[i] = RGB8::default();
         }
-        // for ws in self.ws {
-        //     ws.write(self.data).await.ok();
-        // }
         self.send_to_leds().await.ok();
     }
 
@@ -110,6 +108,7 @@ impl<'a> SmartLed<'a> {
 
 #[embassy_executor::task]
 pub async fn smart_led_task(spi_1: Spi<'static, Async>, spi_2: Spi<'static, Async>, spi_3: Spi<'static, Async>, spi_4: Spi<'static, Async>, rx: SmartLedChannelRx) {
+
     let mut smart_led = SmartLed::new(spi_1, spi_2, spi_3, spi_4, 5, rx);
     smart_led.enable().await;
     loop {

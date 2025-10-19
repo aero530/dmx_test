@@ -1,5 +1,7 @@
 use embedded_graphics::{prelude::Point, primitives::Rectangle};
 
+use crate::ui::MenuMovement;
+
 pub trait View {
     fn bounds(&self) -> Rectangle;
     fn translate_impl(&mut self, by: Point);
@@ -19,7 +21,7 @@ pub trait IncDec {
 }
 
 pub trait NextPrev {
-    fn next(&mut self) -> Option<usize>;
-    fn previous(&mut self) -> Option<usize>;
+    fn next(&mut self) -> MenuMovement;
+    fn previous(&mut self) -> MenuMovement;
     fn size(&self) -> usize;
 }

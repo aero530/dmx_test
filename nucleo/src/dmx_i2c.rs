@@ -15,6 +15,7 @@ pub async fn dmx_task(i2c_bus_manager: &'static I2c1Bus, address: u8, tx: DmxCha
 
     let mut data_buffer = [0_u8; DMX_BUFF_SIZE];
 
+    // DMX data is split between multiple ranges due to limited hardware buffer sizes
     loop {
         match i2c_bus_dev.write_read(address, &[0x01], &mut data_buffer[0..199]).await {
             Ok(()) => {

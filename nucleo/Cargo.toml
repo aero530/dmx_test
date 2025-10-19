@@ -47,10 +47,15 @@ heapless = { version = "0.9", default-features = false }
 critical-section = "1.1"
 micromath = "2.0.0"
 stm32-fmc = "0.4.0"
-embedded-storage = "0.3.1"
 static_cell = "2"
 
 # rgb = "0.8.50"
+
+# EEprom
+eeprom24x = "0.7.2"
+embedded-storage = "0.3.1"
+bincode = {version = "2.0.1", default-features = false, features=["derive"]} # default, std, alloc, derive
+
 
 # Smart LED / WS2812
 smart-leds = "0.4.0"

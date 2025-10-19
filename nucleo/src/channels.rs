@@ -9,6 +9,7 @@ use crate::pwm_i2c::PwmEvent;
 use crate::smart_led::SmartLedEvent;
 // use crate::artnet::ArtNetEvent;
 use crate::ui::UiEvent;
+use crate::eeprom::EepromEvent;
 
 pub type RouterChannel = Channel<ThreadModeRawMutex, RouterEvent, 10>;
 pub type RouterChannelRx = Receiver<'static, ThreadModeRawMutex, RouterEvent, 10>;
@@ -55,3 +56,9 @@ pub type GlobalDataChannel = Watch<CriticalSectionRawMutex, GlobalData, 2>;
 pub type GlobalDataChannelRx = WatchReceiver<'static, CriticalSectionRawMutex, GlobalData, 2>;
 pub type GlobalDataChannelTx = WatchSender<'static, CriticalSectionRawMutex, GlobalData, 2>;
 pub static CHANNEL_LOG: GlobalDataChannel = Watch::new();
+
+
+pub type EepromChannel = Channel<ThreadModeRawMutex, EepromEvent, 10>;
+pub type EepromChannelRx = Receiver<'static, ThreadModeRawMutex, EepromEvent, 10>;
+pub type EepromChannelTx = Sender<'static, ThreadModeRawMutex, EepromEvent, 10>;
+pub static CHANNEL_EEPROM: EepromChannel = Channel::new();

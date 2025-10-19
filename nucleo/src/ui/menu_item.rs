@@ -11,7 +11,7 @@ use embedded_graphics::{
 use embedded_text::{alignment::HorizontalAlignment, TextBox};
 use u8g2_fonts::U8g2TextStyle;
 
-use crate::ui::{layout::NextPrev, COLOR_ITEM_TEXT, COLOR_MENU_TEXT};
+use crate::ui::{layout::NextPrev, MenuMovement, COLOR_ITEM_TEXT, COLOR_MENU_TEXT};
 
 use super::{MenuValue, View};
 
@@ -22,18 +22,16 @@ use crate::DISPLAY_HEIGHT;
 pub struct MenuItem<'a> {
     name: &'a str,
     pub value: MenuValue,
-    // pub value_index: usize,
-    // pub value_count: usize,
     bounds: Rectangle,
     character_style: U8g2TextStyle<Rgb565>,
-    // pub selection_mode: [SelectionMode; 4],
     pub editable: bool,
 }
 impl<'a> MenuItem<'a> {
-    pub fn new(name: &'a str, value: ValueType, editable: bool, position: Point, character_style: U8g2TextStyle<Rgb565>) -> Self {
+    pub fn new(input: (&'a str, ValueType), editable: bool, position: Point, character_style: U8g2TextStyle<Rgb565>) -> Self {
+        // name: &'a str, value: ValueType,
         Self {
-            name,
-            value: MenuValue::new(value, character_style.clone(), position),
+            name: input.0,
+            value: MenuValue::new(input.1, character_style.clone(), position),
             bounds: Rectangle::new(position, Size::new(DISPLAY_HEIGHT.into(), character_style.line_height())),
             character_style,
             editable,
@@ -42,11 +40,11 @@ impl<'a> MenuItem<'a> {
 }
 
 impl<'a> NextPrev for MenuItem<'a> {
-    fn next(&mut self) -> Option<usize> {
+    fn next(&mut self) -> MenuMovement {
         self.value.next()
     }
 
-    fn previous(&mut self) -> Option<usize> {
+    fn previous(&mut self) -> MenuMovement {
         self.value.previous()
     }
 

@@ -88,14 +88,22 @@ impl<'a> SmartLed<'a> {
 
     async fn process_event(&mut self, event: SmartLedEvent) {
         let prev_lengths = self.num_leds;
-        self.num_leds = num_leds;
+
+
+        match event {
+            SmartLedEvent::Value((num_leds, _)) => self.num_leds = num_leds,
+            SmartLedEvent::Individual((num_leds, _)) => self.num_leds = num_leds,
+            SmartLedEvent::CombinedByPort((num_leds, _)) => self.num_leds = num_leds,
+            SmartLedEvent::CombinedByModule((num_leds, _)) => self.num_leds = num_leds,
+        }
+
         for (port, num) in self.num_leds.iter().enumerate() {
             for i in 0..*num {
                 match event {
-                    SmartLedEvent::Value((num_leds, colors)) => self.data[port][i as usize] = RGB8::new(colors[0], colors[1], colors[2]),
-                    SmartLedEvent::Individual((num_leds, colors)) => self.data[port][i as usize] = colors[port][i as usize],
-                    SmartLedEvent::CombinedByPort((num_leds, colors)) => self.data[port][i as usize] = colors[port],
-                    SmartLedEvent::CombinedByModule((num_leds, colors)) => self.data[port][i as usize] = colors,
+                    SmartLedEvent::Value((_, colors)) => self.data[port][i as usize] = RGB8::new(colors[0], colors[1], colors[2]),
+                    SmartLedEvent::Individual((_, colors)) => self.data[port][i as usize] = colors[port][i as usize],
+                    SmartLedEvent::CombinedByPort((_, colors)) => self.data[port][i as usize] = colors[port],
+                    SmartLedEvent::CombinedByModule((_, colors)) => self.data[port][i as usize] = colors,
                 }
             }
             for i in *num..(prev_lengths[port] + 1) {

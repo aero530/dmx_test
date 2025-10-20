@@ -154,6 +154,7 @@ impl Router {
         match event {
             DmxEvent::DmxPacket(input) => {
                 trace!("Router got DMX data {}", input[0..24]);
+                info!("Router got DMX data {}", input[0..24]);
 
                 // let dmx_start_plus_1 = self.data.menu_settings.dmx_address as usize + 1;
                 let dmx_start = self.data.menu_settings.dmx_address as usize;

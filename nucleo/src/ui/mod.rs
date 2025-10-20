@@ -14,15 +14,12 @@ use mipidsi::{models::ST7789, options::ColorInversion, Builder};
 
 use embedded_graphics::{
     draw_target::DrawTarget,
-    mono_font::{iso_8859_4::FONT_10X20, MonoTextStyle},
     pixelcolor::Rgb565,
     prelude::{Point, RgbColor},
     Drawable,
 };
 use u8g2_fonts::{
-    fonts,
-    types::{FontColor, HorizontalAlignment, VerticalPosition},
-    Font, FontRenderer, U8g2TextStyle,
+    fonts, U8g2TextStyle,
 };
 
 use embassy_time::{with_timeout, Duration};
@@ -31,6 +28,7 @@ use static_cell::StaticCell;
 
 use crate::channels::{RouterChannelTx, UiChannelRx};
 use crate::ui::layout::NextPrev;
+use crate::ui::menu_tab::NUM_ITEMS;
 use crate::ui::menu_value::ValueType;
 use crate::event_router::RouterEvent;
 
@@ -68,15 +66,16 @@ const DEFAULT_FONT: fonts::u8g2_font_inr16_mf = fonts::u8g2_font_inr16_mf;
 
 #[derive(Clone, Copy, PartialEq, Eq, Format)]
 pub struct MenuTabData {
-    tab0: [(&'static str, ValueType); 5],
-    tab1: [(&'static str, ValueType); 5],
-    tab2: [(&'static str, ValueType); 5],
+    tab0: [(&'static str, ValueType); NUM_ITEMS],
+    tab1: [(&'static str, ValueType); NUM_ITEMS],
+    tab2: [(&'static str, ValueType); NUM_ITEMS],
 }
 
 impl From<MenuData> for MenuTabData {
     fn from(source: MenuData) -> Self {
+        info!("Convert menu data to menu tab data.");
         let (tab1, tab2) = match source.module {
-            ModuleSettings::Pwm(pwm_settings) => {
+            ModuleSettings::Pwm(_pwm_settings) => {
                 (
                     [
                         ("", ValueType::None),
@@ -97,17 +96,17 @@ impl From<MenuData> for MenuTabData {
             ModuleSettings::SmartLed(smart_led_settings) => {
                 (
                     [
-                        ("Group Mode", ValueType::SmartLedGrouping(SmartLedGrouping::CombineByPort)),
-                        ("LED Mode", ValueType::SmartLedColorMode(SmartLedColorMode::RGB)),
+                        ("Group Mode", ValueType::SmartLedGrouping(smart_led_settings.grouping)),
+                        ("Color Mode", ValueType::SmartLedColorMode(smart_led_settings.color_mode)),
                         ("", ValueType::None),
                         ("", ValueType::None),
                         ("", ValueType::None),
                     ],
                     [
-                        ("LEDs on Port 1", ValueType::Uint3(0)),
-                        ("LEDs on Port 2", ValueType::Uint3(0)),
-                        ("LEDs on Port 3", ValueType::Uint3(0)),
-                        ("LEDs on Port 4", ValueType::Uint3(0)),
+                        ("LEDs on Port 1", ValueType::Uint3(smart_led_settings.leds_per_port[0])),
+                        ("LEDs on Port 2", ValueType::Uint3(smart_led_settings.leds_per_port[1])),
+                        ("LEDs on Port 3", ValueType::Uint3(smart_led_settings.leds_per_port[2])),
+                        ("LEDs on Port 4", ValueType::Uint3(smart_led_settings.leds_per_port[3])),
                         ("", ValueType::None),
                     ]
                 )
@@ -130,7 +129,9 @@ impl From<MenuData> for MenuTabData {
 }
 
 impl MenuTabData {
+    #[allow(unused)]
     fn to_menu_data(&self, module_type: ModuleType) -> MenuData {
+        info!("Convert menu tab data to menu data.");
         let module_settings = match module_type {
             ModuleType::Pwm => {
                 ModuleSettings::Pwm(
@@ -142,13 +143,13 @@ impl MenuTabData {
             ModuleType::SmartLed => {
                 ModuleSettings::SmartLed(
                     SmartLedSettings {
-                        color_mode: self.tab1[0].1.extract_led_addressing().unwrap_or_default(),
-                        grouping: self.tab1[1].1.extract_led_grouping().unwrap_or_default(),
+                        grouping: self.tab1[0].1.extract_led_grouping(),
+                        color_mode: self.tab1[1].1.extract_led_color_mode(),
                         leds_per_port: [
-                            self.tab2[0].1.extract_uint3().unwrap_or_default(),
-                            self.tab2[1].1.extract_uint3().unwrap_or_default(),
-                            self.tab2[2].1.extract_uint3().unwrap_or_default(),
-                            self.tab2[3].1.extract_uint3().unwrap_or_default(),
+                            self.tab2[0].1.extract_uint3(),
+                            self.tab2[1].1.extract_uint3(),
+                            self.tab2[2].1.extract_uint3(),
+                            self.tab2[3].1.extract_uint3(),
                         ],
                     }
                 )
@@ -159,7 +160,7 @@ impl MenuTabData {
         };
         
         MenuData {
-            dmx_address: self.tab0[0].1.extract_uint3().unwrap_or_default(),
+            dmx_address: self.tab0[0].1.extract_uint3(),
             module: module_settings,
         }
     }
@@ -176,35 +177,51 @@ pub enum UiEvent {
     Load(MenuData),
 }
 
-pub struct Ui {
+#[allow(unused)]
+pub struct Ui<'a> {
     disp: SpiDisplay,
     rx: UiChannelRx,
     tx: RouterChannelTx,
     current_tab: usize,
     menu_tab_data: MenuTabData,
+    menu_data: MenuData,
     module_type: ModuleType,
+    menus: [MenuTab<'a>; 3],
 }
 
-impl Ui {
+impl<'a> Ui<'a> {
     pub fn new(disp: SpiDisplay, rx: UiChannelRx, tx: RouterChannelTx) -> Self {
         let md = MenuData::default(); // should be coming from the inputs to new fn
         let menu_tab_data = md.into();
         let module_type = ModuleType::SmartLed;
 
-        Self { disp, rx, tx, current_tab: 0, menu_tab_data, module_type}
+        Self {
+            disp,
+            rx,
+            tx,
+            current_tab: 0,
+            menu_data: md,
+            menu_tab_data,
+            module_type,
+            menus: [MenuTab::default(), MenuTab::default(), MenuTab::default(),],
+        }
     }
 
-    fn next_tab(&mut self, menu_len: usize) {
-        if self.current_tab == menu_len - 1 {
+    // fn next_tab(&mut self, menu_len: usize) {
+    fn next_tab(&mut self) {
+        // if self.current_tab == menu_len - 1 {
+            if self.current_tab == self.menus.len() - 1 {
             self.current_tab = 0;
         } else {
             self.current_tab = self.current_tab.saturating_add(1);
         }
     }
 
-    fn previous_tab(&mut self, menu_len: usize) {
+    // fn previous_tab(&mut self, menu_len: usize) {
+    fn previous_tab(&mut self) {
         if self.current_tab == 0 {
-            self.current_tab = menu_len - 1;
+            // self.current_tab = menu_len - 1;
+            self.current_tab = self.menus.len() - 1;
         } else {
             self.current_tab = self.current_tab.saturating_sub(1)
         }
@@ -214,119 +231,144 @@ impl Ui {
         // Create a Rectangle from the display's dimensions
         let text_style = U8g2TextStyle::new(DEFAULT_FONT, COLOR_DEFAULT_TEXT);
 
+        let mtd : MenuTabData = self.menu_data.into();
         // Create menu items
-        let mut menu0_items = [
-            MenuItem::new(self.menu_tab_data.tab0[0], true, Point::zero(), text_style.clone()),
-            MenuItem::new(self.menu_tab_data.tab0[1], false, Point::zero(), text_style.clone()),
-            MenuItem::new(self.menu_tab_data.tab0[2], false, Point::zero(), text_style.clone()),
-            MenuItem::new(self.menu_tab_data.tab0[3], false, Point::zero(), text_style.clone()),
-            MenuItem::new(self.menu_tab_data.tab0[4], false, Point::zero(), text_style.clone()),
+        let menu0_items = [
+            MenuItem::new(mtd.tab0[0], true, Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.tab0[1], false, Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.tab0[2], false, Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.tab0[3], false, Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.tab0[4], false, Point::zero(), text_style.clone()),
         ];
 
-        let mut menu1_items = [
-            MenuItem::new(self.menu_tab_data.tab1[0], true, Point::zero(), text_style.clone()),
-            MenuItem::new(self.menu_tab_data.tab1[1], true, Point::zero(), text_style.clone()),
-            MenuItem::new(self.menu_tab_data.tab1[2], false, Point::zero(), text_style.clone()),
-            MenuItem::new(self.menu_tab_data.tab1[3], false, Point::zero(), text_style.clone()),
-            MenuItem::new(self.menu_tab_data.tab1[4], false, Point::zero(), text_style.clone()),
+        let menu1_items = [
+            MenuItem::new(mtd.tab1[0], true, Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.tab1[1], true, Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.tab1[2], false, Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.tab1[3], false, Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.tab1[4], false, Point::zero(), text_style.clone()),
         ];
 
-        let mut menu2_items = [
-            MenuItem::new(self.menu_tab_data.tab2[0], true, Point::zero(), text_style.clone()),
-            MenuItem::new(self.menu_tab_data.tab2[1], true, Point::zero(), text_style.clone()),
-            MenuItem::new(self.menu_tab_data.tab2[2], true, Point::zero(), text_style.clone()),
-            MenuItem::new(self.menu_tab_data.tab2[3], true, Point::zero(), text_style.clone()),
-            MenuItem::new(self.menu_tab_data.tab2[4], false, Point::zero(), text_style.clone()),
+        let menu2_items = [
+            MenuItem::new(mtd.tab2[0], true, Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.tab2[1], true, Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.tab2[2], true, Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.tab2[3], true, Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.tab2[4], false, Point::zero(), text_style.clone()),
         ];
 
         // Create menu tabs
-        let mut menu0 = MenuTab::new("Main Menu", &mut menu0_items);
-        let mut menu1 = MenuTab::new("LED Settings 1", &mut menu1_items);
-        let mut menu2 = MenuTab::new("LED Settings 2", &mut menu2_items);
+        // let mut menu0 = MenuTab::new("Main Menu", &mut menu0_items);
+        // let mut menu1 = MenuTab::new("LED Settings 1", &mut menu1_items);
+        // let mut menu2 = MenuTab::new("LED Settings 2", &mut menu2_items);
+        let mut menu0 = MenuTab::new("Main Menu", menu0_items);
+        let mut menu1 = MenuTab::new("LED Settings 1", menu1_items);
+        let mut menu2 = MenuTab::new("LED Settings 2", menu2_items);
 
         menu0.arrange();
         menu1.arrange();
         menu2.arrange();
 
         // Create menu & draw initial tab
-        let mut menus = [menu0, menu1, menu2];
-        menus[self.current_tab].update();
-        let _ = menus[self.current_tab].draw(&mut self.disp);
+        let menu_structure = [menu0, menu1, menu2];
+        self.menus = menu_structure;
 
 
-        loop {
-            if let Ok(new_message) = with_timeout(Duration::from_millis(250), self.rx.receive()).await {
-                match new_message {
-                    UiEvent::Up => {
-                        match menus[self.current_tab].next() {
-                            MenuMovement::NextTab => self.next_tab(menus.len()),
-                            MenuMovement::UpdateValue((item_index, value_index, value)) => {
-                                self.update_value(item_index, value);
-                            },
-                            _ => {},
-                        };
-                    }
-                    UiEvent::Down => {
-                        match menus[self.current_tab].previous() {
-                            MenuMovement::PreviousTab => self.previous_tab(menus.len()),
-                            MenuMovement::UpdateValue((item_index, value_index, value)) => {
-                                self.update_value(item_index, value);
-                            },
-                            _ => {}
-                        };
-                    }
-                    UiEvent::Esc => {
-                        if !menus[self.current_tab].editing() {
-                            self.next_tab(menus.len());
-                        }
-                    }
-                    UiEvent::Select => {
-                        if menus[self.current_tab].editing() {
-                            menus[self.current_tab].set_editing(false);
-                            match self.tx.try_send(RouterEvent::MenuDataUpdate(self.menu_tab_data.to_menu_data(self.module_type))) {
-                                Ok(_) => {}
-                                Err(e) => error!("Message dropped. Channel full. {}", e),
+
+
+
+        // if let Some(menus) = self.menus.as_mut() {
+            self.menus[self.current_tab].update();
+            let _ = self.menus[self.current_tab].draw(&mut self.disp);
+        
+            loop {
+                if let Ok(new_message) = with_timeout(Duration::from_millis(250), self.rx.receive()).await {
+                    match new_message {
+                        UiEvent::Up => {
+                            match self.menus[self.current_tab].next() {
+                                // MenuMovement::NextTab => self.next_tab(menus.len()),
+                                MenuMovement::NextTab => self.next_tab(),
+                                MenuMovement::UpdateValue((item_index, _value_index, value)) => {
+                                    self.update_menu_tab_data(item_index, value);
+                                    self.menus[self.current_tab].set(item_index, value);
+                                },
+                                _ => {},
                             };
-                        } else {
-                            menus[self.current_tab].set_editing(true);
                         }
-                    }
-                    UiEvent::Load(input) => {
-                        let new_data: MenuTabData = input.into();
-
-                        self.current_tab = 0;
-                        for (item_index, item) in new_data.tab0.iter().enumerate() {
-                            menus[self.current_tab].set(item_index, item.1);
-                            info!("Update {} to {}", item_index, item);
+                        UiEvent::Down => {
+                            match self.menus[self.current_tab].previous() {
+                                // MenuMovement::PreviousTab => self.previous_tab(menus.len()),
+                                MenuMovement::PreviousTab => self.previous_tab(),
+                                MenuMovement::UpdateValue((item_index, _value_index, value)) => {
+                                    self.update_menu_tab_data(item_index, value);
+                                    self.menus[self.current_tab].set(item_index, value);
+                                },
+                                _ => {}
+                            };
                         }
-
-                        self.current_tab = 1;
-                        for (item_index, item) in new_data.tab1.iter().enumerate() {
-                            menus[self.current_tab].set(item_index, item.1);
+                        UiEvent::Esc => {
+                            if !self.menus[self.current_tab].editing() {
+                                // self.next_tab(menus.len());
+                                self.next_tab();
+                            }
                         }
+                        UiEvent::Select => {
+                            if self.menus[self.current_tab].editing() {
+                                self.menus[self.current_tab].set_editing(false);
 
-                        self.current_tab = 2;
-                        for (item_index, item) in new_data.tab2.iter().enumerate() {
-                            menus[self.current_tab].set(item_index, item.1);
+                                self.menu_data = self.menu_tab_data.to_menu_data(self.module_type);
+                                info!("UI Event Select - menu data {}", self.menu_data);
+                                match self.tx.try_send(RouterEvent::StoreSettingsInEeprom(self.menu_data)) {
+                                    Ok(_) => {}
+                                    Err(e) => error!("Message dropped. Channel full. {}", e),
+                                };
+                            } else {
+                                self.menus[self.current_tab].set_editing(true);
+                            }
                         }
+                        UiEvent::Load(menu_data) => {
+                            self.menu_data = menu_data;
+                            self.menu_tab_data = self.menu_data.into();
 
-                        self.current_tab = 0;
-                    }
+                            self.current_tab = 0;
+                            for (item_index, item) in self.menu_tab_data.tab0.iter().enumerate() {
+                                self.menus[self.current_tab].set(item_index, item.1);
+                            }
+
+                            self.current_tab = 1;
+                            for (item_index, item) in self.menu_tab_data.tab1.iter().enumerate() {
+                                self.menus[self.current_tab].set(item_index, item.1);
+                            }
+
+                            self.current_tab = 2;
+                            for (item_index, item) in self.menu_tab_data.tab2.iter().enumerate() {
+                                self.menus[self.current_tab].set(item_index, item.1);
+                            }
+
+                            self.current_tab = 0;
+                        }
+                    };
+
+                    self.menus[self.current_tab].update();
+
+                    self.disp.clear(Rgb565::BLACK).unwrap();
+                    let _ = self.menus[self.current_tab].draw(&mut self.disp);
                 };
-
-                menus[self.current_tab].update();
-
-                self.disp.clear(Rgb565::BLACK).unwrap();
-                let _ = menus[self.current_tab].draw(&mut self.disp);
-            };
-        }
+            }
+        // }
     }
 
-    fn update_value(&mut self, item_index: usize, value: ValueType) {
+    fn update_menu_tab_data(&mut self, item_index: usize, value: ValueType) {
         match self.current_tab {
-            0 => {self.menu_tab_data.tab0[item_index].1 = value;},
-            1 => {self.menu_tab_data.tab1[item_index].1 = value;},
-            2 => {self.menu_tab_data.tab2[item_index].1 = value;},
+            0 => {
+                self.menu_tab_data.tab0[item_index].1 = value;
+            },
+            1 => {
+                self.menu_tab_data.tab1[item_index].1 = value;
+            },
+            2 => {
+                self.menu_tab_data.tab2[item_index].1 = value;
+            },
             _ => {}
         }
     }

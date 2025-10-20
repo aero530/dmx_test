@@ -27,9 +27,12 @@ pub static CHANNEL_DMX: DmxChannel = Channel::new();
 // pub static CHANNEL_LED: LedChannel = Channel::new();
 
 pub type PwmChannel = Channel<ThreadModeRawMutex, PwmEvent, 1>;
+#[allow(unused)]
 pub type PwmChannelRx = Receiver<'static, ThreadModeRawMutex, PwmEvent, 1>;
 pub type PwmChannelTx = Sender<'static, ThreadModeRawMutex, PwmEvent, 1>;
+#[allow(unused)]
 pub static CHANNEL_PWM: PwmChannel = Channel::new();
+#[allow(unused)]
 pub static CHANNEL_PWM_I2C: PwmChannel = Channel::new();
 
 pub type SmartLedChannel = Channel<ThreadModeRawMutex, SmartLedEvent, 1>;

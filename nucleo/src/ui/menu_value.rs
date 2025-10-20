@@ -1,8 +1,7 @@
 use embedded_graphics::{
     draw_target::DrawTarget,
-    mono_font::MonoTextStyle,
     pixelcolor::Rgb565,
-    prelude::{Point, RgbColor, Size, Transform},
+    prelude::{Point, Size, Transform},
     primitives::Rectangle,
     text::{
         renderer::{CharacterStyle, TextRenderer},
@@ -18,10 +17,10 @@ use az::SaturatingAs;
 use core::fmt::Write;
 use embedded_text::{alignment::HorizontalAlignment, TextBox};
 use u8g2_fonts::U8g2TextStyle;
+use bincode::{Encode, Decode};
 
 use crate::DISPLAY_HEIGHT;
-use defmt::info;
-use defmt::Format;
+use defmt::{info, error, Format};
 
 /// Menu Value are values that can be configured in the menu
 #[derive(Clone)]
@@ -111,7 +110,7 @@ impl Drawable for MenuValue {
 
         match self.value {
             ValueType::Uint3(x) => {
-                let mut v = split_digits_no_std(x, 3);
+                let v = split_digits_no_std(x, 3);
 
                 let mut p = self.bounds().top_left;
 
@@ -151,8 +150,9 @@ impl Drawable for MenuValue {
     }
 }
 
+#[allow(unused)]
 /// Menu Value are values that can be configured in the menu
-#[derive(Clone, Copy, PartialEq, Eq, Format)]
+#[derive(Clone, Copy, PartialEq, Eq, Format, Decode, Encode)]
 pub enum ValueType {
     None,
     U8(u8),
@@ -172,31 +172,49 @@ impl ValueType {
         }
     }
 
-    pub fn extract_u8(&self) -> Option<u8> {
+    #[allow(unused)]
+    pub fn extract_u8(&self) -> u8 {
         match self {
-            ValueType::U8(x) => Some(*x),
-            _ => None,
+            ValueType::U8(x) => *x,
+            _ => {
+                error!("Unable to extract u8 - setting to default value");
+                0
+            },
         }
     }
 
-    pub fn extract_led_grouping(&self) -> Option<SmartLedGrouping> {
+    #[allow(unused)]
+    pub fn extract_led_grouping(&self) -> SmartLedGrouping {
+        info!("Extract grouping {}", self);
         match self {
-            ValueType::SmartLedGrouping(x) => Some(*x),
-            _ => None,
+            ValueType::SmartLedGrouping(x) => *x,
+            _ => {
+                error!("Unable to extract LED grouping - setting to default value");
+                SmartLedGrouping::default()
+            },
         }
     }
 
-    pub fn extract_led_addressing(&self) -> Option<SmartLedColorMode> {
+    #[allow(unused)]
+    pub fn extract_led_color_mode(&self) -> SmartLedColorMode {
+        info!("Extract color mode {}", self);
         match self {
-            ValueType::SmartLedColorMode(x) => Some(*x),
-            _ => None,
+            ValueType::SmartLedColorMode(x) => *x,
+            _ => {
+                error!("Unable to extract LED color mode - setting to default value");
+                SmartLedColorMode::default()
+            },
         }
     }
 
-    pub fn extract_uint3(&self) -> Option<u16> {
+    #[allow(unused)]
+    pub fn extract_uint3(&self) -> u16 {
         match self {
-            ValueType::Uint3(x) => Some(*x),
-            _ => None,
+            ValueType::Uint3(x) => *x,
+            _ => {
+                error!("Unable to extract UINT3 - setting to default value");
+                0
+            },
         }
     }
 }
@@ -209,7 +227,7 @@ impl IncDec for ValueType {
             ValueType::SmartLedGrouping(x) => ValueType::SmartLedGrouping(x.increment(index)),
             ValueType::SmartLedColorMode(x) => ValueType::SmartLedColorMode(x.increment(index)),
             ValueType::Uint3(x) => {
-                let mut new = *x;
+                let new = *x;
                 let mut v = split_digits_no_std(new, 3);
                 let i = (v.len() - 1) - index;
                 v[i] = v[i].increment(i);
@@ -226,7 +244,7 @@ impl IncDec for ValueType {
             ValueType::SmartLedGrouping(x) => ValueType::SmartLedGrouping(x.decrement(index)),
             ValueType::SmartLedColorMode(x) => ValueType::SmartLedColorMode(x.decrement(index)),
             ValueType::Uint3(x) => {
-                let mut new = *x;
+                let new = *x;
                 let mut v = split_digits_no_std(new, 3);
                 let i = (v.len() - 1) - index;
                 v[i] = v[i].decrement(i);
@@ -237,6 +255,7 @@ impl IncDec for ValueType {
     }
 }
 
+// How the value type is displayed in the UI
 impl core::fmt::Display for ValueType {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
@@ -265,7 +284,7 @@ fn split_digits_no_std(mut n: u16, pad_size: usize) -> heapless::Vec<Udigit, 5> 
     digits
 }
 
-fn digits_to_u16(mut n: heapless::Vec<Udigit, 5>) -> u16 {
+fn digits_to_u16(n: heapless::Vec<Udigit, 5>) -> u16 {
     let mut out = 0_u16;
     n.iter().enumerate().for_each(|(index, val)| out += val.0 as u16 * 10_u16.pow((index as u16).into()));
     out

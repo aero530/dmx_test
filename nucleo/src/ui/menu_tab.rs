@@ -1,25 +1,28 @@
 use az::SaturatingAs;
 use embedded_graphics::{
     draw_target::DrawTarget,
-    mono_font::{iso_8859_4::FONT_10X20, MonoTextStyle},
     pixelcolor::Rgb565,
-    prelude::{Point, RgbColor},
+    prelude::Point,
     primitives::Rectangle,
     text::renderer::TextRenderer,
     Drawable,
 };
 
 use embedded_text::{alignment::HorizontalAlignment, TextBox};
-use u8g2_fonts::{fonts, U8g2TextStyle};
+use u8g2_fonts::U8g2TextStyle;
 
 use defmt::info;
 
 use crate::ui::{layout::IncDec, menu_value::ValueType, MenuMovement, COLOR_DEFAULT_TEXT, COLOR_MENU_TEXT, DEFAULT_FONT}; // DEFAULT_FONT};
 use crate::ui::{layout::NextPrev, MenuItem, SelectionMode, View};
 
+pub const NUM_ITEMS: usize = 5;
+
+#[derive(Default)]
 pub struct MenuTab<'a> {
     name: &'a str,
-    items: &'a mut [MenuItem<'a>],
+    items: [MenuItem<'a>; NUM_ITEMS],
+    // items: &'a mut [MenuItem<'a>],
     num_selectable_items: usize,
     item_index: usize,
     editing: bool,
@@ -30,7 +33,8 @@ impl<'a> MenuTab<'a> {
         self.items[item_index].value.value = val;
     }
 
-    pub fn new(name: &'a str, items: &'a mut [MenuItem<'a>]) -> Self {
+    // pub fn new(name: &'a str, items: &'a mut [MenuItem<'a>]) -> Self {
+    pub fn new(name: &'a str, items: [MenuItem<'a>; NUM_ITEMS]) -> Self {
         let num_selectable_items = items.iter().filter(|item| item.editable).count();
         Self {
             name,
@@ -75,9 +79,9 @@ impl<'a> MenuTab<'a> {
         self.editing
     }
 
-    pub fn items(&self) -> &[MenuItem] {
-        self.items
-    }
+    // pub fn items(&self) -> &[MenuItem; NUM_ITEMS] {
+    //     &self.items
+    // }
 }
 
 impl<'a> NextPrev for MenuTab<'a> {

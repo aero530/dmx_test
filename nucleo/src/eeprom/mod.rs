@@ -1,12 +1,9 @@
 
 use defmt::Format;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
-use embassy_time::{with_timeout, Duration, Delay};
-use embassy_futures::block_on;
+use embassy_time::{with_timeout, Duration};
 
-use embedded_hal_1::delay::DelayNs;
 
-use bincode::{config, Decode, Encode};
 
 use crate::{channels::RouterChannelTx, event_router::RouterEvent, ui::{MenuData, ModuleType}, EepromChannelRx, I2c1Bus};
 
@@ -19,6 +16,7 @@ const MODULE_TYPE_ADDRESS: u8 = 0x05; // must be a low enough address such that 
 const SETTINGS_ADDRESS: u8 = 0x20; // 0x20 = 32 which is the start of the third page of memory
 const SETTINGS_SIZE: usize = 16; // number of bytes to reserve for menu settings
 
+#[allow(unused)]
 #[derive(Clone, Copy, Format, Debug)]
 pub enum EepromEvent {
     ReadModuleType,
@@ -86,7 +84,8 @@ impl<I2C: embedded_hal_async::i2c::I2c> Eeprom<I2C> {
                     match self.dev.read_data(SETTINGS_ADDRESS, &mut buf).await {
                         Ok(_) => {
                             let decoded: MenuData = bincode::decode_from_slice(&buf, bincode::config::standard()).unwrap_or_default().0;
-                            let _ = self.tx.try_send(RouterEvent::UpdateSettings(decoded));
+                            info!("Read eeprom");
+                            let _ = self.tx.try_send(RouterEvent::UpdateSettingsOnDisplay(decoded));
                         },
                         Err(e) => {
                             error!("Eeprom - error {}", e);
@@ -95,7 +94,6 @@ impl<I2C: embedded_hal_async::i2c::I2c> Eeprom<I2C> {
                 },
             EepromEvent::StoreSettings(menu_settings) => {
                 let mut slice = [0u8; SETTINGS_SIZE];
-                
                 
                 let length = bincode::encode_into_slice(menu_settings, &mut slice, bincode::config::standard()).unwrap_or_else(|e| {
                     match e {
@@ -107,10 +105,10 @@ impl<I2C: embedded_hal_async::i2c::I2c> Eeprom<I2C> {
 
                 if length > 0 {
 
-                    info!("Storing menu settings {}. Data is {} bytes long", menu_settings, length);
+                    info!("Store settings {}. Data is {} bytes long", menu_settings, length);
 
                     let chunks = slice.chunks(PAGE_SIZE as usize).enumerate();
-                    let mem_addr = SETTINGS_ADDRESS + (0 as u8)*PAGE_SIZE;
+                    
                     
                     // There is something going on that makes it so page write only works if you write a byte to the device first then
                     // do the page write...something with the address not being transmitted. Not sure if this is something the eeprom

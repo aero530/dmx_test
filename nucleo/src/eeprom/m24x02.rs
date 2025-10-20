@@ -1,12 +1,12 @@
 use embedded_hal_async::i2c::I2c;
-use defmt::{Format, info, error};
-use embassy_time::{with_timeout, Delay, Duration, Timer};
+use embassy_time::Timer;
 
 pub const PAGE_SIZE: u8 = 16; // 16 byte page size
 const ADDR_BYTES: u8 = 1; // 
 const WRITE_TIME_DELAY: u64 = 5; // in ms
 // total size 2Kbit -> 256 x 8
 
+#[allow(unused)]
 /// All possible errors in this crate
 #[derive(Debug)]
 pub enum Error<E> {
@@ -145,8 +145,8 @@ impl<I2C, E> M24x02<I2C> where I2C: I2c<Error = E> {
         Ok(())
     }
 
-    fn page_size(&self) -> u8 {
-        PAGE_SIZE
-    }
+    // fn page_size(&self) -> u8 {
+    //     PAGE_SIZE
+    // }
 }
 

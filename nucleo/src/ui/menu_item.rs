@@ -1,8 +1,7 @@
 use embedded_graphics::{
     draw_target::DrawTarget,
-    mono_font::MonoTextStyle,
     pixelcolor::Rgb565,
-    prelude::{Point, RgbColor, Size, Transform, WebColors},
+    prelude::{Point, Size, Transform},
     primitives::Rectangle,
     text::renderer::{CharacterStyle, TextRenderer},
     Drawable,
@@ -11,7 +10,7 @@ use embedded_graphics::{
 use embedded_text::{alignment::HorizontalAlignment, TextBox};
 use u8g2_fonts::U8g2TextStyle;
 
-use crate::ui::{layout::NextPrev, MenuMovement, COLOR_ITEM_TEXT, COLOR_MENU_TEXT};
+use crate::ui::{layout::NextPrev, MenuMovement, COLOR_DEFAULT_TEXT, COLOR_ITEM_TEXT, DEFAULT_FONT};
 
 use super::{MenuValue, View};
 
@@ -35,6 +34,19 @@ impl<'a> MenuItem<'a> {
             bounds: Rectangle::new(position, Size::new(DISPLAY_HEIGHT.into(), character_style.line_height())),
             character_style,
             editable,
+        }
+    }
+}
+
+impl Default for MenuItem<'_> {
+    fn default() -> Self {
+        let text_style = U8g2TextStyle::new(DEFAULT_FONT, COLOR_DEFAULT_TEXT);
+        Self {
+            name: "",
+            value: MenuValue::new(ValueType::None, text_style.clone(), Point::zero()),
+            bounds: Rectangle::new(Point::zero(), Size::new(DISPLAY_HEIGHT.into(), text_style.line_height())),
+            character_style: text_style,
+            editable: false,
         }
     }
 }

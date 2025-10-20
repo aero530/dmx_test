@@ -20,11 +20,13 @@ pub struct PwmI2c<I2C: embedded_hal_async::i2c::I2c> {
 }
 
 impl<I2C: embedded_hal_async::i2c::I2c> PwmI2c<I2C> {
+    #[allow(unused)]
     pub fn new(i2c: I2C, address: u8, rx: PwmChannelRx) -> Self {
         let pwm = Pca9685::new(i2c, address).unwrap();
         Self { pwm, rx }
     }
 
+    #[allow(unused)]
     pub async fn configure(&mut self) {
         // This corresponds to a frequency of 60 Hz.
         let _ = self.pwm.set_prescale(100).await;
@@ -36,12 +38,14 @@ impl<I2C: embedded_hal_async::i2c::I2c> PwmI2c<I2C> {
         let _ = self.pwm.set_channel_on(Channel::All, 0).await;
     }
 
+    #[allow(unused)]
     pub async fn show(&mut self) {
         if let Ok(new_message) = with_timeout(Duration::from_millis(100), self.rx.receive()).await {
             self.process_event(new_message).await;
         }
     }
 
+    #[allow(unused)]
     async fn process_event(&mut self, event: PwmEvent) {
         match event {
             // PwmEvent::On => {

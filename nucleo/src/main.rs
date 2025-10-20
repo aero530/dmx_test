@@ -18,7 +18,6 @@ use embassy_time::Duration;
 use static_cell::StaticCell;
 
 use crate::eeprom::EepromEvent;
-use crate::ui::ModuleType;
 
 use {defmt_rtt as _, panic_probe as _};
 
@@ -37,7 +36,6 @@ cfg_if! {
 }
 
 mod pwm_i2c;
-use pwm_i2c::pwm_i2c_task;
 
 mod constants;
 pub use constants::*;
@@ -101,7 +99,7 @@ type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, Mast
 /// SDA: PF0
 /// Alert#: PF2
 /// Reset: PF3
-static I2C_BUS_DISPLAY: StaticCell<I2c1Bus> = StaticCell::new();
+static _I2C_BUS_DISPLAY: StaticCell<I2c1Bus> = StaticCell::new();
 
 /// DMX I2C / Smbus - I2C1
 /// SCL: PB8

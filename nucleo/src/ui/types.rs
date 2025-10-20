@@ -2,7 +2,7 @@ use crate::ui::menu_value::ValueType;
 use bincode::{Decode, Encode};
 
 use super::IncDec;
-use defmt::{info, Format};
+use defmt::Format;
 use enum_ordinalize::Ordinalize;
 
 #[derive(Clone, Copy, Default, PartialEq, Format, Debug, Decode, Encode)]

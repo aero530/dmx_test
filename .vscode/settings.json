@@ -1,5 +1,0 @@
-{"rust-analyzer.linkedProjects": [
-               "./nucleo/Cargo.toml",
-        "./rp2040/Cargo.toml",
-        "./rp2040_dmx/Cargo.toml", 
-    ]}

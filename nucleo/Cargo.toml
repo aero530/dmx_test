@@ -1,0 +1,139 @@
+[package]
+name = "nucleo"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "nucleo"
+test = false
+bench = false
+
+[features]
+# default = []
+default = ["ethernet"]
+ethernet = []
+pwm_native = []
+pwm = []
+display = []
+
+[dependencies]
+
+cfg-if = "1.0.3"
+
+# ansi_rgb = {git="https://github.com/rust-osdev/ansi_rgb.git"}
+# bit_field = "0.10.2"
+
+embassy-stm32 = { version = "0.4.0", features = ["defmt", "stm32h563zi", "memory-x", "time-driver-any", "exti", "unstable-pac", "low-power"] }
+embassy-sync = { version = "0.7.2", features = ["defmt"] }
+embassy-executor = { version = "0.9.0", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-time = { version = "0.5.0", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-1_000_000"] } # tick-hz-100_000_000 tick-hz-32_768
+embassy-net = { version = "0.7.1", features = ["defmt", "dns", "udp", "tcp", "dhcpv4", "medium-ethernet", "proto-ipv6"] }
+embassy-usb = { version = "0.5.1", features = ["defmt"] }
+embassy-futures = { version = "0.1.2"}
+embassy-embedded-hal = "0.5.0"
+
+
+defmt = "1.0.1"
+defmt-rtt = "1.0.0"
+
+cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt = "0.7.0"
+embedded-hal = "0.2.6"
+embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+embedded-hal-async = { version = "1.0" }
+embedded-io-async = { version = "0.7.0" }
+embedded-nal-async = "0.9.0"
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+heapless = { version = "0.9", default-features = false }
+critical-section = "1.1"
+micromath = "2.0.0"
+stm32-fmc = "0.4.0"
+static_cell = "2"
+
+# rgb = "0.8.50"
+
+# EEprom
+eeprom24x = "0.7.2"
+embedded-storage = "0.3.1"
+bincode = {version = "2.0.1", default-features = false, features=["derive"]} # default, std, alloc, derive
+
+
+# Smart LED / WS2812
+smart-leds = "0.4.0"
+smart-leds-trait = "0.3.1"
+
+# Display
+mipidsi = "0.9.0"
+embedded-hal-bus = "0.3.0"
+
+
+embedded-graphics = "0.8.1"
+az = "1.2.1"
+arrayvec = {version = "0.7.6", default-features = false }
+embedded-alloc = "0.6.0"
+embedded-text = "0.7.2"
+enum-ordinalize = "4.3.0"
+u8g2-fonts = {version = "0.7.2", features = ["embedded_graphics_textstyle"]}
+# embedded-layout = "0.4.2"
+
+# embedded-menu = "0.6.1"
+
+# PCA9685
+pwm-pca9685 = { version = "1.0.0", features = ["async"] }
+
+# Ethernet
+rand_core = "0.9.3"
+format_no_std = "1.2.0"
+
+# Artnet
+# tiny-artnet = "0.1.3"
+nom ={ version = "8.0.0", default-features = false}
+# portable-atomic = { version = "1.3", default-features = false, features = ["require-cas"] }
+# bytes = { version = "1.10.1", default-features = false}
+
+
+
+
+# cargo build/run
+[profile.dev]
+codegen-units = 1
+debug = 2
+debug-assertions = true # <-
+incremental = false
+opt-level = 3 # <-
+overflow-checks = true # <-
+
+# cargo test
+[profile.test]
+codegen-units = 1
+debug = 2
+debug-assertions = true # <-
+incremental = false
+opt-level = 3 # <-
+overflow-checks = true # <-
+
+# cargo build/run --release
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false # <-
+incremental = false
+lto = 'fat'
+opt-level = 3 # <-
+overflow-checks = false # <-
+
+# cargo test --release
+[profile.bench]
+codegen-units = 1
+debug = 2
+debug-assertions = false # <-
+incremental = false
+lto = 'fat'
+opt-level = 3 # <-
+overflow-checks = false # <-
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/stm32h5" }
+]
+

@@ -1,0 +1,3 @@
+[workspace]
+resolver = "3"
+members = [ "nucleo","rp2040","rp2040_dmx"]

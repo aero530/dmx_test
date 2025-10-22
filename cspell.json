@@ -1,0 +1,25 @@
+{
+    "words": [
+        "artnet",
+        "asynch",
+        "baudrate",
+        "disp",
+        "displayrotation",
+        "doctest",
+        "esta",
+        "EXTI",
+        "heapless",
+        "Irqs",
+        "MCIO",
+        "microcontroller",
+        "MOSI",
+        "nucleo",
+        "oled",
+        "pullup",
+        "Sysclk",
+        "txonly",
+        "Uart",
+        "uniterm",
+        "USART"
+    ]
+}

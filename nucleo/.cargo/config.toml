@@ -16,6 +16,7 @@ runner = [
 # target = "thumbv7em-none-eabihf"
 target = "thumbv8m.main-none-eabihf"
 
-# trace, debug, info, warn, error
+# trace, debug, info, warn, error, off
 [env]
 DEFMT_LOG = "debug"
+# DEFMT_LOG = "off"

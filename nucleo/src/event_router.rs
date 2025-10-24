@@ -1,9 +1,11 @@
 //! Event router to send commands between tasks
+use core::net::Ipv4Addr;
+
 use crate::button::ButtonEvent;
 use crate::button_array::{KeyPadButton, KeyPadEvent};
 use crate::channels::*;
 use crate::eeprom::EepromEvent;
-use crate::ui::{EthernetIPMode, InputMode, MenuData, ModuleType, UiEvent};
+use crate::ui::{EthernetIPMode, InputMode, MenuData, ModuleType, UiEvent, IpAddrMenu};
 // use crate::led::LedEvent;
 use crate::pwm_i2c::PwmEvent;
 use crate::smart_led::{SmartLedEvent, NUM_LEDS_MAX};
@@ -18,9 +20,10 @@ pub struct GlobalData {
     // pub dmx_address: u16,
     pub menu_settings: MenuData,
     // pub dmx: [u8; DMX_BUFF_SIZE],
-    pub module_type: ModuleType,
-    pub mac: [u8; 6],
+    pub module_type: Option<ModuleType>,
+    pub mac: Option<[u8; 6]>,
     pub boot_complete: bool,
+    // pub ip_addr: Option<Ipv4Addr>
 }
 
 #[derive(Format)]
@@ -37,10 +40,11 @@ pub enum RouterEvent {
     Button(ButtonEvent),
     WriteSettingsToEeprom(MenuData),
     
-    StoreSettings(MenuData),
-    StoreModuleType(ModuleType),
-    StoreMacAddress([u8; 6]),
+    StoreSettings(Option<MenuData>),
+    StoreModuleType(Option<ModuleType>),
+    StoreMacAddress(Option<[u8; 6]>),
     StoreBootComplete(bool),
+    StoreIpAddr(Option<Ipv4Addr>),
     
     GetModuleType(ReturnChannel),
     GetMacAddress(ReturnChannel),
@@ -56,9 +60,9 @@ pub enum DmxEvent {
 #[derive(Format)]
 pub enum MainEvent {
     // ReturnIpMode(EthernetIPMode),
-    ReturnModuleType(ModuleType),
+    ReturnModuleType(Option<ModuleType>),
     ReturnSettings(MenuData),
-    ReturnMacAddress([u8; 6]),
+    ReturnMacAddress(Option<[u8; 6]>),
 }
 
 pub struct Router {
@@ -165,19 +169,30 @@ impl Router {
                         let _ = self.channel_eeprom.try_send(EepromEvent::WriteSettings(menu_data));
                     },
             RouterEvent::StoreSettings(menu_data) => {
-                        self.data.menu_settings = menu_data;
-                        info!("Update settings on display {}", menu_data);
-                        let _ = self.channel_ui.try_send(UiEvent::Load(menu_data));
+                        if let Some(x) = menu_data {
+                            self.data.menu_settings = x;
+                            info!("Update settings on display {}", x);
+                            let _ = self.channel_ui.try_send(UiEvent::Load(x));
+                        }
                     },
             RouterEvent::StoreModuleType(module_type) => {
-                        info!("Data store update - module type {}", module_type);
                         self.data.module_type = module_type;
                     },
             RouterEvent::StoreMacAddress(mac) => {
-                        info!("Data store update - mac {:#X}", mac);
-                        self.data.mac = mac;
+                    self.data.mac = mac;
                     },
-
+            RouterEvent::StoreBootComplete(complete) => {
+                self.data.boot_complete = complete;
+            },
+            RouterEvent::StoreIpAddr(data) => {
+                if let Some(addr) = data {
+                    self.data.menu_settings.ip_addr = addr.into();
+                } else {
+                    self.data.menu_settings.ip_addr = IpAddrMenu::default();
+                }
+                let _ = self.channel_ui.try_send(UiEvent::Load(self.data.menu_settings));
+                
+            },
             RouterEvent::GetModuleType(ch) => {
                 match ch {
                     ReturnChannel::Main => {let _ = self.channel_main.try_send(MainEvent::ReturnModuleType(self.data.module_type));},
@@ -197,10 +212,6 @@ impl Router {
                     ReturnChannel::Ui => {let _ = self.channel_ui.try_send(UiEvent::Load(self.data.menu_settings));},
                 }
             },
-            RouterEvent::StoreBootComplete(complete) => {
-                self.data.boot_complete = complete;
-            }
-
 
         }
     }
@@ -214,16 +225,16 @@ impl Router {
                 // info!("DMX Packet - DMX Mode");
                 Some(data)
             },
-            (DmxEvent::DmxPacket(data), InputMode::ArtNet) => {
+            (DmxEvent::DmxPacket(_data), InputMode::ArtNet) => {
                 // info!("DMX Packet - ArtNet Mode");
                 None
             },
-            (DmxEvent::ArtNetPacket(data), InputMode::DMX) => {
+            (DmxEvent::ArtNetPacket(_data), InputMode::DMX) => {
                 // info!("ArtNet Packet - DMX Mode");
                 None
             },
             (DmxEvent::ArtNetPacket(data), InputMode::ArtNet) => {
-                info!("ArtNet Packet - ArtNet Mode");
+                // info!("ArtNet Packet - ArtNet Mode");
                 Some(data)
             },
         };
@@ -289,7 +300,7 @@ impl Router {
                                 
                                 let mut colors : [[RGB8; NUM_LEDS_MAX]; 4] = [[RGB8::default(); NUM_LEDS_MAX], [RGB8::default(); NUM_LEDS_MAX], [RGB8::default(); NUM_LEDS_MAX], [RGB8::default(); NUM_LEDS_MAX]];
 
-                                led_per_port.iter().enumerate().for_each(|(port, ledperport)| {
+                                led_per_port.iter().enumerate().for_each(|(port, _ledperport)| {
                                     &input[ranges[port].0 ..= ranges[port].1]
                                     .chunks(smart_led_settings.color_mode.addr_size())
                                     .enumerate()

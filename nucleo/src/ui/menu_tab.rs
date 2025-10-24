@@ -72,16 +72,15 @@ impl<'a> MenuTab<'a> {
     }
 
     pub fn set_editing(&mut self, mode: bool) {
-        self.editing = mode;
+        if self.items[self.item_index].editable {
+            self.editing = mode;
+        }
     }
 
     pub fn editing(&mut self) -> bool {
         self.editing
     }
 
-    // pub fn items(&self) -> &[MenuItem; NUM_ITEMS] {
-    //     &self.items
-    // }
 }
 
 impl<'a> NextPrev for MenuTab<'a> {
@@ -89,23 +88,27 @@ impl<'a> NextPrev for MenuTab<'a> {
         if self.editing {
             // change value of item
             self.items[self.item_index].value = self.items[self.item_index].value.increment(self.items[self.item_index].value.value_index);
-            // Some(self.item_index)
             MenuMovement::UpdateValue((self.item_index,  self.items[self.item_index].value.value_index, self.items[self.item_index].value.value))
         } else if self.item_index == self.num_selectable_items - 1 && self.items[self.item_index].value.value_index == self.items[self.item_index].size() - 1 {
             // go to next tab
             info!("Go to next tab");
-            // None
             MenuMovement::NextTab
         } else if self.items[self.item_index].value.value_index == self.items[self.item_index].value.size() - 1 {
             // loop around to first item
             self.item_index = self.item_index.saturating_add(1);
             info!("Next: selected is now {}", self.item_index);
-            // Some(self.item_index)
             MenuMovement::FirstItem
         } else {
-            // go to next item
+            // find the next editable item
+            // let b = self.items.iter().enumerate().filter(|(i,item)| item.editable && i > self.item_index).next();
+            // match b {
+            //     Some((index, item))=> {
+            //         self.items[self.item_index].value.value_index = self.items[self.item_index].value.value_index.saturating_add(1);
+            //     },
+            //     None => {}
+            // }
+
             self.items[self.item_index].value.value_index = self.items[self.item_index].value.value_index.saturating_add(1);
-            // Some(self.item_index)
             MenuMovement::NextItem
         }
     }
@@ -114,20 +117,16 @@ impl<'a> NextPrev for MenuTab<'a> {
         if self.editing {
             // change value of item
             self.items[self.item_index].value = self.items[self.item_index].value.decrement(self.items[self.item_index].value.value_index);
-            // Some(self.item_index)
             MenuMovement::UpdateValue((self.item_index,  self.items[self.item_index].value.value_index, self.items[self.item_index].value.value))
         } else if self.item_index == 0 && self.items[self.item_index].value.value_index == 0 {
             info!("Go to previous tab");
-            // None // need to update this
             MenuMovement::PreviousTab
         } else if self.items[self.item_index].value.value_index == 0 {
             self.item_index = self.item_index.saturating_sub(1);
             info!("Previous: selected is now {}", self.item_index);
-            // Some(self.item_index)
             MenuMovement::LastItem
         } else {
             self.items[self.item_index].value.value_index = self.items[self.item_index].value.value_index.saturating_sub(1);
-            // Some(self.item_index)
             MenuMovement::PreviousItem
         }
     }

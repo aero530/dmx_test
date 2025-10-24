@@ -118,8 +118,8 @@ impl From<MenuData> for MenuTabData {
                 ("DMX", ValueType::Uint3(source.dmx_address), true),
                 ("Input Mode", ValueType::InputMode(source.input_mode), true),
                 ("Ethernet IP", ValueType::EthernetIPMode(source.ethernet_ip_mode), true),
-                ("ArtNet Universe", ValueType::Uint3(source.dmx_address), true),
-                ("", ValueType::None, false),
+                ("IP", ValueType::Ip(source.ip_addr), true),
+                ("ArtNet", ValueType::ArtNetAddr(source.artnet_address), true),
             ],
             tab1,
             tab2,
@@ -163,8 +163,10 @@ impl MenuTabData {
             dmx_address: self.tab0[0].1.extract_uint3(),
             input_mode: self.tab0[1].1.extract_input_mode(),
             ethernet_ip_mode: self.tab0[2].1.extract_ethernet_ip_mode(),
-            artnet_universe: self.tab0[3].1.extract_uint3(),
+            ip_addr: self.tab0[3].1.extract_ip(),
+            artnet_address: self.tab0[4].1.extract_artnet(),
             module: module_settings,
+            
         }
     }
 }
@@ -354,7 +356,7 @@ impl<'a> Ui<'a> {
 
                     self.menus[self.current_tab].update();
 
-                    self.disp.clear(Rgb565::BLACK).unwrap();
+                    let _ = self.disp.clear(Rgb565::BLACK);
                     let _ = self.menus[self.current_tab].draw(&mut self.disp);
                 };
             }
@@ -400,7 +402,7 @@ pub async fn ui_task_spi(bus: Spi<'static, Async>, cs: Output<'static>, dc: Outp
         .unwrap();
 
     // Make the display all black
-    display.clear(Rgb565::BLACK).unwrap();
+    let _ = display.clear(Rgb565::BLACK);
 
     // Turn on backlight
     backlight.set_high();

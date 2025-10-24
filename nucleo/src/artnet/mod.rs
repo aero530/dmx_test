@@ -12,8 +12,8 @@ use embassy_net::Ipv4Address;
 use embedded_io_async::Write;
 
 
-use crate::channels::DmxChannelTx;
-use crate::event_router::DmxEvent;
+use crate::channels::{DmxChannelTx, RouterChannelTx};
+use crate::event_router::{DmxEvent, RouterEvent};
 use crate::DMX_BUFF_SIZE;
 
 mod tiny_artnet;
@@ -25,10 +25,12 @@ pub async fn artnet_task(
     // runner: Runner<'static, Ethernet<'static, ETH, GenericPhy>>, 
     // spawner: Spawner, 
     tx: DmxChannelTx,
+    tx_router: RouterChannelTx,
 ) {
     // Ensure DHCP configuration is up before trying connect
     info!("Waiting for DHCP...");
     let a = stack.wait_config_up().await;
+    
     let cfg = stack.config_v4().unwrap();
 
     let local_addr = cfg.address.address();
@@ -36,9 +38,22 @@ pub async fn artnet_task(
     info!("IP address: {:?}", local_addr);
     info!(" ");
 
+    let _ = tx_router.try_send(RouterEvent::StoreIpAddr(Some(local_addr)));
+
     // Lookup the mac address -- assumed to be the first 6 bytes of the micro UID
-    let uid = embassy_stm32::uid::uid();
-    let mac_address_bytes = [uid[0], uid[1], uid[2], uid[3], uid[4], uid[5]];
+    // let uid = embassy_stm32::uid::uid();
+    // let mac_address_bytes = [uid[0], uid[1], uid[2], uid[3], uid[4], uid[5]];
+    let hw_addr = stack.hardware_address();
+    let mut mac_address_bytes = [0; 6];
+    match hw_addr {
+        embassy_net::HardwareAddress::Ethernet(address) => {
+            for (i, b) in address.as_bytes().iter().enumerate() {
+                mac_address_bytes[i] = *b;
+            }
+        },
+    }
+    // let mac_address_bytes = [mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]];
+
 
     // Then we can use it!
     let mut rx_buffer = [0; 4096];
@@ -59,7 +74,7 @@ pub async fn artnet_task(
 
         match tiny_artnet::from_slice(&buf[..len]) {
             Ok(Art::Dmx(dmx)) => {
-                debug!(
+                trace!(
                     "RX: ArtDMX - These packets contain data for one DMX512 universe Seq: {:?} physical: {:?} port_address: {:?} Data: {:?}...",
                     dmx.sequence,
                     dmx.physical,
@@ -73,7 +88,7 @@ pub async fn artnet_task(
                 dmx.data.iter().enumerate().for_each(|(i, v)| buf[i + 1] = *v);
 
                 if !tx.is_empty() {
-                    info!("Clearing DMX channel");
+                    info!("ArtNet DMX Buffer Full - Clearing DMX channel");
                     tx.clear(); // clear any existing message on the channel
                 }
                 match tx.try_send(DmxEvent::ArtNetPacket(buf)) {
@@ -114,7 +129,7 @@ pub async fn artnet_task(
                         from_addr,
                     )
                     .await
-                    .unwrap();
+                    .map_err(|e| error!("Artnet Unable to send on socket."));
 
                 debug!("Sent ArtPollReply to {:?}:{:?} {:?}", from_addr.endpoint.addr, from_addr.endpoint.port, poll_reply);
             }

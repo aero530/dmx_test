@@ -1,5 +1,8 @@
+use core::net::Ipv4Addr;
+
 use crate::ui::menu_value::ValueType;
 use bincode::{Decode, Encode};
+use embassy_net::IpAddress;
 
 use super::IncDec;
 use defmt::Format;
@@ -7,10 +10,10 @@ use enum_ordinalize::Ordinalize;
 
 #[derive(Clone, Copy, Default, PartialEq, Format, Debug, Decode, Encode)]
 pub enum ModuleType {
-    Pwm,
-    SmartLed,
     #[default]
     Unknown,
+    SmartLed,
+    Pwm,
 }
 
 pub enum MenuMovement {
@@ -24,14 +27,43 @@ pub enum MenuMovement {
     None,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Format, Debug, Decode, Encode)]
+pub struct IpAddrMenu([u8;4]);
+
+impl IpAddrMenu {
+    pub fn new(a: u8, b: u8, c: u8, d: u8) -> Self {
+        IpAddrMenu([a, b, c, d])
+    }
+
+    pub fn octets(&self) -> [u8; 4] {
+        self.0
+    }
+    
+}
+
+impl Default for IpAddrMenu {
+    fn default() -> Self {
+        IpAddrMenu([0,0,0,0])
+    }
+}
+
+impl From<Ipv4Addr> for IpAddrMenu {
+    fn from(value: Ipv4Addr) -> Self {
+        let b = value.octets();
+        IpAddrMenu(b)
+    }
+}
+
+
 /// Data displayed / configured in the menu system
 #[derive(Clone, Copy, PartialEq, Format, Debug, Decode, Encode)]
 pub struct MenuData {
     pub dmx_address: u16,
     pub input_mode: InputMode,
     pub ethernet_ip_mode: EthernetIPMode,
-    pub artnet_universe: u16,
+    pub artnet_address: ArtNetAddr,
     pub module: ModuleSettings,
+    pub ip_addr: IpAddrMenu,
 }
 
 impl Default for MenuData {
@@ -40,8 +72,9 @@ impl Default for MenuData {
             dmx_address: 1,
             input_mode: InputMode::DMX,
             ethernet_ip_mode: EthernetIPMode::DHCP,
-            artnet_universe: 1,
+            artnet_address: ArtNetAddr::default(),
             module: ModuleSettings::default(),
+            ip_addr: IpAddrMenu::new(0,0,0,0)
         }
     }
 }
@@ -276,3 +309,7 @@ impl IncDec for Udigit {
         }
     }
 }
+
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Format, Decode, Encode)]
+pub struct ArtNetAddr(pub [u8;3]);

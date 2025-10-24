@@ -3,6 +3,9 @@
 
 use cfg_if::cfg_if;
 use defmt::*;
+
+use core::cell::RefCell;
+
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Input, Level, Output, OutputOpenDrain, Pull, Speed};
 use embassy_stm32::i2c::{Config as I2cConfig, I2c, Master};
@@ -11,11 +14,13 @@ use embassy_stm32::usb::Driver;
 // use embassy_stm32::usart::{Config as UsartConfig, DataBits, StopBits, Uart};
 use embassy_stm32::spi::{Config as SpiConfig, Mode as SpiMode, Phase, Polarity, Spi};
 use embassy_stm32::{bind_interrupts, i2c, peripherals, usb, Config};
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::blocking_mutex::raw::{ThreadModeRawMutex, NoopRawMutex};
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer, with_timeout};
 
+use embassy_sync::blocking_mutex::NoopMutex;
 
+use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
 
 use static_cell::StaticCell;
 
@@ -23,14 +28,41 @@ use crate::eeprom::EepromEvent;
 use crate::event_router::{MainEvent, ReturnChannel, RouterEvent};
 use crate::ui::{EthernetIPMode, MenuData, ModuleType};
 
-use {defmt_rtt as _, panic_probe as _};
+
+
+cfg_if! {
+    if #[cfg(feature = "semihosting")] {
+        use panic_probe as _;
+        use defmt_rtt as _;
+    } else {
+        use panic_reset as _;
+        
+        #[defmt::global_logger]
+        struct Logger;
+
+        unsafe impl defmt::Logger for Logger {
+            fn acquire() {
+                // ...
+            }
+            unsafe fn flush() {
+                // ...
+            }
+            unsafe fn release() {
+                // ...
+            }
+            unsafe fn write(bytes: &[u8]) {
+                // ...
+            }
+        }
+    }
+}
+
 
 // Eth
 cfg_if! {
     if #[cfg(feature = "ethernet")] {
         use embassy_net::StackResources;
         use embassy_net::{Ipv4Cidr, Ipv4Address};
-        use heapless::Vec;
         // use embassy_stm32::eth::generic_smi::GenericSMI;
         use embassy_stm32::eth::{Ethernet, PacketQueue, GenericPhy};
         use embassy_stm32::rng::Rng;
@@ -42,6 +74,7 @@ cfg_if! {
 }
 
 mod pwm_i2c;
+pub use pwm_i2c::pwm_i2c_task;
 
 mod constants;
 pub use constants::*;
@@ -66,8 +99,12 @@ use button::button_task;
 mod button_array;
 use button_array::button_row_task;
 
-mod usb_io;
-use usb_io::usb_task;
+cfg_if! {
+    if #[cfg(feature = "usb")] {
+        mod usb_io;
+        use usb_io::usb_task;
+    }
+}
 
 mod event_router;
 use event_router::{event_router, Router};
@@ -98,7 +135,9 @@ use ui::ui_task_spi;
 mod eeprom;
 use eeprom::eeprom_i2c_task;
 
-type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, Master>>;
+type I2c1Bus = Mutex<ThreadModeRawMutex, I2c<'static, embassy_stm32::mode::Async, Master>>;
+
+type I2cSharedDev = I2cDevice<'static, NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, i2c::Master>>;
 
 /// Display I2C / Smbus - I2C2
 /// SCL: PF1
@@ -115,7 +154,7 @@ static _I2C_BUS_DISPLAY: StaticCell<I2c1Bus> = StaticCell::new();
 static I2C_BUS_DMX: StaticCell<I2c1Bus> = StaticCell::new();
 
 /// LED (output) I2C / Smbus - I2C4
-static I2C_BUS_LED: StaticCell<I2c1Bus> = StaticCell::new();
+static I2C_BUS_LED: StaticCell<NoopMutex<RefCell<I2c<'static, embassy_stm32::mode::Async, Master>>>> = StaticCell::new();
 
 bind_interrupts!(struct Irqs {
     USB_DRD_FS => usb::InterruptHandler<peripherals::USB>;
@@ -244,11 +283,17 @@ async fn main(spawner: Spawner) {
     let mut cfg: I2cConfig = I2cConfig::default();
     cfg.frequency = Hertz(100_000);
     cfg.timeout = Duration::from_millis(25); // need to keep the timeout low to ensure there is not a conflict between different uses on the shared bus.
+
     let i2c_led = I2c::new(p.I2C4, p.PF5, p.PF15, Irqs, p.GPDMA1_CH0, p.GPDMA1_CH1, cfg);
-    let i2c_led_bus = Mutex::new(i2c_led);
+
+    let i2c_led_bus = NoopMutex::new(RefCell::new(i2c_led));
+    
     let i2c_led_bus_manager = I2C_BUS_LED.init(i2c_led_bus);
-    // spawner.spawn(pwm_i2c_task(i2c_led_bus_manager, PWM_ADDRESS, CHANNEL_PWM.receiver())).unwrap();
-    spawner.spawn(eeprom_i2c_task(i2c_led_bus_manager, EEPROM_ADDRESS, CHANNEL_EEPROM.receiver(), CHANNEL.sender())).unwrap();
+    let i2c_led_dev_1 = I2cDevice::new(i2c_led_bus_manager);
+    spawner.spawn(eeprom_i2c_task(i2c_led_dev_1, EEPROM_ADDRESS, CHANNEL_EEPROM.receiver(), CHANNEL.sender())).unwrap();
+
+    // let i2c_led_dev_2 = I2cDevice::new(i2c_led_bus_manager);
+    // spawner.spawn(pwm_i2c_task(i2c_led_dev_2, PWM_ADDRESS, CHANNEL_PWM.receiver())).unwrap();
 
     // info!("Try store module type");
     // let a = CHANNEL_EEPROM.try_send(EepromEvent::StoreModuleType(ModuleType::SmartLed));
@@ -330,15 +375,18 @@ async fn main(spawner: Spawner) {
     // USB
     // -----------------------------------
 
-    // Create the driver, from the HAL.
-    let driver = {
-        let d = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
-        d
-    };
+    cfg_if! {
+       if #[cfg(feature = "usb")] {
+            // Create the driver, from the HAL.
+            let driver = {
+                let d = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
+                d
+            };
 
-    spawner.spawn(usb_task(driver, CHANNEL_USB.receiver(), CHANNEL.sender())).unwrap();
-
-    spawner.spawn(log_task(CHANNEL.sender(), CHANNEL_LOG.receiver().unwrap(), CHANNEL_USB.sender())).unwrap();
+            spawner.spawn(usb_task(driver, CHANNEL_USB.receiver(), CHANNEL.sender())).unwrap();
+            spawner.spawn(log_task(CHANNEL.sender(), CHANNEL_LOG.receiver().unwrap(), CHANNEL_USB.sender())).unwrap();
+        }
+    }
 
     // // -----------------------------------
     // // Setup USART for RS485 / DMX
@@ -452,6 +500,9 @@ async fn main(spawner: Spawner) {
     spawner.spawn(event_router(router)).unwrap();
 
 
+
+
+
     if factor_reset {
         info!("");
         info!("");
@@ -487,7 +538,13 @@ async fn main(spawner: Spawner) {
     let _ = CHANNEL.try_send(RouterEvent::GetModuleType(ReturnChannel::Main));
     let module_type = if let Ok(new_message) = with_timeout(Duration::from_millis(250), CHANNEL_MAIN.receiver().receive()).await {
         match new_message {
-            MainEvent::ReturnModuleType(x) => x,
+            MainEvent::ReturnModuleType(x) => {
+                if let Some(m) = x {
+                    m
+                } else {
+                    ModuleType::Unknown
+                }
+            },
             _ => ModuleType::Unknown,
         }
     } else {
@@ -511,17 +568,22 @@ async fn main(spawner: Spawner) {
 
     cfg_if! {
         if #[cfg(feature = "ethernet")] {
-            
             info!("Try to get mac address");
             let _ = CHANNEL.try_send(RouterEvent::GetMacAddress(ReturnChannel::Main));
-            let mac_address: [u8; 6] = if let Ok(new_message) = with_timeout(Duration::from_millis(250), CHANNEL_MAIN.receiver().receive()).await {
+            let (mac_address, read_mac_success) = if let Ok(new_message) = with_timeout(Duration::from_millis(250), CHANNEL_MAIN.receiver().receive()).await {
                 match new_message {
-                    MainEvent::ReturnMacAddress(x) => x,
-                    _ => [0, 0, 0, 0, 0, 0],
+                    MainEvent::ReturnMacAddress(x) => {
+                        if let Some(m) = x {
+                            (m, true)
+                        } else {
+                            ([0, 0, 0, 0, 0, 0], false)
+                        }
+                    },
+                    _ => ([0, 0, 0, 0, 0, 0], false),
                 }
             } else {
                 error!("Unable to get mac address.");
-                [0, 0, 0, 0, 0, 0]
+                ([0, 0, 0, 0, 0, 0], false)
             };
 
             info!("MAC Address currently: {:#X}", mac_address);
@@ -534,42 +596,28 @@ async fn main(spawner: Spawner) {
                 rng.fill_bytes(&mut mac_addr);
                 
                 // force the least significant bit of addr0 to be 0 so the mac is unicast.
-                mac_addr[0] = ((mac_addr[0] >> 1) << 1);
+                mac_addr[0] = (mac_addr[0] >> 1) << 1;
                 info!("New calculated MAC Address: {:#X}", mac_addr);
 
-                // store new mac address
-                let _ = CHANNEL_EEPROM.send(EepromEvent::WriteMacAddress(mac_addr)).await;
-                Timer::after_millis(100).await;
+                // store new mac address but only if we successfully read all zeros.  otherwise we assume i2c error and don't overwrite the mac
+                if read_mac_success {
+                    let _ = CHANNEL_EEPROM.send(EepromEvent::WriteMacAddress(mac_addr)).await;
+                    Timer::after_millis(100).await;
+                }
+
             }
 
             let oem: [u8; 2] = ARTNET_OEM.to_be_bytes();
             let static_ip = [2, mac_addr[3] + oem[0] + oem[1], mac_addr[4], mac_addr[5]];
             
             info!("Calcuated IP: {}", static_ip);
-        }
-    };
 
-    
-
-
-
-
-    // -----------------------------------
-    // Config ethernet for ArtNet
-    // -----------------------------------
-    cfg_if! {
-        if #[cfg(feature = "ethernet")] {
             // Generate random seed.
             // let mut rng = Rng::new(p.RNG, Irqs);
             let mut seed = [0; 8];
             
             rng.fill_bytes(&mut seed);
             let seed = u64::from_le_bytes(seed);
-
-
-            // let mut mac_bytes = [0; 4];
-            // rng.fill_bytes(&mut mac_bytes);
-            // let mac_addr = [0xCA, 0xFE, mac_bytes[0], mac_bytes[1], mac_bytes[2], mac_bytes[3]];
 
             static PACKETS: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
             let ethernet_device = Ethernet::new(
@@ -599,15 +647,6 @@ async fn main(spawner: Spawner) {
                     gateway: Some(Ipv4Address::new(192,168,86,1)),
                 })
             };
-            
-
-            // let config = embassy_net::Config::dhcpv4(Default::default());
-
-            // let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
-            //    address: Ipv4Cidr::new(Ipv4Address::new(192,168,86,240), 24),
-            //    dns_servers: Default::default(),
-            //    gateway: Some(Ipv4Address::new(192,168,86,1)),
-            // });
 
             // Init network stack
             static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
@@ -617,49 +656,11 @@ async fn main(spawner: Spawner) {
             spawner.spawn(net_task(runner)).unwrap();
 
             spawner
-                .spawn(artnet_task(
-                    stack, 
-                    // runner, 
-                    // spawner.clone(), 
-                    CHANNEL_DMX.sender()
-                ))
+                .spawn(artnet_task(stack, CHANNEL_DMX.sender(), CHANNEL.sender()))
                 .unwrap();
-
         }
     }
 
-let _ = CHANNEL.try_send(RouterEvent::StoreBootComplete(true));
+    let _ = CHANNEL.try_send(RouterEvent::StoreBootComplete(true));
 
 }
-
-// fn draw_smiley<T: DrawTarget<Color = Rgb565>>(display: &mut T) -> Result<(), T::Error> {
-//     // Draw the left eye as a circle located at (50, 100), with a diameter of 40, filled with white
-//     Circle::new(Point::new(50, 100), 40)
-//         .into_styled(PrimitiveStyle::with_fill(Rgb565::WHITE))
-//         .draw(display)?;
-
-//     // Draw the right eye as a circle located at (50, 200), with a diameter of 40, filled with white
-//     Circle::new(Point::new(50, 200), 40)
-//         .into_styled(PrimitiveStyle::with_fill(Rgb565::WHITE))
-//         .draw(display)?;
-
-//     // Draw an upside down red triangle to represent a smiling mouth
-//     Triangle::new(
-//         Point::new(130, 140),
-//         Point::new(130, 200),
-//         Point::new(160, 170),
-//     )
-//     .into_styled(PrimitiveStyle::with_fill(Rgb565::RED))
-//     .draw(display)?;
-
-//     // Cover the top part of the mouth with a black triangle so it looks closed instead of open
-//     Triangle::new(
-//         Point::new(130, 150),
-//         Point::new(130, 190),
-//         Point::new(150, 170),
-//     )
-//     .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
-//     .draw(display)?;
-
-//     Ok(())
-// }

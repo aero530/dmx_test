@@ -18,7 +18,7 @@ pub async fn log_task(router_tx: RouterChannelTx, mut rx_data: GlobalDataChannel
                 home(usb_tx, &mut buf).await;
 
                 buf.fill(0_u8);
-                let _ = format_no_std::show(&mut buf, format_args!("{}sec ", now.fg(cyan()))).unwrap();
+                let _ = format_no_std::show(&mut buf, format_args!("{}sec ", now.fg(cyan())));
                 usb_tx.send(buf).await;
                 new_line(usb_tx, &mut buf).await;
 
@@ -66,27 +66,27 @@ async fn new_line(usb_tx: UsbChannelTx, buf: &mut [u8; 64]) {
     buf.fill(0_u8);
     // \u{1b}[0K clears remaining line
     // \r\n does a new line carriage return
-    let _ = format_no_std::show(buf, format_args!("\u{1b}[0K\r\n")).unwrap();
+    let _ = format_no_std::show(buf, format_args!("\u{1b}[0K\r\n"));
     usb_tx.send(*buf).await;
 }
 
 /// ANSI character sequence to return to home position
 async fn home(usb_tx: UsbChannelTx, buf: &mut [u8; 64]) {
     buf.fill(0_u8);
-    let _ = format_no_std::show(buf, format_args!("\u{1b}[H")).unwrap();
+    let _ = format_no_std::show(buf, format_args!("\u{1b}[H"));
     usb_tx.send(*buf).await;
 }
 
 /// ANSI character sequence to hide cursor
 async fn hide_cursor(usb_tx: UsbChannelTx, buf: &mut [u8; 64]) {
     buf.fill(0_u8);
-    let _ = format_no_std::show(buf, format_args!("\u{1b}[?25l")).unwrap();
+    let _ = format_no_std::show(buf, format_args!("\u{1b}[?25l"));
     usb_tx.send(*buf).await;
 }
 
 /// ANSI character sequence to show cursor
 async fn show_cursor(usb_tx: UsbChannelTx, buf: &mut [u8; 64]) {
     buf.fill(0_u8);
-    let _ = format_no_std::show(buf, format_args!("\u{1b}[?25h")).unwrap();
+    let _ = format_no_std::show(buf, format_args!("\u{1b}[?25h"));
     usb_tx.send(*buf).await;
 }

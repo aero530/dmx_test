@@ -9,12 +9,13 @@ use embedded_graphics::{
     },
     Drawable,
 };
+use heapless::Vec;
 
-use crate::ui::{EthernetIPMode, IncDec, InputMode, MenuMovement, NextPrev, SelectionMode, SmartLedColorMode, SmartLedGrouping, Udigit};
+use crate::ui::{ArtNetAddr, EthernetIPMode, IncDec, InputMode, IpAddrMenu, MenuMovement, NextPrev, SelectionMode, SmartLedColorMode, SmartLedGrouping, Udigit};
 use crate::ui::{View, COLOR_EDITING_TEXT, COLOR_SELECTED_TEXT, COLOR_VALUE_TEXT};
 use arrayvec::ArrayString;
 use az::SaturatingAs;
-use core::fmt::Write;
+use core::{fmt::Write, net::Ipv4Addr};
 use embedded_text::{alignment::HorizontalAlignment, TextBox};
 use u8g2_fonts::U8g2TextStyle;
 use bincode::{Encode, Decode};
@@ -135,6 +136,45 @@ impl Drawable for MenuValue {
                     p = Text::new(&buf, p, text_style.clone()).draw(display)?;
                 }
             }
+            ValueType::ArtNetAddr(x) => {
+                let v0 = split_digits_no_std(x.0[0].into(), 3);
+                let v1 = split_digits_no_std(x.0[1].into(), 3);
+                let v2 = split_digits_no_std(x.0[2].into(), 3);
+
+                let v_all = [v2[0], v2[1], v2[2], v1[0], v1[1], v1[2], v0[0], v0[1], v0[2]];
+
+                let mut p = self.bounds().top_left;
+
+                let box_size = self.character_style.measure_string("N888 SN888 U888", p, Baseline::Bottom).bounding_box.size;
+                
+                p.x += (self.bounds().size.width - box_size.width).saturating_as::<i32>();
+                p.y += (self.bounds().size.height - box_size.height/2).saturating_as::<i32>();
+
+                
+                for (index, d) in v_all.iter().rev().enumerate() {
+                    text_style.set_text_color(Some(COLOR_VALUE_TEXT));
+                    if index == 0 {
+                        p = Text::new("N", p, text_style.clone()).draw(display)?;
+                    } else if index == 3 {
+                        p = Text::new(" SN", p, text_style.clone()).draw(display)?;
+                    } else if index == 6 {
+                        p = Text::new(" U", p, text_style.clone()).draw(display)?;
+                    }
+                    
+                    if self.value_index == index {
+                        match self.selection_mode {
+                            SelectionMode::Normal => text_style.set_text_color(Some(COLOR_VALUE_TEXT)),
+                            SelectionMode::Selected => text_style.set_text_color(Some(COLOR_SELECTED_TEXT)),
+                            SelectionMode::Editing => text_style.set_text_color(Some(COLOR_EDITING_TEXT)),
+                        }
+                    } else {
+                        text_style.set_text_color(Some(COLOR_VALUE_TEXT))
+                    }
+                    let mut buf = ArrayString::<1>::new();
+                    write!(&mut buf, "{}", d.0).expect("Can't write");
+                    p = Text::new(&buf, p, text_style.clone()).draw(display)?;
+                }
+            }
             _ => {
                 match self.selection_mode {
                     SelectionMode::Normal => text_style.set_text_color(Some(COLOR_VALUE_TEXT)),
@@ -161,6 +201,8 @@ pub enum ValueType {
     InputMode(InputMode),
     EthernetIPMode(EthernetIPMode),
     Uint3(u16),
+    Ip(IpAddrMenu),
+    ArtNetAddr(ArtNetAddr),
 }
 
 impl ValueType {
@@ -173,6 +215,8 @@ impl ValueType {
             ValueType::Uint3(_x) => 3,
             ValueType::InputMode(_x) => 1,
             ValueType::EthernetIPMode(_x) => 1,
+            ValueType::Ip(_x) => 1,
+            ValueType::ArtNetAddr(_x) => 9
         }
     }
 
@@ -245,6 +289,28 @@ impl ValueType {
             },
         }
     }
+
+    #[allow(unused)]
+    pub fn extract_ip(&self) -> IpAddrMenu {
+        match self {
+            ValueType::Ip(x) => *x,
+            _ => {
+                error!("Unable to extract ip - setting to default value");
+                IpAddrMenu::new(0, 0, 0, 0)
+            },
+        }
+    }
+
+    #[allow(unused)]
+    pub fn extract_artnet(&self) -> ArtNetAddr {
+        match self {
+            ValueType::ArtNetAddr(x) => *x,
+            _ => {
+                error!("Unable to extract ArtNetAddr - setting to default value");
+                ArtNetAddr::default()
+            },
+        }
+    }
 }
 impl IncDec for ValueType {
 
@@ -263,7 +329,42 @@ impl IncDec for ValueType {
                 v[i] = v[i].increment(i);
                 let out = digits_to_u16(v);
                 ValueType::Uint3(out)
-            }
+            },
+            ValueType::Ip(x) => {
+                //todo!();
+                ValueType::Ip(*x)
+            },
+            ValueType::ArtNetAddr(x) => {
+                let mut new: ArtNetAddr = *x;
+                
+
+                let b_index = if index <= 2 { // editing the first u8
+                    0
+                } else if index <= 5 { // editing the second u8
+                    1
+                } else if index <= 8 { // editing the third u8
+                    2
+                } else {
+                    0
+                };
+
+                let e = new.0[b_index] as u16;
+                let mut v = split_digits_no_std(e, 3);
+                
+                let i = (v.len() - 1) - (index-b_index*3);
+                v[i] = v[i].increment(i);
+                // let out = digits_to_u16(v) as u8;
+                // let out = digits_to_u16(v).min(u8::MAX.into()) as u8;
+                let j = digits_to_u16(v);
+                let out = if j > u8::MAX.into() {
+                    new.0[b_index]
+                } else {
+                    j as u8
+                };
+
+                new.0[b_index] = out;
+                ValueType::ArtNetAddr(new)
+            },
         }
     }
 
@@ -282,7 +383,38 @@ impl IncDec for ValueType {
                 v[i] = v[i].decrement(i);
                 let out = digits_to_u16(v);
                 ValueType::Uint3(out)
-            }
+            },
+            ValueType::Ip(x) => {
+                //todo!();
+                ValueType::Ip(*x)
+            },
+            ValueType::ArtNetAddr(x) => {
+                let mut new: ArtNetAddr = *x;
+                
+                let b_index = if index <= 2 { // editing the first u8
+                    0
+                } else if index <= 5 { // editing the second u8
+                    1
+                } else if index <= 8 { // editing the third u8
+                    2
+                } else {
+                    0
+                };
+                let e = new.0[b_index] as u16;
+                let mut v = split_digits_no_std(e, 3);
+                
+                let i = (v.len() - 1) - (index-b_index*3);
+                v[i] = v[i].decrement(i);
+                // let out = digits_to_u16(v).max(u8::MIN.into()) as u8;
+                let j = digits_to_u16(v);
+                let out = if j > u8::MAX.into() {
+                    new.0[b_index]
+                } else {
+                    j as u8
+                };
+                new.0[b_index] = out;
+                ValueType::ArtNetAddr(new)
+            },
         }
     }
 }
@@ -298,6 +430,11 @@ impl core::fmt::Display for ValueType {
             ValueType::InputMode(x) => write!(f, "{}", x),
             ValueType::EthernetIPMode(x) => write!(f, "{}", x),
             ValueType::Uint3(x) => write!(f, "{}", x),
+            ValueType::Ip(x) => {
+                let b = x.octets();
+                write!(f, "{}.{}.{}.{}", b[0], b[1], b[2], b[3])
+            },
+            ValueType::ArtNetAddr(x) => write!(f, "{} {} {}", x.0[0], x.0[1], x.0[2]),
         }
     }
 }

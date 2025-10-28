@@ -5,14 +5,16 @@ use crate::button::ButtonEvent;
 use crate::button_array::{KeyPadButton, KeyPadEvent};
 use crate::channels::*;
 use crate::eeprom::EepromEvent;
-use crate::ui::{EthernetIPMode, InputMode, MenuData, ModuleType, UiEvent, IpAddrMenu};
+use crate::ui::{EthernetIPMode, InputMode, MenuData, ModuleType, UiEvent, IpAddrMenu, ModuleSettings, SmartLedPortMode, SmartLedColorMode};
 // use crate::led::LedEvent;
 use crate::pwm_i2c::PwmEvent;
 use crate::smart_led::{SmartLedEvent, NUM_LEDS_MAX};
-use crate::DMX_BUFF_SIZE;
+use crate::{DMX_BUFF_SIZE, SMARTLED_PORT_COUNT};
 use defmt::*;
 use embassy_time::{with_timeout, Duration};
 use smart_leds::{RGB, RGB8};
+
+use heapless::Vec;
 
 /// Data stored for global use (primarily for logging / terminal display)
 #[derive(Debug, PartialEq, Copy, Clone, Default)]
@@ -240,119 +242,73 @@ impl Router {
         };
 
 
-        if let Some(input) = event_data {
-
-                // info!("Router got DMX data {}", input[0..24]);
-
+        if let Some(dmx_data) = event_data {
                 let dmx_start = self.data.menu_settings.dmx_address as usize;
 
                 match self.data.menu_settings.module {
-                    crate::ui::ModuleSettings::Pwm(_pwm_settings) => {
+                    ModuleSettings::Pwm(_pwm_settings) => {
                         error!("Module LED settings not programmed");
-                        let _ = self.channel_pwm_i2c.try_send(PwmEvent::Value([input[1], input[2], input[3]]));
+                        let _ = self.channel_pwm_i2c.try_send(PwmEvent::Value([dmx_data[1], dmx_data[2], dmx_data[3]]));
                     },
-                    crate::ui::ModuleSettings::SmartLed(smart_led_settings) => {
+                    ModuleSettings::SmartLed(smart_led_settings) => {
                         let color_size = smart_led_settings.color_mode.addr_size();
                         let led_per_port = smart_led_settings.leds_per_port;
-                       
+                        let dmx_group_size = smart_led_settings.dmx_group_size.0;
+
+                        let virtual_leds_per_port = led_per_port.iter()
+                            .zip(dmx_group_size.iter())
+                            .map(|(led_count, grouping)| {
+                                let number = *led_count as i16 / *grouping as i16;
+                                let whole = (number as u16) as i16;
+                                let round = if (number - whole) > 0 {1} else {0};
+                                (whole + round) as usize
+                            })
+                            .collect::<Vec<usize, SMARTLED_PORT_COUNT>>();
+
                         // info!("color size {}", color_size);
                         // info!("leds {}", led_per_port);
+                        // info!("color size {} ledperport {} dmx {} virt [{}, {}, {}, {}]", color_size, led_per_port, dmx_group_size, virtual_leds_per_port[0], virtual_leds_per_port[1], virtual_leds_per_port[2], virtual_leds_per_port[3]);
                        
-                        let dmx_size = match smart_led_settings.grouping {
-                            crate::ui::SmartLedGrouping::Individual => {
-                                led_per_port.iter().sum::<u16>() as usize * color_size
+                        let num_dmx_dimmers = match smart_led_settings.port_mode {
+                            SmartLedPortMode::Individual => {
+                                // LEDs are all individually addressed
+                                virtual_leds_per_port.iter().map(|n| n*color_size).collect::<Vec<usize, SMARTLED_PORT_COUNT>>()
                             },
-                            crate::ui::SmartLedGrouping::CombineByPort => {
-                                // all LEDs on a port are addressed as one
-                                led_per_port.iter().filter(|x| **x > 0).map(|_| 1).sum::<u16>() as usize * color_size
-                            },
-                            crate::ui::SmartLedGrouping::CombineByModule => {
-                                // all leds on the module are addressed as one
-                                color_size
+                            SmartLedPortMode::Mirror => {
+                                // all LEDs on a port are addressed as one so we get the max number of leds on any of the ports
+                                // virtual_leds_per_port.iter().max().map(|x| *x).unwrap_or(0) as usize * color_size
+                                let m = virtual_leds_per_port.iter().max().map(|x| *x).unwrap_or(0) as usize * color_size;
+                                let v: Vec<usize, SMARTLED_PORT_COUNT> = Vec::from_array([m, 0, 0, 0]);
+                                v
                             },
                         };
-                        
-                        match smart_led_settings.grouping {
-                            crate::ui::SmartLedGrouping::Individual => {
-                                
-                                let range_1_inc = (
-                                    dmx_start, //1
-                                    upper_limit(dmx_start + led_per_port[0] as usize * color_size - 1, 512)
-                                );
 
-                                let range_2_inc = (
-                                    range_1_inc.1+1,
-                                    upper_limit(range_1_inc.1+1 + led_per_port[1] as usize * color_size - 1, 512)
-                                );
+                        let range_1_inc = (dmx_start, upper_limit(dmx_start + num_dmx_dimmers[0].saturating_sub(1), 512));
+                        let range_2_inc = (range_1_inc.1+1, upper_limit(range_1_inc.1+1 + num_dmx_dimmers[1].saturating_sub(1), 512));
+                        let range_3_inc = (range_2_inc.1+1, upper_limit(range_2_inc.1+1 + num_dmx_dimmers[2].saturating_sub(1), 512));
+                        let range_4_inc = (range_3_inc.1+1, upper_limit(range_3_inc.1+1 + num_dmx_dimmers[3].saturating_sub(1), 512));
 
-                                let range_3_inc = (
-                                    range_2_inc.1+1,
-                                    upper_limit(range_2_inc.1+1 + led_per_port[2] as usize * color_size - 1, 512)
-                                );
+                        let ranges = match smart_led_settings.port_mode {
+                            SmartLedPortMode::Individual => [range_1_inc, range_2_inc, range_3_inc, range_4_inc],
+                            SmartLedPortMode::Mirror => [range_1_inc, range_1_inc, range_1_inc, range_1_inc], // reuse the same range for each port
+                        };
 
-                                let range_4_inc = (
-                                    range_3_inc.1+1,
-                                    upper_limit(range_3_inc.1+1 + led_per_port[3] as usize * color_size - 1, 512)
-                                );
+                        let mut colors : [[RGB8; NUM_LEDS_MAX]; SMARTLED_PORT_COUNT] = [[RGB8::default(); NUM_LEDS_MAX], [RGB8::default(); NUM_LEDS_MAX], [RGB8::default(); NUM_LEDS_MAX], [RGB8::default(); NUM_LEDS_MAX]];
 
-                                let ranges = [range_1_inc, range_2_inc, range_3_inc, range_4_inc];
-
-                                
-                                let mut colors : [[RGB8; NUM_LEDS_MAX]; 4] = [[RGB8::default(); NUM_LEDS_MAX], [RGB8::default(); NUM_LEDS_MAX], [RGB8::default(); NUM_LEDS_MAX], [RGB8::default(); NUM_LEDS_MAX]];
-
-                                led_per_port.iter().enumerate().for_each(|(port, _ledperport)| {
-                                    &input[ranges[port].0 ..= ranges[port].1]
-                                    .chunks(smart_led_settings.color_mode.addr_size())
-                                    .enumerate()
-                                    .for_each(|(i,a)| {
-                                        match smart_led_settings.color_mode {
-                                            crate::ui::SmartLedColorMode::RGB => {
-                                                colors[port][i] = RGB::new(a[0], a[1], a[2]);
-                                            },
-                                            crate::ui::SmartLedColorMode::RGBW => {
-                                                // White not used at the moment
-                                                error!("Using RGBW color space but that it not implimented yet.");
-                                                colors[port][i] = RGB::new(a[0], a[1], a[2]);
-                                            },
-                                        }
-                                    });
-
-
+                        virtual_leds_per_port.iter().enumerate().for_each(|(port_index, _ledperport)| { // for each port
+                            &dmx_data[ranges[port_index].0 ..= ranges[port_index].1] // get the dmx data for the ports range based on number of dmx dimmers calculated that the port uses
+                                .chunks(smart_led_settings.color_mode.addr_size())
+                                .enumerate()
+                                .for_each(|(vled_index, vled_dmx_data)| { // iterate through each chunk of dmx data (which is split by virtual led)
+                                    let c = smart_led_settings.color_mode.rgb(vled_dmx_data); // calculate a color from the dmx data
+                                    for i in 0..dmx_group_size[port_index] { // iterate through each led in the led group
+                                        colors[port_index][i as usize + dmx_group_size[port_index] as usize *vled_index] = c; // apply color to the physical led
+                                    }
                                 });
+                        });
 
-                                let _ = self.channel_smart_led.try_send(SmartLedEvent::Individual((led_per_port, colors)));
-                            },
-                            crate::ui::SmartLedGrouping::CombineByPort => {
-      
-                                let (color_1, color_2, color_3, color_4) = match smart_led_settings.color_mode {
-                                    crate::ui::SmartLedColorMode::RGB => {
-                                        (
-                                            RGB8::new(input[dmx_start+0], input[dmx_start+1], input[dmx_start+2]),
-                                            RGB8::new(input[dmx_start+3], input[dmx_start+4], input[dmx_start+5]),
-                                            RGB8::new(input[dmx_start+6], input[dmx_start+7], input[dmx_start+8]),
-                                            RGB8::new(input[dmx_start+9], input[dmx_start+10], input[dmx_start+11])
-                                        )
-                                    },
-                                    crate::ui::SmartLedColorMode::RGBW => {
-                                        // White not used at the moment
-                                        error!("Using RGBW color space but that it not implimented yet.");
-                                        (
-                                            RGB8::new(input[dmx_start+0], input[dmx_start+1], input[dmx_start+2]),
-                                            RGB8::new(input[dmx_start+4], input[dmx_start+5], input[dmx_start+6]),
-                                            RGB8::new(input[dmx_start+8], input[dmx_start+9], input[dmx_start+10]),
-                                            RGB8::new(input[dmx_start+11], input[dmx_start+12], input[dmx_start+13])
-                                        )
-                                    },
-                                };
-                                let _ = self.channel_smart_led.try_send(SmartLedEvent::CombinedByPort((led_per_port, [color_1, color_2, color_3, color_4])));
-                            },
-                            crate::ui::SmartLedGrouping::CombineByModule => {
-                                let color = RGB8::new(input[dmx_start], input[dmx_start+1], input[dmx_start+2]);
-                                let _ = self.channel_smart_led.try_send(SmartLedEvent::CombinedByModule((led_per_port, color)));
-                            },
-                        }
-                        
-                        
+                        let _ = self.channel_smart_led.try_send(SmartLedEvent::Individual((led_per_port, colors)));
+
                     },
                 }
             }

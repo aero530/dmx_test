@@ -11,7 +11,20 @@ use embedded_graphics::{
 };
 use heapless::Vec;
 
-use crate::ui::{ArtNetAddr, EthernetIPMode, IncDec, InputMode, IpAddrMenu, MenuMovement, NextPrev, SelectionMode, SmartLedColorMode, SmartLedGrouping, Udigit};
+use crate::ui::{
+    ArtNetAddr, 
+    EthernetIPMode, 
+    IncDec, 
+    InputMode, 
+    IpAddrMenu, 
+    MenuMovement, 
+    NextPrev, 
+    SelectionMode, 
+    SmartLedColorMode, 
+    SmartLedPortMode, 
+    SmartLedDmxGroupSize, 
+    Udigit,
+};
 use crate::ui::{View, COLOR_EDITING_TEXT, COLOR_SELECTED_TEXT, COLOR_VALUE_TEXT};
 use arrayvec::ArrayString;
 use az::SaturatingAs;
@@ -41,6 +54,18 @@ impl MenuValue {
             bounds: Rectangle::new(position, Size::new(DISPLAY_HEIGHT.into(), character_style.line_height())),
             character_style,
             selection_mode: SelectionMode::Normal,
+        }
+    }
+
+    fn set_text_style(&self, index: usize, text_style: &mut U8g2TextStyle<Rgb565>) {
+        if self.value_index == index {
+            match self.selection_mode {
+                SelectionMode::Normal => text_style.set_text_color(Some(COLOR_VALUE_TEXT)),
+                SelectionMode::Selected => text_style.set_text_color(Some(COLOR_SELECTED_TEXT)),
+                SelectionMode::Editing => text_style.set_text_color(Some(COLOR_EDITING_TEXT)),
+            }
+        } else {
+            text_style.set_text_color(Some(COLOR_VALUE_TEXT))
         }
     }
 }
@@ -121,21 +146,46 @@ impl Drawable for MenuValue {
                 p.y += (self.bounds().size.height - box_size.height/2).saturating_as::<i32>();
 
                 for (index, d) in v.iter().rev().enumerate() {
-                    if self.value_index == index {
-                        match self.selection_mode {
-                            SelectionMode::Normal => text_style.set_text_color(Some(COLOR_VALUE_TEXT)),
-                            SelectionMode::Selected => text_style.set_text_color(Some(COLOR_SELECTED_TEXT)),
-                            SelectionMode::Editing => text_style.set_text_color(Some(COLOR_EDITING_TEXT)),
-                        }
-                    } else {
-                        text_style.set_text_color(Some(COLOR_VALUE_TEXT))
-                    }
+                    self.set_text_style(index, &mut text_style);
 
                     let mut buf = ArrayString::<1>::new();
                     write!(&mut buf, "{}", d.0).expect("Can't write");
                     p = Text::new(&buf, p, text_style.clone()).draw(display)?;
                 }
             }
+
+            ValueType::SmartLedDmxGroupSize(x) => {
+                let v0 = split_digits_no_std(x.0[0].into(), 3);
+                let v1 = split_digits_no_std(x.0[1].into(), 3);
+                let v2 = split_digits_no_std(x.0[2].into(), 3);
+                let v3 = split_digits_no_std(x.0[3].into(), 3);
+
+                let v_all = [v3[0], v3[1], v3[2], v2[0], v2[1], v2[2], v1[0], v1[1], v1[2], v0[0], v0[1], v0[2]];
+
+                let mut p = self.bounds().top_left;
+
+                let box_size = self.character_style.measure_string("888 888 888 888", p, Baseline::Bottom).bounding_box.size;
+                
+                p.x += (self.bounds().size.width - box_size.width).saturating_as::<i32>();
+                p.y += (self.bounds().size.height - box_size.height/2).saturating_as::<i32>();
+
+                for (index, d) in v_all.iter().rev().enumerate() {
+                    text_style.set_text_color(Some(COLOR_VALUE_TEXT));
+                    p = match index {
+                        // 0 => Text::new("", p, text_style.clone()).draw(display)?,
+                        3| 6 | 9 => Text::new(" ", p, text_style.clone()).draw(display)?,
+                        // 6 => Text::new(" ", p, text_style.clone()).draw(display)?,
+                        // 9 => Text::new(" ", p, text_style.clone()).draw(display)?,
+                        _ => p,
+                    };
+                    
+                    self.set_text_style(index, &mut text_style);
+                    let mut buf = ArrayString::<1>::new();
+                    write!(&mut buf, "{}", d.0).expect("Can't write");
+                    p = Text::new(&buf, p, text_style.clone()).draw(display)?;
+                }
+            }
+
             ValueType::ArtNetAddr(x) => {
                 let v0 = split_digits_no_std(x.0[0].into(), 3);
                 let v1 = split_digits_no_std(x.0[1].into(), 3);
@@ -150,37 +200,23 @@ impl Drawable for MenuValue {
                 p.x += (self.bounds().size.width - box_size.width).saturating_as::<i32>();
                 p.y += (self.bounds().size.height - box_size.height/2).saturating_as::<i32>();
 
-                
                 for (index, d) in v_all.iter().rev().enumerate() {
                     text_style.set_text_color(Some(COLOR_VALUE_TEXT));
-                    if index == 0 {
-                        p = Text::new("N", p, text_style.clone()).draw(display)?;
-                    } else if index == 3 {
-                        p = Text::new(" SN", p, text_style.clone()).draw(display)?;
-                    } else if index == 6 {
-                        p = Text::new(" U", p, text_style.clone()).draw(display)?;
-                    }
+                    p = match index {
+                        0 => Text::new("N", p, text_style.clone()).draw(display)?,
+                        3 => Text::new(" SN", p, text_style.clone()).draw(display)?,
+                        6 => Text::new(" U", p, text_style.clone()).draw(display)?,
+                        _ => p,
+                    };
                     
-                    if self.value_index == index {
-                        match self.selection_mode {
-                            SelectionMode::Normal => text_style.set_text_color(Some(COLOR_VALUE_TEXT)),
-                            SelectionMode::Selected => text_style.set_text_color(Some(COLOR_SELECTED_TEXT)),
-                            SelectionMode::Editing => text_style.set_text_color(Some(COLOR_EDITING_TEXT)),
-                        }
-                    } else {
-                        text_style.set_text_color(Some(COLOR_VALUE_TEXT))
-                    }
+                    self.set_text_style(index, &mut text_style);
                     let mut buf = ArrayString::<1>::new();
                     write!(&mut buf, "{}", d.0).expect("Can't write");
                     p = Text::new(&buf, p, text_style.clone()).draw(display)?;
                 }
             }
             _ => {
-                match self.selection_mode {
-                    SelectionMode::Normal => text_style.set_text_color(Some(COLOR_VALUE_TEXT)),
-                    SelectionMode::Selected => text_style.set_text_color(Some(COLOR_SELECTED_TEXT)),
-                    SelectionMode::Editing => text_style.set_text_color(Some(COLOR_EDITING_TEXT)),
-                }
+                self.set_text_style(self.value_index, &mut text_style);
                 let mut buf = ArrayString::<20>::new();
                 write!(&mut buf, "{}", self.value).expect("Can't write");
                 TextBox::with_alignment(&buf, self.bounds, text_style, HorizontalAlignment::Right).draw(display)?;
@@ -196,13 +232,14 @@ impl Drawable for MenuValue {
 pub enum ValueType {
     None,
     U8(u8),
-    SmartLedGrouping(SmartLedGrouping),
+    SmartLedPortMode(SmartLedPortMode),
     SmartLedColorMode(SmartLedColorMode),
     InputMode(InputMode),
     EthernetIPMode(EthernetIPMode),
     Uint3(u16),
     Ip(IpAddrMenu),
     ArtNetAddr(ArtNetAddr),
+    SmartLedDmxGroupSize(SmartLedDmxGroupSize),
 }
 
 impl ValueType {
@@ -210,13 +247,14 @@ impl ValueType {
         match self {
             ValueType::None => 0,
             ValueType::U8(_x) => 1,
-            ValueType::SmartLedGrouping(_x) => 1,
+            ValueType::SmartLedPortMode(_x) => 1,
             ValueType::SmartLedColorMode(_x) => 1,
+            ValueType::SmartLedDmxGroupSize(_x) => 12,
             ValueType::Uint3(_x) => 3,
             ValueType::InputMode(_x) => 1,
             ValueType::EthernetIPMode(_x) => 1,
             ValueType::Ip(_x) => 1,
-            ValueType::ArtNetAddr(_x) => 9
+            ValueType::ArtNetAddr(_x) => 9,
         }
     }
 
@@ -232,13 +270,13 @@ impl ValueType {
     }
 
     #[allow(unused)]
-    pub fn extract_led_grouping(&self) -> SmartLedGrouping {
+    pub fn extract_port_mode(&self) -> SmartLedPortMode {
         info!("Extract grouping {}", self);
         match self {
-            ValueType::SmartLedGrouping(x) => *x,
+            ValueType::SmartLedPortMode(x) => *x,
             _ => {
-                error!("Unable to extract LED grouping - setting to default value");
-                SmartLedGrouping::default()
+                error!("Unable to extract port mode - setting to default value");
+                SmartLedPortMode::default()
             },
         }
     }
@@ -251,6 +289,18 @@ impl ValueType {
             _ => {
                 error!("Unable to extract LED color mode - setting to default value");
                 SmartLedColorMode::default()
+            },
+        }
+    }
+
+    #[allow(unused)]
+    pub fn extract_dmx_group_size(&self) -> SmartLedDmxGroupSize {
+        info!("Extract DMX group size {}", self);
+        match self {
+            ValueType::SmartLedDmxGroupSize(x) => *x,
+            _ => {
+                error!("Unable to extract DMX group size - setting to default value");
+                SmartLedDmxGroupSize::default()
             },
         }
     }
@@ -311,6 +361,8 @@ impl ValueType {
             },
         }
     }
+
+
 }
 impl IncDec for ValueType {
 
@@ -318,8 +370,26 @@ impl IncDec for ValueType {
         match self {
             ValueType::None => ValueType::None,
             ValueType::U8(x) => ValueType::U8(x.increment(index)),
-            ValueType::SmartLedGrouping(x) => ValueType::SmartLedGrouping(x.increment(index)),
+            ValueType::SmartLedPortMode(x) => ValueType::SmartLedPortMode(x.increment(index)),
             ValueType::SmartLedColorMode(x) => ValueType::SmartLedColorMode(x.increment(index)),
+            ValueType::SmartLedDmxGroupSize(x) => {
+                let mut new = *x;
+                let b_index = index / 3;
+                let e = new.0[b_index] as u16;
+                let mut v = split_digits_no_std(e, 3);
+                
+                let i = (v.len() - 1) - (index-b_index*3);
+                v[i] = v[i].increment(i);
+                let j = digits_to_u16(v);
+                let out = if j > 999 {
+                    new.0[b_index]
+                } else {
+                    j
+                };
+
+                new.0[b_index] = out;
+                ValueType::SmartLedDmxGroupSize(new)
+            },
             ValueType::InputMode(x) => ValueType::InputMode(x.increment(index)),
             ValueType::EthernetIPMode(x) => ValueType::EthernetIPMode(x.increment(index)),
             ValueType::Uint3(x) => {
@@ -335,26 +405,13 @@ impl IncDec for ValueType {
                 ValueType::Ip(*x)
             },
             ValueType::ArtNetAddr(x) => {
-                let mut new: ArtNetAddr = *x;
-                
-
-                let b_index = if index <= 2 { // editing the first u8
-                    0
-                } else if index <= 5 { // editing the second u8
-                    1
-                } else if index <= 8 { // editing the third u8
-                    2
-                } else {
-                    0
-                };
-
+                let mut new = *x;
+                let b_index = index / 3;
                 let e = new.0[b_index] as u16;
                 let mut v = split_digits_no_std(e, 3);
                 
                 let i = (v.len() - 1) - (index-b_index*3);
                 v[i] = v[i].increment(i);
-                // let out = digits_to_u16(v) as u8;
-                // let out = digits_to_u16(v).min(u8::MAX.into()) as u8;
                 let j = digits_to_u16(v);
                 let out = if j > u8::MAX.into() {
                     new.0[b_index]
@@ -372,8 +429,35 @@ impl IncDec for ValueType {
         match self {
             ValueType::None => ValueType::None,
             ValueType::U8(x) => ValueType::U8(x.decrement(index)),
-            ValueType::SmartLedGrouping(x) => ValueType::SmartLedGrouping(x.decrement(index)),
+            ValueType::SmartLedPortMode(x) => ValueType::SmartLedPortMode(x.decrement(index)),
             ValueType::SmartLedColorMode(x) => ValueType::SmartLedColorMode(x.decrement(index)),
+            ValueType::SmartLedDmxGroupSize(x) => {
+                let mut new = *x;
+                let b_index = index / 3;
+
+                // let b_index = if index <= 2 { // editing the first u8
+                //     0
+                // } else if index <= 5 { // editing the second u8
+                //     1
+                // } else if index <= 8 { // editing the third u8
+                //     2
+                // } else {
+                //     0
+                // };
+                let e = new.0[b_index] as u16;
+                let mut v = split_digits_no_std(e, 3);
+                
+                let i = (v.len() - 1) - (index-b_index*3);
+                v[i] = v[i].decrement(i);
+                let j = digits_to_u16(v);
+                let out = if j > 999 {
+                    new.0[b_index]
+                } else {
+                    j
+                };
+                new.0[b_index] = out;
+                ValueType::SmartLedDmxGroupSize(new)
+            },
             ValueType::InputMode(x) => ValueType::InputMode(x.decrement(index)),
             ValueType::EthernetIPMode(x) => ValueType::EthernetIPMode(x.decrement(index)),
             ValueType::Uint3(x) => {
@@ -390,22 +474,12 @@ impl IncDec for ValueType {
             },
             ValueType::ArtNetAddr(x) => {
                 let mut new: ArtNetAddr = *x;
-                
-                let b_index = if index <= 2 { // editing the first u8
-                    0
-                } else if index <= 5 { // editing the second u8
-                    1
-                } else if index <= 8 { // editing the third u8
-                    2
-                } else {
-                    0
-                };
+                let b_index = index / 3;
                 let e = new.0[b_index] as u16;
                 let mut v = split_digits_no_std(e, 3);
                 
                 let i = (v.len() - 1) - (index-b_index*3);
                 v[i] = v[i].decrement(i);
-                // let out = digits_to_u16(v).max(u8::MIN.into()) as u8;
                 let j = digits_to_u16(v);
                 let out = if j > u8::MAX.into() {
                     new.0[b_index]
@@ -425,8 +499,9 @@ impl core::fmt::Display for ValueType {
         match self {
             ValueType::None => write!(f, ""),
             ValueType::U8(x) => write!(f, "{}", x),
-            ValueType::SmartLedGrouping(x) => write!(f, "{}", x),
+            ValueType::SmartLedPortMode(x) => write!(f, "{}", x),
             ValueType::SmartLedColorMode(x) => write!(f, "{}", x),
+            ValueType::SmartLedDmxGroupSize(x) => write!(f, "{} {} {} {}", x.0[0], x.0[1], x.0[2], x.0[3]),
             ValueType::InputMode(x) => write!(f, "{}", x),
             ValueType::EthernetIPMode(x) => write!(f, "{}", x),
             ValueType::Uint3(x) => write!(f, "{}", x),
@@ -459,3 +534,5 @@ fn digits_to_u16(n: heapless::Vec<Udigit, 5>) -> u16 {
     n.iter().enumerate().for_each(|(index, val)| out += val.0 as u16 * 10_u16.pow((index as u16).into()));
     out
 }
+
+

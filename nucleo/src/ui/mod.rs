@@ -35,7 +35,7 @@ use crate::event_router::RouterEvent;
 use crate::{DISPLAY_HEIGHT, DISPLAY_OFFSET, DISPLAY_WIDTH};
 
 mod menu_item;
-use menu_item::MenuItem;
+use menu_item::{MenuItemInput, MenuItem};
 
 mod menu_tab;
 use menu_tab::MenuTab;
@@ -65,11 +65,7 @@ const COLOR_EDITING_TEXT: Rgb565 = Rgb565::CSS_DEEP_PINK;
 const DEFAULT_FONT: fonts::u8g2_font_inr16_mf = fonts::u8g2_font_inr16_mf;
 
 #[derive(Clone, Copy, PartialEq, Eq, Format)]
-pub struct MenuTabData {
-    tab0: [(&'static str, ValueType, bool); NUM_ITEMS],
-    tab1: [(&'static str, ValueType, bool); NUM_ITEMS],
-    tab2: [(&'static str, ValueType, bool); NUM_ITEMS],
-}
+pub struct MenuTabData ([[MenuItemInput; NUM_ITEMS]; 3]);
 
 impl From<MenuData> for MenuTabData {
     fn from(source: MenuData) -> Self {
@@ -78,52 +74,52 @@ impl From<MenuData> for MenuTabData {
             ModuleSettings::Pwm(_pwm_settings) => {
                 (
                     [
-                        ("", ValueType::None, false),
-                        ("", ValueType::None, false),
-                        ("", ValueType::None, false),
-                        ("", ValueType::None, false),
-                        ("", ValueType::None, false),
+                        MenuItemInput::new("", ValueType::None, false, false),
+                        MenuItemInput::new("", ValueType::None, false, false),
+                        MenuItemInput::new("", ValueType::None, false, false),
+                        MenuItemInput::new("", ValueType::None, false, false),
+                        MenuItemInput::new("", ValueType::None, false, false),
                     ],
                     [
-                        ("", ValueType::None, false),
-                        ("", ValueType::None, false),
-                        ("", ValueType::None, false),
-                        ("", ValueType::None, false),
-                        ("", ValueType::None, false),
+                        MenuItemInput::new("", ValueType::None, false, false),
+                        MenuItemInput::new("", ValueType::None, false, false),
+                        MenuItemInput::new("", ValueType::None, false, false),
+                        MenuItemInput::new("", ValueType::None, false, false),
+                        MenuItemInput::new("", ValueType::None, false, false),
                     ]
                 )
             },
             ModuleSettings::SmartLed(smart_led_settings) => {
                 (
                     [
-                        ("Group Mode", ValueType::SmartLedGrouping(smart_led_settings.grouping), true),
-                        ("Color Mode", ValueType::SmartLedColorMode(smart_led_settings.color_mode), true),
-                        ("", ValueType::None, false),
-                        ("", ValueType::None, false),
-                        ("", ValueType::None, false),
+                        MenuItemInput::new("Port Mode", ValueType::SmartLedPortMode(smart_led_settings.port_mode), true, false),
+                        MenuItemInput::new("LED Group Size", ValueType::SmartLedDmxGroupSize(smart_led_settings.dmx_group_size), true, true),
+                        MenuItemInput::new("Color Mode", ValueType::SmartLedColorMode(smart_led_settings.color_mode), true, false),
+                        MenuItemInput::new("", ValueType::None, false, false),
+                        MenuItemInput::new("", ValueType::None, false, false),
                     ],
                     [
-                        ("LEDs on Port 1", ValueType::Uint3(smart_led_settings.leds_per_port[0]), true),
-                        ("LEDs on Port 2", ValueType::Uint3(smart_led_settings.leds_per_port[1]), true),
-                        ("LEDs on Port 3", ValueType::Uint3(smart_led_settings.leds_per_port[2]), true),
-                        ("LEDs on Port 4", ValueType::Uint3(smart_led_settings.leds_per_port[3]), true),
-                        ("", ValueType::None, false),
+                        MenuItemInput::new("LEDs on Port 1", ValueType::Uint3(smart_led_settings.leds_per_port[0]), true, false),
+                        MenuItemInput::new("LEDs on Port 2", ValueType::Uint3(smart_led_settings.leds_per_port[1]), true, false),
+                        MenuItemInput::new("LEDs on Port 3", ValueType::Uint3(smart_led_settings.leds_per_port[2]), true, false),
+                        MenuItemInput::new("LEDs on Port 4", ValueType::Uint3(smart_led_settings.leds_per_port[3]), true, false),
+                        MenuItemInput::new("", ValueType::None, false, false),
                     ]
                 )
             },
         };
 
-        MenuTabData {
-            tab0: [
-                ("DMX", ValueType::Uint3(source.dmx_address), true),
-                ("Input Mode", ValueType::InputMode(source.input_mode), true),
-                ("Ethernet IP", ValueType::EthernetIPMode(source.ethernet_ip_mode), true),
-                ("IP", ValueType::Ip(source.ip_addr), true),
-                ("ArtNet", ValueType::ArtNetAddr(source.artnet_address), true),
+        MenuTabData ([
+            [
+                MenuItemInput::new("DMX", ValueType::Uint3(source.dmx_address), true, false),
+                MenuItemInput::new("Input Mode", ValueType::InputMode(source.input_mode), true, false),
+                MenuItemInput::new("Ethernet IP", ValueType::EthernetIPMode(source.ethernet_ip_mode), true, false),
+                MenuItemInput::new("IP", ValueType::Ip(source.ip_addr), true, false),
+                MenuItemInput::new("ArtNet", ValueType::ArtNetAddr(source.artnet_address), true, false),
             ],
             tab1,
             tab2,
-        }
+        ])        
 
     }
 }
@@ -143,13 +139,14 @@ impl MenuTabData {
             ModuleType::SmartLed => {
                 ModuleSettings::SmartLed(
                     SmartLedSettings {
-                        grouping: self.tab1[0].1.extract_led_grouping(),
-                        color_mode: self.tab1[1].1.extract_led_color_mode(),
+                        port_mode: self.0[1][0].value.extract_port_mode(),
+                        dmx_group_size: self.0[1][1].value.extract_dmx_group_size(),
+                        color_mode: self.0[1][2].value.extract_led_color_mode(),
                         leds_per_port: [
-                            self.tab2[0].1.extract_uint3(),
-                            self.tab2[1].1.extract_uint3(),
-                            self.tab2[2].1.extract_uint3(),
-                            self.tab2[3].1.extract_uint3(),
+                            self.0[2][0].value.extract_uint3(),
+                            self.0[2][1].value.extract_uint3(),
+                            self.0[2][2].value.extract_uint3(),
+                            self.0[2][3].value.extract_uint3(),
                         ],
                     }
                 )
@@ -160,11 +157,11 @@ impl MenuTabData {
         };
         
         MenuData {
-            dmx_address: self.tab0[0].1.extract_uint3(),
-            input_mode: self.tab0[1].1.extract_input_mode(),
-            ethernet_ip_mode: self.tab0[2].1.extract_ethernet_ip_mode(),
-            ip_addr: self.tab0[3].1.extract_ip(),
-            artnet_address: self.tab0[4].1.extract_artnet(),
+            dmx_address: self.0[0][0].value.extract_uint3(),
+            input_mode: self.0[0][1].value.extract_input_mode(),
+            ethernet_ip_mode: self.0[0][2].value.extract_ethernet_ip_mode(),
+            ip_addr: self.0[0][3].value.extract_ip(),
+            artnet_address: self.0[0][4].value.extract_artnet(),
             module: module_settings,
             
         }
@@ -212,9 +209,7 @@ impl<'a> Ui<'a> {
         }
     }
 
-    // fn next_tab(&mut self, menu_len: usize) {
     fn next_tab(&mut self) {
-        // if self.current_tab == menu_len - 1 {
             if self.current_tab == self.menus.len() - 1 {
             self.current_tab = 0;
         } else {
@@ -222,10 +217,8 @@ impl<'a> Ui<'a> {
         }
     }
 
-    // fn previous_tab(&mut self, menu_len: usize) {
     fn previous_tab(&mut self) {
         if self.current_tab == 0 {
-            // self.current_tab = menu_len - 1;
             self.current_tab = self.menus.len() - 1;
         } else {
             self.current_tab = self.current_tab.saturating_sub(1)
@@ -239,27 +232,27 @@ impl<'a> Ui<'a> {
         let mtd : MenuTabData = self.menu_data.into();
         // Create menu items
         let menu0_items = [
-            MenuItem::new(mtd.tab0[0], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.tab0[1], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.tab0[2], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.tab0[3], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.tab0[4], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[0][0], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[0][1], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[0][2], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[0][3], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[0][4], Point::zero(), text_style.clone()),
         ];
 
         let menu1_items = [
-            MenuItem::new(mtd.tab1[0], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.tab1[1], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.tab1[2], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.tab1[3], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.tab1[4], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[1][0], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[1][1], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[1][2], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[1][3], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[1][4], Point::zero(), text_style.clone()),
         ];
 
         let menu2_items = [
-            MenuItem::new(mtd.tab2[0], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.tab2[1], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.tab2[2], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.tab2[3], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.tab2[4], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[2][0], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[2][1], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[2][2], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[2][3], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[2][4], Point::zero(), text_style.clone()),
         ];
 
         // Create menu tabs
@@ -335,22 +328,20 @@ impl<'a> Ui<'a> {
                             self.menu_data = menu_data;
                             self.menu_tab_data = self.menu_data.into();
 
-                            self.current_tab = 0;
-                            for (item_index, item) in self.menu_tab_data.tab0.iter().enumerate() {
-                                self.menus[self.current_tab].set(item_index, item.1);
+                            // for (tab_index, self.menus
+
+                            for (item_index, item) in self.menu_tab_data.0[0].iter().enumerate() {
+                                self.menus[0].set(item_index, item.value);
                             }
 
-                            self.current_tab = 1;
-                            for (item_index, item) in self.menu_tab_data.tab1.iter().enumerate() {
-                                self.menus[self.current_tab].set(item_index, item.1);
+                            for (item_index, item) in self.menu_tab_data.0[1].iter().enumerate() {
+                                self.menus[1].set(item_index, item.value);
                             }
 
-                            self.current_tab = 2;
-                            for (item_index, item) in self.menu_tab_data.tab2.iter().enumerate() {
-                                self.menus[self.current_tab].set(item_index, item.1);
+                            for (item_index, item) in self.menu_tab_data.0[2].iter().enumerate() {
+                                self.menus[2].set(item_index, item.value);
                             }
 
-                            self.current_tab = 0;
                         }
                     };
 
@@ -366,13 +357,13 @@ impl<'a> Ui<'a> {
     fn update_menu_tab_data(&mut self, item_index: usize, value: ValueType) {
         match self.current_tab {
             0 => {
-                self.menu_tab_data.tab0[item_index].1 = value;
+                self.menu_tab_data.0[0][item_index].value = value;
             },
             1 => {
-                self.menu_tab_data.tab1[item_index].1 = value;
+                self.menu_tab_data.0[1][item_index].value = value;
             },
             2 => {
-                self.menu_tab_data.tab2[item_index].1 = value;
+                self.menu_tab_data.0[2][item_index].value = value;
             },
             _ => {}
         }

@@ -1,3 +1,4 @@
+use defmt::Format;
 use embedded_graphics::{
     draw_target::DrawTarget,
     pixelcolor::Rgb565,
@@ -17,6 +18,25 @@ use super::{MenuValue, View};
 use crate::ui::menu_value::ValueType;
 use crate::DISPLAY_HEIGHT;
 
+#[derive(Clone, Copy, PartialEq, Eq, Format)]
+pub struct MenuItemInput {
+    pub name: &'static str,
+    pub value: ValueType,
+    pub editable: bool,
+    pub line_break: bool,
+}
+
+impl<'a> MenuItemInput {
+    pub fn new(name: &'static str, value: ValueType, editable: bool, line_break: bool) -> Self {
+        Self {
+            name,
+            value,
+            editable,
+            line_break,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct MenuItem<'a> {
     name: &'a str,
@@ -24,16 +44,23 @@ pub struct MenuItem<'a> {
     bounds: Rectangle,
     character_style: U8g2TextStyle<Rgb565>,
     pub editable: bool,
+    line_break: bool,
 }
+
 impl<'a> MenuItem<'a> {
-    pub fn new(input: (&'a str, ValueType, bool), position: Point, character_style: U8g2TextStyle<Rgb565>) -> Self {
-        // name: &'a str, value: ValueType,
+    pub fn new(input: MenuItemInput, position: Point, character_style: U8g2TextStyle<Rgb565>) -> Self {
+        let (height, value_position) = match input.line_break {
+            true => (2 * character_style.line_height(), Point::new(position.x, position.y+character_style.line_height() as i32)),
+            false => (character_style.line_height(), position),
+        };
+        
         Self {
-            name: input.0,
-            value: MenuValue::new(input.1, character_style.clone(), position),
-            bounds: Rectangle::new(position, Size::new(DISPLAY_HEIGHT.into(), character_style.line_height())),
+            name: input.name,
+            value: MenuValue::new(input.value, character_style.clone(), value_position),
+            bounds: Rectangle::new(position, Size::new(DISPLAY_HEIGHT.into(), height)),
             character_style,
-            editable: input.2,
+            editable: input.editable,
+            line_break: input.line_break,
         }
     }
 }
@@ -47,6 +74,7 @@ impl Default for MenuItem<'_> {
             bounds: Rectangle::new(Point::zero(), Size::new(DISPLAY_HEIGHT.into(), text_style.line_height())),
             character_style: text_style,
             editable: false,
+            line_break: false,
         }
     }
 }

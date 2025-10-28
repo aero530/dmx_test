@@ -4,8 +4,10 @@ use crate::ui::menu_value::ValueType;
 use bincode::{Decode, Encode};
 use embassy_net::IpAddress;
 
+use smart_leds::{RGB, RGB8};
+
 use super::IncDec;
-use defmt::Format;
+use defmt::{Format, error};
 use enum_ordinalize::Ordinalize;
 
 #[derive(Clone, Copy, Default, PartialEq, Format, Debug, Decode, Encode)]
@@ -103,7 +105,8 @@ pub struct PwmSettings {
 pub struct SmartLedSettings {
     pub leds_per_port: [u16; 4],
     pub color_mode: SmartLedColorMode,
-    pub grouping: SmartLedGrouping,
+    pub port_mode: SmartLedPortMode,
+    pub dmx_group_size: SmartLedDmxGroupSize,
 }
 
 /// Impl increment and decrement for u8
@@ -221,6 +224,26 @@ impl SmartLedColorMode {
             SmartLedColorMode::RGBW => 4,
         }
     }
+
+    pub fn rgb(&self, data: &[u8]) -> RGB8 {
+        match self {
+            SmartLedColorMode::RGB => {
+                if data.len() >= 3 {
+                    RGB8::new(data[0], data[1], data[2])
+                } else {
+                    RGB8::new(0,0,0)
+                }
+            },
+            SmartLedColorMode::RGBW => {
+                error!("Using RGBW color space but that it not implimented yet.");
+                if data.len() >= 4 {
+                    RGB8::new(data[0], data[1], data[2])
+                } else {
+                    RGB8::new(0,0,0)
+                }
+            },
+        }
+    }
 }
 
 impl IncDec for SmartLedColorMode {
@@ -250,21 +273,22 @@ impl core::fmt::Display for SmartLedColorMode {
     }
 }
 
-/// Smart LED grouping mode
+/// Smart LED port mode
 #[derive(Default, Clone, Copy, PartialEq, Eq, Ordinalize, Format, Debug, Decode, Encode)]
-pub enum SmartLedGrouping {
+pub enum SmartLedPortMode {
     #[default]
+    /// Individual - DMX size = SUM(#leds/port) / DmxGroupSize * color width
     Individual,
-    CombineByPort,
-    CombineByModule,
+    /// Mirror - DMX size = MAX(#leds/port) / DmxGroupSize * color width
+    Mirror,
 }
 
-impl IncDec for SmartLedGrouping {
+impl IncDec for SmartLedPortMode {
     fn increment(&self, _index: usize) -> Self {
         let next = self.ordinal().saturating_add(1);
         match Self::from_ordinal(next) {
             Some(n) => n,
-            None => SmartLedGrouping::Individual,
+            None => SmartLedPortMode::Individual,
         }
     }
 
@@ -272,21 +296,30 @@ impl IncDec for SmartLedGrouping {
         let prev = self.ordinal().saturating_sub(1);
         match Self::from_ordinal(prev) {
             Some(n) => n,
-            None => SmartLedGrouping::CombineByModule,
+            None => SmartLedPortMode::Mirror,
         }
     }
 }
 
-impl core::fmt::Display for SmartLedGrouping {
+impl core::fmt::Display for SmartLedPortMode {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
-            SmartLedGrouping::Individual => write!(f, "Individual"),
-            SmartLedGrouping::CombineByPort => write!(f, "By Port"),
-            SmartLedGrouping::CombineByModule => write!(f, "Combined"),
+            SmartLedPortMode::Individual => write!(f, "Individual"),
+            SmartLedPortMode::Mirror => write!(f, "Mirror"),
         }
     }
 }
 
+
+// LED DMX Group Size (1 to #PHYLEDs)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Format, Decode, Encode)]
+pub struct SmartLedDmxGroupSize(pub [u16;4]);
+
+impl Default for SmartLedDmxGroupSize {
+    fn default() -> Self {
+        Self([1, 1, 1, 1])
+    }
+}
 
 /// Digit
 #[derive(Default, Clone, Copy, PartialEq, Eq, Format)]

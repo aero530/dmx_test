@@ -1,12 +1,10 @@
-
-use embedded_hal_1::i2c::{I2c, Operation};
 use embassy_time::Timer;
-use defmt::info;
+use embedded_hal_1::i2c::I2c;
 
 pub const PAGE_SIZE: u8 = 16; // 16 byte page size
-const ADDR_BYTES: u8 = 1; // 
+const ADDR_BYTES: u8 = 1; //
 const WRITE_TIME_DELAY: u64 = 5; // in ms
-// total size 2Kbit -> 256 x 8
+                                 // total size 2Kbit -> 256 x 8
 
 #[allow(unused)]
 /// All possible errors in this crate
@@ -22,22 +20,25 @@ pub enum Error<E> {
     PageBoundary,
 }
 
-impl<E> defmt::Format for Error<E> where E: embedded_hal_async::i2c::Error{
+impl<E> defmt::Format for Error<E>
+where
+    E: embedded_hal_async::i2c::Error,
+{
     fn format(&self, f: defmt::Formatter) {
         // format the bitfields of the register as struct fields
         match self {
             Error::I2C(e) => match e.kind() {
                 embedded_hal_async::i2c::ErrorKind::Bus => defmt::write!(f, "I2C Bus"),
-                embedded_hal_async::i2c::ErrorKind::ArbitrationLoss =>  defmt::write!(f, "I2C ArbitrationLoss"),
-                embedded_hal_async::i2c::ErrorKind::NoAcknowledge(_no_acknowledge_source) =>  defmt::write!(f, "I2C NoAcknowledge"),
-                embedded_hal_async::i2c::ErrorKind::Overrun =>  defmt::write!(f, "I2C Overrun"),
-                embedded_hal_async::i2c::ErrorKind::Other =>  defmt::write!(f, "I2C Other"),
+                embedded_hal_async::i2c::ErrorKind::ArbitrationLoss => defmt::write!(f, "I2C ArbitrationLoss"),
+                embedded_hal_async::i2c::ErrorKind::NoAcknowledge(_no_acknowledge_source) => defmt::write!(f, "I2C NoAcknowledge"),
+                embedded_hal_async::i2c::ErrorKind::Overrun => defmt::write!(f, "I2C Overrun"),
+                embedded_hal_async::i2c::ErrorKind::Other => defmt::write!(f, "I2C Other"),
                 _ => defmt::write!(f, "I2C unknown"),
-            }
+            },
             Error::TooMuchData => defmt::write!(f, "Too much data"),
-            Error::InvalidAddr =>  defmt::write!(f, "Invalid address"),
-            Error::Timeout =>  defmt::write!(f, "Timeout"),
-            Error::PageBoundary =>  defmt::write!(f, "PageBoundary"),
+            Error::InvalidAddr => defmt::write!(f, "Invalid address"),
+            Error::Timeout => defmt::write!(f, "Timeout"),
+            Error::PageBoundary => defmt::write!(f, "PageBoundary"),
         }
     }
 }
@@ -51,8 +52,10 @@ pub struct M24x02<I2C> {
 }
 
 /// Common methods
-impl<I2C, E> M24x02<I2C> where I2C: I2c<Error = E> {
-    
+impl<I2C, E> M24x02<I2C>
+where
+    I2C: I2c<Error = E>,
+{
     pub fn new(i2c: I2C, address: u8) -> Self {
         M24x02 { i2c, address }
     }
@@ -60,7 +63,7 @@ impl<I2C, E> M24x02<I2C> where I2C: I2c<Error = E> {
     pub async fn refresh_bus(&mut self) -> Result<(), Error<E>> {
         // info!("{:#X} to {:#X}", data, memory_address);
         // let payload = [memory_address, data];
-        self.i2c.write(0xFE, &[0,0,0,0,0,0,0,0]).map_err(|e| Error::I2C(e));
+        let _ = self.i2c.write(0xFE, &[0, 0, 0, 0, 0, 0, 0, 0]).map_err(|e| Error::I2C(e));
         Timer::after_millis(WRITE_TIME_DELAY).await;
         self.wait(0x00).await
     }
@@ -76,8 +79,7 @@ impl<I2C, E> M24x02<I2C> where I2C: I2c<Error = E> {
         let payload = [memory_address, data];
         self.i2c.write(self.address, &payload).map_err(|e| Error::I2C(e))
     }
-        
-    
+
     pub async fn write_byte_wait(&mut self, memory_address: u8, data: u8) -> Result<(), Error<E>> {
         self.write_byte(memory_address, data)?;
         Timer::after_millis(WRITE_TIME_DELAY).await;
@@ -88,15 +90,13 @@ impl<I2C, E> M24x02<I2C> where I2C: I2c<Error = E> {
     /// Read a single byte from an address.S
     pub fn read_byte(&mut self, memory_address: u8) -> Result<u8, Error<E>> {
         let mut data = [0_u8; 1];
-        self.i2c.write_read(self.address, &[memory_address], &mut data).map_err(Error::I2C).and(Ok(data[0]))       
+        self.i2c.write_read(self.address, &[memory_address], &mut data).map_err(Error::I2C).and(Ok(data[0]))
     }
-
 
     /// Read starting in an address as many bytes as necessary to fill the data array provided.
     pub fn read_data(&mut self, memory_address: u8, data: &mut [u8]) -> Result<(), Error<E>> {
         self.i2c.write_read(self.address, &[memory_address], data).map_err(Error::I2C)
     }
-
 
     /// Write up to a page starting in an address.
     ///
@@ -126,12 +126,9 @@ impl<I2C, E> M24x02<I2C> where I2C: I2c<Error = E> {
         let mut payload: [u8; (ADDR_BYTES + PAGE_SIZE) as usize] = [0; (ADDR_BYTES + PAGE_SIZE) as usize];
         payload[0] = memory_address;
         payload[(ADDR_BYTES as usize)..(ADDR_BYTES as usize + data_len)].copy_from_slice(&data);
-        
+
         self.i2c.write(self.address, &payload).map_err(|e| Error::I2C(e))
-
     }
-
-
 
     pub async fn write_page_wait(&mut self, memory_address: u8, data: &[u8]) -> Result<(), Error<E>> {
         // info!("page write wait mem address {:#X}, data {:#X}", memory_address, data);
@@ -141,8 +138,6 @@ impl<I2C, E> M24x02<I2C> where I2C: I2c<Error = E> {
         Ok(())
     }
 
-
-
     async fn wait(&mut self, memory_address: u8) -> Result<(), Error<E>> {
         let mut read_temp = [memory_address; 1];
         let mut count = 0;
@@ -150,12 +145,11 @@ impl<I2C, E> M24x02<I2C> where I2C: I2c<Error = E> {
         while self.i2c.read(self.address, &mut read_temp).is_err() {
             count += 1;
             if count > 100 {
-                return Err(Error::Timeout)
+                return Err(Error::Timeout);
             } else {
                 Timer::after_millis(1).await;
             }
-        };
+        }
         Ok(())
     }
 }
-

@@ -1,41 +1,39 @@
 //! UI hardware interface
 
-use defmt::{info, error, Format};
+use defmt::{error, info, Format};
 use embassy_stm32::gpio::{Output, OutputOpenDrain};
 use embassy_stm32::mode::Async;
 use embassy_stm32::spi::Spi;
 use embassy_time::Delay;
 
 use embedded_graphics::prelude::WebColors;
-use embedded_hal_bus::spi::ExclusiveDevice;
-use mipidsi::interface::SpiInterface;
-use mipidsi::options::{Orientation, Rotation};
-use mipidsi::{models::ST7789, options::ColorInversion, Builder};
-
 use embedded_graphics::{
     draw_target::DrawTarget,
     pixelcolor::Rgb565,
     prelude::{Point, RgbColor},
     Drawable,
 };
-use u8g2_fonts::{
-    fonts, U8g2TextStyle,
-};
+use embedded_hal_bus::spi::ExclusiveDevice;
+
+use mipidsi::interface::SpiInterface;
+use mipidsi::options::{Orientation, Rotation};
+use mipidsi::{models::ST7789, options::ColorInversion, Builder};
+use u8g2_fonts::{fonts, U8g2TextStyle};
 
 use embassy_time::{with_timeout, Duration};
 
 use static_cell::StaticCell;
 
 use crate::channels::{RouterChannelTx, UiChannelRx};
+use crate::event_router::RouterEvent;
 use crate::ui::layout::NextPrev;
 use crate::ui::menu_tab::NUM_ITEMS;
 use crate::ui::menu_value::ValueType;
-use crate::event_router::RouterEvent;
 
-use crate::{DISPLAY_HEIGHT, DISPLAY_OFFSET, DISPLAY_WIDTH};
+use crate::{DISPLAY_HEIGHT, DISPLAY_OFFSET, DISPLAY_WIDTH, SMARTLED_PORT_COUNT};
 
 mod menu_item;
-use menu_item::{MenuItemInput, MenuItem};
+use menu_item::{MenuItem, MenuItemInput};
 
 mod menu_tab;
 use menu_tab::MenuTab;
@@ -65,51 +63,47 @@ const COLOR_EDITING_TEXT: Rgb565 = Rgb565::CSS_DEEP_PINK;
 const DEFAULT_FONT: fonts::u8g2_font_inr16_mf = fonts::u8g2_font_inr16_mf;
 
 #[derive(Clone, Copy, PartialEq, Eq, Format)]
-pub struct MenuTabData ([[MenuItemInput; NUM_ITEMS]; 3]);
+pub struct MenuTabData([[MenuItemInput; NUM_ITEMS]; 3]);
 
 impl From<MenuData> for MenuTabData {
     fn from(source: MenuData) -> Self {
         // info!("Convert menu data to menu tab data.");
         let (tab1, tab2) = match source.module {
-            ModuleSettings::Pwm(_pwm_settings) => {
-                (
-                    [
-                        MenuItemInput::new("", ValueType::None, false, false),
-                        MenuItemInput::new("", ValueType::None, false, false),
-                        MenuItemInput::new("", ValueType::None, false, false),
-                        MenuItemInput::new("", ValueType::None, false, false),
-                        MenuItemInput::new("", ValueType::None, false, false),
-                    ],
-                    [
-                        MenuItemInput::new("", ValueType::None, false, false),
-                        MenuItemInput::new("", ValueType::None, false, false),
-                        MenuItemInput::new("", ValueType::None, false, false),
-                        MenuItemInput::new("", ValueType::None, false, false),
-                        MenuItemInput::new("", ValueType::None, false, false),
-                    ]
-                )
-            },
-            ModuleSettings::SmartLed(smart_led_settings) => {
-                (
-                    [
-                        MenuItemInput::new("Port Mode", ValueType::SmartLedPortMode(smart_led_settings.port_mode), true, false),
-                        MenuItemInput::new("LED Group Size", ValueType::SmartLedDmxGroupSize(smart_led_settings.dmx_group_size), true, true),
-                        MenuItemInput::new("Color Mode", ValueType::SmartLedColorMode(smart_led_settings.color_mode), true, false),
-                        MenuItemInput::new("", ValueType::None, false, false),
-                        MenuItemInput::new("", ValueType::None, false, false),
-                    ],
-                    [
-                        MenuItemInput::new("LEDs on Port 1", ValueType::Uint3(smart_led_settings.leds_per_port[0]), true, false),
-                        MenuItemInput::new("LEDs on Port 2", ValueType::Uint3(smart_led_settings.leds_per_port[1]), true, false),
-                        MenuItemInput::new("LEDs on Port 3", ValueType::Uint3(smart_led_settings.leds_per_port[2]), true, false),
-                        MenuItemInput::new("LEDs on Port 4", ValueType::Uint3(smart_led_settings.leds_per_port[3]), true, false),
-                        MenuItemInput::new("", ValueType::None, false, false),
-                    ]
-                )
-            },
+            ModuleSettings::Pwm(_pwm_settings) => (
+                [
+                    MenuItemInput::new("", ValueType::None, false, false),
+                    MenuItemInput::new("", ValueType::None, false, false),
+                    MenuItemInput::new("", ValueType::None, false, false),
+                    MenuItemInput::new("", ValueType::None, false, false),
+                    MenuItemInput::new("", ValueType::None, false, false),
+                ],
+                [
+                    MenuItemInput::new("", ValueType::None, false, false),
+                    MenuItemInput::new("", ValueType::None, false, false),
+                    MenuItemInput::new("", ValueType::None, false, false),
+                    MenuItemInput::new("", ValueType::None, false, false),
+                    MenuItemInput::new("", ValueType::None, false, false),
+                ],
+            ),
+            ModuleSettings::SmartLed(smart_led_settings) => (
+                [
+                    MenuItemInput::new("Port Mode", ValueType::SmartLedPortMode(smart_led_settings.port_mode), true, false),
+                    MenuItemInput::new("LED Group Size", ValueType::SmartLedDmxGroupSize(smart_led_settings.dmx_group_size), true, true),
+                    MenuItemInput::new("Color Mode", ValueType::SmartLedColorMode(smart_led_settings.color_mode), true, false),
+                    MenuItemInput::new("", ValueType::None, false, false),
+                    MenuItemInput::new("", ValueType::None, false, false),
+                ],
+                [
+                    MenuItemInput::new("LEDs on Port 1", ValueType::Uint3(smart_led_settings.leds_per_port[0]), true, false),
+                    MenuItemInput::new("LEDs on Port 2", ValueType::Uint3(smart_led_settings.leds_per_port[1]), true, false),
+                    MenuItemInput::new("LEDs on Port 3", ValueType::Uint3(smart_led_settings.leds_per_port[2]), true, false),
+                    MenuItemInput::new("LEDs on Port 4", ValueType::Uint3(smart_led_settings.leds_per_port[3]), true, false),
+                    MenuItemInput::new("Univrs Offset", ValueType::PortUniverseOffsets(smart_led_settings.universe_offset()), false, false),
+                ],
+            ),
         };
 
-        MenuTabData ([
+        MenuTabData([
             [
                 MenuItemInput::new("DMX", ValueType::Uint3(source.dmx_address), true, false),
                 MenuItemInput::new("Input Mode", ValueType::InputMode(source.input_mode), true, false),
@@ -119,8 +113,7 @@ impl From<MenuData> for MenuTabData {
             ],
             tab1,
             tab2,
-        ])        
-
+        ])
     }
 }
 
@@ -129,33 +122,59 @@ impl MenuTabData {
     fn to_menu_data(&self, module_type: ModuleType) -> MenuData {
         // info!("Convert menu tab data to menu data.");
         let module_settings = match module_type {
-            ModuleType::Pwm => {
-                ModuleSettings::Pwm(
-                    PwmSettings {
-                        freq: todo!(),
-                    }
-                )
-            },
+            ModuleType::Pwm => ModuleSettings::Pwm(PwmSettings { freq: todo!() }),
             ModuleType::SmartLed => {
-                ModuleSettings::SmartLed(
-                    SmartLedSettings {
-                        port_mode: self.0[1][0].value.extract_port_mode(),
-                        dmx_group_size: self.0[1][1].value.extract_dmx_group_size(),
-                        color_mode: self.0[1][2].value.extract_led_color_mode(),
-                        leds_per_port: [
-                            self.0[2][0].value.extract_uint3(),
-                            self.0[2][1].value.extract_uint3(),
-                            self.0[2][2].value.extract_uint3(),
-                            self.0[2][3].value.extract_uint3(),
-                        ],
-                    }
-                )
-            },
+                let dmx_group_size = self.0[1][1].value.extract_dmx_group_size();
+                let color_mode = self.0[1][2].value.extract_led_color_mode();
+                let leds_per_port = [
+                    self.0[2][0].value.extract_uint3(),
+                    self.0[2][1].value.extract_uint3(),
+                    self.0[2][2].value.extract_uint3(),
+                    self.0[2][3].value.extract_uint3(),
+                ];
+                // let virtual_leds_per_port: [u16; SMARTLED_PORT_COUNT] = leds_per_port
+                //     .iter()
+                //     .zip(dmx_group_size.0.iter())
+                //     .map(|(led_count, grouping)| (*led_count as f32 / *grouping as f32).ceil() as u16)
+                //     .collect::<Vec<u16, SMARTLED_PORT_COUNT>>()
+                //     .as_slice()
+                //     .try_into()
+                //     .unwrap_or_default();
+
+                // let universe_count: [u16; SMARTLED_PORT_COUNT] = virtual_leds_per_port
+                //     .iter()
+                //     .map(|num_virtual_leds| (*num_virtual_leds as f32 * color_mode.addr_size() as f32 / 512.0).ceil() as u16)
+                //     .collect::<Vec<u16, SMARTLED_PORT_COUNT>>()
+                //     .as_slice()
+                //     .try_into()
+                //     .unwrap_or_default();
+
+                // let universe_offset = universe_count
+                //     .iter()
+                //     .enumerate()
+                //     .map(|(i, c)| universe_count[0..i].iter().sum())
+                //     .collect::<Vec<u16, SMARTLED_PORT_COUNT>>()
+                //     .as_slice()
+                //     .try_into()
+                //     .unwrap_or_default();
+
+                // info!("universe_count {}", universe_count);
+                // info!("universe_offset {}", universe_offset);
+
+                ModuleSettings::SmartLed(SmartLedSettings {
+                    port_mode: self.0[1][0].value.extract_port_mode(),
+                    dmx_group_size,
+                    color_mode,
+                    leds_per_port,
+                    // universe_offset,
+                    // virtual_leds_per_port,
+                })
+            }
             ModuleType::Unknown => {
                 todo!()
             }
         };
-        
+
         MenuData {
             dmx_address: self.0[0][0].value.extract_uint3(),
             input_mode: self.0[0][1].value.extract_input_mode(),
@@ -163,12 +182,9 @@ impl MenuTabData {
             ip_addr: self.0[0][3].value.extract_ip(),
             artnet_address: self.0[0][4].value.extract_artnet(),
             module: module_settings,
-            
         }
     }
 }
-
-
 
 #[derive(Format)]
 pub enum UiEvent {
@@ -205,12 +221,12 @@ impl<'a> Ui<'a> {
             menu_data: md,
             menu_tab_data,
             module_type,
-            menus: [MenuTab::default(), MenuTab::default(), MenuTab::default(),],
+            menus: [MenuTab::default(), MenuTab::default(), MenuTab::default()],
         }
     }
 
     fn next_tab(&mut self) {
-            if self.current_tab == self.menus.len() - 1 {
+        if self.current_tab == self.menus.len() - 1 {
             self.current_tab = 0;
         } else {
             self.current_tab = self.current_tab.saturating_add(1);
@@ -229,7 +245,7 @@ impl<'a> Ui<'a> {
         // Create a Rectangle from the display's dimensions
         let text_style = U8g2TextStyle::new(DEFAULT_FONT, COLOR_DEFAULT_TEXT);
 
-        let mtd : MenuTabData = self.menu_data.into();
+        let mtd: MenuTabData = self.menu_data.into();
         // Create menu items
         let menu0_items = [
             MenuItem::new(mtd.0[0][0], Point::zero(), text_style.clone()),
@@ -271,86 +287,82 @@ impl<'a> Ui<'a> {
         let menu_structure = [menu0, menu1, menu2];
         self.menus = menu_structure;
 
-
-
-
-
         // if let Some(menus) = self.menus.as_mut() {
-            self.menus[self.current_tab].update();
-            let _ = self.menus[self.current_tab].draw(&mut self.disp);
-        
-            loop {
-                if let Ok(new_message) = with_timeout(Duration::from_millis(250), self.rx.receive()).await {
-                    match new_message {
-                        UiEvent::Up => {
-                            match self.menus[self.current_tab].next() {
-                                // MenuMovement::NextTab => self.next_tab(menus.len()),
-                                MenuMovement::NextTab => self.next_tab(),
-                                MenuMovement::UpdateValue((item_index, _value_index, value)) => {
-                                    self.update_menu_tab_data(item_index, value);
-                                    self.menus[self.current_tab].set(item_index, value);
-                                },
-                                _ => {},
+        self.menus[self.current_tab].update();
+        let _ = self.menus[self.current_tab].draw(&mut self.disp);
+
+        loop {
+            if let Ok(new_message) = with_timeout(Duration::from_millis(250), self.rx.receive()).await {
+                match new_message {
+                    UiEvent::Up => {
+                        match self.menus[self.current_tab].next() {
+                            // MenuMovement::NextTab => self.next_tab(menus.len()),
+                            MenuMovement::NextTab => self.next_tab(),
+                            MenuMovement::UpdateValue((item_index, _value_index, value)) => {
+                                self.update_menu_tab_data(item_index, value);
+                                self.menus[self.current_tab].set(item_index, value);
+                            }
+                            _ => {}
+                        };
+                    }
+                    UiEvent::Down => {
+                        match self.menus[self.current_tab].previous() {
+                            // MenuMovement::PreviousTab => self.previous_tab(menus.len()),
+                            MenuMovement::PreviousTab => self.previous_tab(),
+                            MenuMovement::UpdateValue((item_index, _value_index, value)) => {
+                                self.update_menu_tab_data(item_index, value);
+                                self.menus[self.current_tab].set(item_index, value);
+                            }
+                            _ => {}
+                        };
+                    }
+                    UiEvent::Esc => {
+                        if !self.menus[self.current_tab].editing() {
+                            // self.next_tab(menus.len());
+                            self.next_tab();
+                        }
+                    }
+                    UiEvent::Select => {
+                        if self.menus[self.current_tab].editing() {
+                            self.menus[self.current_tab].set_editing(false);
+
+                            self.menu_data = self.menu_tab_data.to_menu_data(self.module_type);
+                            info!("UI Event Select - menu data {}", self.menu_data);
+                            match self.tx.try_send(RouterEvent::WriteSettingsToEeprom(self.menu_data)) {
+                                Ok(_) => {}
+                                Err(e) => error!("Message dropped. Channel full. {}", e),
                             };
+                        } else {
+                            self.menus[self.current_tab].set_editing(true);
                         }
-                        UiEvent::Down => {
-                            match self.menus[self.current_tab].previous() {
-                                // MenuMovement::PreviousTab => self.previous_tab(menus.len()),
-                                MenuMovement::PreviousTab => self.previous_tab(),
-                                MenuMovement::UpdateValue((item_index, _value_index, value)) => {
-                                    self.update_menu_tab_data(item_index, value);
-                                    self.menus[self.current_tab].set(item_index, value);
-                                },
-                                _ => {}
-                            };
+                    }
+                    UiEvent::Load(menu_data) => {
+                        self.menu_data = menu_data;
+                        // self.menu_data.update();
+                        self.menu_tab_data = self.menu_data.into();
+
+                        // for (tab_index, self.menus
+
+                        for (item_index, item) in self.menu_tab_data.0[0].iter().enumerate() {
+                            self.menus[0].set(item_index, item.value);
                         }
-                        UiEvent::Esc => {
-                            if !self.menus[self.current_tab].editing() {
-                                // self.next_tab(menus.len());
-                                self.next_tab();
-                            }
+
+                        for (item_index, item) in self.menu_tab_data.0[1].iter().enumerate() {
+                            self.menus[1].set(item_index, item.value);
                         }
-                        UiEvent::Select => {
-                            if self.menus[self.current_tab].editing() {
-                                self.menus[self.current_tab].set_editing(false);
 
-                                self.menu_data = self.menu_tab_data.to_menu_data(self.module_type);
-                                info!("UI Event Select - menu data {}", self.menu_data);
-                                match self.tx.try_send(RouterEvent::WriteSettingsToEeprom(self.menu_data)) {
-                                    Ok(_) => {}
-                                    Err(e) => error!("Message dropped. Channel full. {}", e),
-                                };
-                            } else {
-                                self.menus[self.current_tab].set_editing(true);
-                            }
+                        for (item_index, item) in self.menu_tab_data.0[2].iter().enumerate() {
+                            self.menus[2].set(item_index, item.value);
                         }
-                        UiEvent::Load(menu_data) => {
-                            self.menu_data = menu_data;
-                            self.menu_tab_data = self.menu_data.into();
-
-                            // for (tab_index, self.menus
-
-                            for (item_index, item) in self.menu_tab_data.0[0].iter().enumerate() {
-                                self.menus[0].set(item_index, item.value);
-                            }
-
-                            for (item_index, item) in self.menu_tab_data.0[1].iter().enumerate() {
-                                self.menus[1].set(item_index, item.value);
-                            }
-
-                            for (item_index, item) in self.menu_tab_data.0[2].iter().enumerate() {
-                                self.menus[2].set(item_index, item.value);
-                            }
-
-                        }
-                    };
-
-                    self.menus[self.current_tab].update();
-
-                    let _ = self.disp.clear(Rgb565::BLACK);
-                    let _ = self.menus[self.current_tab].draw(&mut self.disp);
+                    }
                 };
-            }
+
+                self.menus[self.current_tab].update();
+
+                let _ = self.disp.clear(Rgb565::BLACK);
+                let _ = self.menus[self.current_tab].draw(&mut self.disp);
+            };
+        }
         // }
     }
 
@@ -358,13 +370,13 @@ impl<'a> Ui<'a> {
         match self.current_tab {
             0 => {
                 self.menu_tab_data.0[0][item_index].value = value;
-            },
+            }
             1 => {
                 self.menu_tab_data.0[1][item_index].value = value;
-            },
+            }
             2 => {
                 self.menu_tab_data.0[2][item_index].value = value;
-            },
+            }
             _ => {}
         }
     }

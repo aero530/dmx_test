@@ -8,8 +8,8 @@ use smart_leds::{SmartLedsWriteAsync, RGB8};
 use crate::channels::SmartLedChannelRx;
 
 mod ws2812_async;
-use ws2812_async::{Grb, Ws2812};
 pub use ws2812_async::NUM_LEDS_MAX;
+use ws2812_async::{Grb, Ws2812};
 
 pub enum SmartLedEvent {
     // On,
@@ -25,13 +25,26 @@ impl Format for SmartLedEvent {
         match self {
             SmartLedEvent::Value((_leds, colors)) => defmt::write!(f, "Value: ({}, {}, {})", colors[0], colors[1], colors[2]),
             SmartLedEvent::Individual((_leds, colors)) => defmt::write!(f, "Individual: ({}, {}, {})...", colors[0][0].r, colors[0][0].g, colors[0][0].b),
-            SmartLedEvent::CombinedByPort((_leds, colors)) => defmt::write!(f, "CombinedByPort: ({}, {}, {}), ({}, {}, {}), ({}, {}, {}), ({}, {}, {})", colors[0].r, colors[0].g, colors[0].b, colors[1].r, colors[1].g, colors[1].b, colors[2].r, colors[2].g, colors[2].b, colors[3].r, colors[3].g, colors[3].b),
+            SmartLedEvent::CombinedByPort((_leds, colors)) => defmt::write!(
+                f,
+                "CombinedByPort: ({}, {}, {}), ({}, {}, {}), ({}, {}, {}), ({}, {}, {})",
+                colors[0].r,
+                colors[0].g,
+                colors[0].b,
+                colors[1].r,
+                colors[1].g,
+                colors[1].b,
+                colors[2].r,
+                colors[2].g,
+                colors[2].b,
+                colors[3].r,
+                colors[3].g,
+                colors[3].b
+            ),
             SmartLedEvent::CombinedByModule((_leds, colors)) => defmt::write!(f, "CombinedByModule: ({}, {}, {})", colors.r, colors.g, colors.b),
         }
-        
     }
 }
-
 
 pub struct SmartLed<'a> {
     ws_1: Ws2812<Spi<'a, Async>, Grb>,
@@ -50,7 +63,12 @@ impl<'a> SmartLed<'a> {
         let ws_3: Ws2812<_, Grb> = Ws2812::new(spi_3);
         let ws_4: Ws2812<_, Grb> = Ws2812::new(spi_4);
         // let ws = [ws_1, ws_2, ws_3, ws_4];
-        let data = [[RGB8::default(); NUM_LEDS_MAX], [RGB8::default(); NUM_LEDS_MAX], [RGB8::default(); NUM_LEDS_MAX], [RGB8::default(); NUM_LEDS_MAX]];
+        let data = [
+            [RGB8::default(); NUM_LEDS_MAX],
+            [RGB8::default(); NUM_LEDS_MAX],
+            [RGB8::default(); NUM_LEDS_MAX],
+            [RGB8::default(); NUM_LEDS_MAX],
+        ];
 
         Self {
             ws_1,
@@ -64,7 +82,7 @@ impl<'a> SmartLed<'a> {
     }
 
     pub async fn enable(&mut self) {
-        for (port, num) in self.num_leds.iter().enumerate() {   
+        for (port, num) in self.num_leds.iter().enumerate() {
             for i in 0..*num {
                 self.data[port][i as usize] = RGB8::default();
             }
@@ -88,7 +106,6 @@ impl<'a> SmartLed<'a> {
 
     async fn process_event(&mut self, event: SmartLedEvent) {
         let prev_lengths = self.num_leds;
-
 
         match event {
             SmartLedEvent::Value((num_leds, _)) => self.num_leds = num_leds,
@@ -115,7 +132,13 @@ impl<'a> SmartLed<'a> {
     }
 
     async fn send_to_leds(&mut self) -> Result<(), &'static str> {
-        let results = embassy_futures::join::join_array([self.ws_1.write(self.data[0]), self.ws_2.write(self.data[1]), self.ws_3.write(self.data[2]), self.ws_4.write(self.data[3])]).await;
+        let results = embassy_futures::join::join_array([
+            self.ws_1.write(self.data[0]),
+            self.ws_2.write(self.data[1]),
+            self.ws_3.write(self.data[2]),
+            self.ws_4.write(self.data[3]),
+        ])
+        .await;
 
         let a = results.iter().filter(|&&r| r.is_err()).count();
 
@@ -125,13 +148,11 @@ impl<'a> SmartLed<'a> {
             Ok(())
         }
     }
-
 }
 
 #[embassy_executor::task]
 pub async fn smart_led_task(spi_1: Spi<'static, Async>, spi_2: Spi<'static, Async>, spi_3: Spi<'static, Async>, spi_4: Spi<'static, Async>, rx: SmartLedChannelRx) {
-
-    let mut smart_led = SmartLed::new(spi_1, spi_2, spi_3, spi_4, [0,0,0,0], rx);
+    let mut smart_led = SmartLed::new(spi_1, spi_2, spi_3, spi_4, [0, 0, 0, 0], rx);
     smart_led.enable().await;
     loop {
         smart_led.show().await;

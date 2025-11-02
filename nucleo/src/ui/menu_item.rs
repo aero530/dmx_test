@@ -28,12 +28,7 @@ pub struct MenuItemInput {
 
 impl<'a> MenuItemInput {
     pub fn new(name: &'static str, value: ValueType, editable: bool, line_break: bool) -> Self {
-        Self {
-            name,
-            value,
-            editable,
-            line_break,
-        }
+        Self { name, value, editable, line_break }
     }
 }
 
@@ -50,10 +45,10 @@ pub struct MenuItem<'a> {
 impl<'a> MenuItem<'a> {
     pub fn new(input: MenuItemInput, position: Point, character_style: U8g2TextStyle<Rgb565>) -> Self {
         let (height, value_position) = match input.line_break {
-            true => (2 * character_style.line_height(), Point::new(position.x, position.y+character_style.line_height() as i32)),
+            true => (2 * character_style.line_height(), Point::new(position.x, position.y + character_style.line_height() as i32)),
             false => (character_style.line_height(), position),
         };
-        
+
         Self {
             name: input.name,
             value: MenuValue::new(input.value, character_style.clone(), value_position),

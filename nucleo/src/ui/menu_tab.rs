@@ -1,12 +1,5 @@
 use az::SaturatingAs;
-use embedded_graphics::{
-    draw_target::DrawTarget,
-    pixelcolor::Rgb565,
-    prelude::Point,
-    primitives::Rectangle,
-    text::renderer::TextRenderer,
-    Drawable,
-};
+use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb565, prelude::Point, primitives::Rectangle, text::renderer::TextRenderer, Drawable};
 
 use embedded_text::{alignment::HorizontalAlignment, TextBox};
 use u8g2_fonts::U8g2TextStyle;
@@ -80,7 +73,6 @@ impl<'a> MenuTab<'a> {
     pub fn editing(&mut self) -> bool {
         self.editing
     }
-
 }
 
 impl<'a> NextPrev for MenuTab<'a> {
@@ -88,7 +80,7 @@ impl<'a> NextPrev for MenuTab<'a> {
         if self.editing {
             // change value of item
             self.items[self.item_index].value = self.items[self.item_index].value.increment(self.items[self.item_index].value.value_index);
-            MenuMovement::UpdateValue((self.item_index,  self.items[self.item_index].value.value_index, self.items[self.item_index].value.value))
+            MenuMovement::UpdateValue((self.item_index, self.items[self.item_index].value.value_index, self.items[self.item_index].value.value))
         } else if self.item_index == self.num_selectable_items - 1 && self.items[self.item_index].value.value_index == self.items[self.item_index].size() - 1 {
             // go to next tab
             info!("Go to next tab");
@@ -117,7 +109,7 @@ impl<'a> NextPrev for MenuTab<'a> {
         if self.editing {
             // change value of item
             self.items[self.item_index].value = self.items[self.item_index].value.decrement(self.items[self.item_index].value.value_index);
-            MenuMovement::UpdateValue((self.item_index,  self.items[self.item_index].value.value_index, self.items[self.item_index].value.value))
+            MenuMovement::UpdateValue((self.item_index, self.items[self.item_index].value.value_index, self.items[self.item_index].value.value))
         } else if self.item_index == 0 && self.items[self.item_index].value.value_index == 0 {
             info!("Go to previous tab");
             MenuMovement::PreviousTab

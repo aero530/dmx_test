@@ -1,36 +1,37 @@
 use defmt::*;
-use embassy_executor::Spawner;
+// use embassy_executor::Spawner;
 use embassy_futures::yield_now;
-use embassy_net::tcp::TcpSocket;
+// use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
-use embassy_net::{Runner, Stack};
+use embassy_net::Stack;
 use embassy_stm32::eth::{Ethernet, GenericPhy};
 use embassy_stm32::peripherals::ETH;
 
-use embassy_time::{Duration, Timer};
-use embassy_net::Ipv4Address;
-use embedded_io_async::Write;
+// use embassy_time::{Duration, Timer};
+// use embassy_net::Ipv4Address;
+// use embedded_io_async::Write;
 
-
-use crate::channels::{DmxChannelTx, RouterChannelTx};
-use crate::event_router::{DmxEvent, RouterEvent};
-use crate::DMX_BUFF_SIZE;
+use crate::channels::{DmxChannelTx, DmxFeedbackChannelRx, RouterChannelTx};
+use crate::event_router::{DmxEvent, DmxFeedbackEvent, RouterEvent, DMX_BUFFER};
+use crate::ui::InputMode;
+use crate::DMX_ADDR_MAX;
 
 mod tiny_artnet;
-use tiny_artnet::Art;
+pub use tiny_artnet::{Art, PortAddress};
 
 #[embassy_executor::task]
 pub async fn artnet_task(
-    stack: Stack<'static>, 
-    // runner: Runner<'static, Ethernet<'static, ETH, GenericPhy>>, 
-    // spawner: Spawner, 
+    stack: Stack<'static>,
+    // runner: Runner<'static, Ethernet<'static, ETH, GenericPhy>>,
+    // spawner: Spawner,
     tx: DmxChannelTx,
     tx_router: RouterChannelTx,
+    mut rx: DmxFeedbackChannelRx,
 ) {
     // Ensure DHCP configuration is up before trying connect
     info!("Waiting for DHCP...");
     let a = stack.wait_config_up().await;
-    
+
     let cfg = stack.config_v4().unwrap();
 
     let local_addr = cfg.address.address();
@@ -50,10 +51,9 @@ pub async fn artnet_task(
             for (i, b) in address.as_bytes().iter().enumerate() {
                 mac_address_bytes[i] = *b;
             }
-        },
+        }
     }
     // let mac_address_bytes = [mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]];
-
 
     // Then we can use it!
     let mut rx_buffer = [0; 4096];
@@ -62,39 +62,66 @@ pub async fn artnet_task(
     let mut tx_meta = [PacketMetadata::EMPTY; 16];
 
     let mut socket = UdpSocket::new(stack, &mut rx_meta, &mut rx_buffer, &mut tx_meta, &mut tx_buffer);
-    
+
     let port = tiny_artnet::PORT;
     socket.bind(port).unwrap();
 
     let mut buf = [0; 65_507];
+    let mut input_mode = InputMode::default();
 
     loop {
+        if let Some(input_data) = rx.try_changed() {
+            // info!("ArtNet - update mode to {}", input_data);
+            match input_data {
+                DmxFeedbackEvent::Mode(new_mode) => {
+                    input_mode = new_mode;
+                }
+            }
+        }
+
         let (len, from_addr) = socket.recv_from(&mut buf).await.unwrap();
         // trace!("Ethernet {:?}", buf);
 
         match tiny_artnet::from_slice(&buf[..len]) {
             Ok(Art::Dmx(dmx)) => {
-                trace!(
-                    "RX: ArtDMX - These packets contain data for one DMX512 universe Seq: {:?} physical: {:?} port_address: {:?} Data: {:?}...",
-                    dmx.sequence,
-                    dmx.physical,
-                    dmx.port_address,
-                    &dmx.data[0..10],
-                );
+                // info!(
+                //     "RX: ArtDMX - These packets contain data for one DMX512 universe Seq: {:?} physical: {:?} port_address: {:?} Data: {:?}...",
+                //     dmx.sequence,
+                //     dmx.physical,
+                //     dmx.port_address,
+                //     &dmx.data[0..10],
+                // );
 
-                // package the dmx data into 513 bytes
-                let mut buf = [0_u8; DMX_BUFF_SIZE];
-                // dmx.data does not include the DMX start byte.
-                dmx.data.iter().enumerate().for_each(|(i, v)| buf[i + 1] = *v);
+                let universe = dmx.port_address.universe as usize;
+                let start = 0 + DMX_ADDR_MAX * universe;
+                let end = DMX_ADDR_MAX + DMX_ADDR_MAX * universe;
+                let mut dmx_buffer = DMX_BUFFER.lock().await;
+                dmx_buffer[start..end].copy_from_slice(dmx.data);
+                // info!("{}", dmx_buffer[start..end]);
 
-                if !tx.is_empty() {
-                    info!("ArtNet DMX Buffer Full - Clearing DMX channel");
-                    tx.clear(); // clear any existing message on the channel
+                if input_mode == InputMode::ArtNet {
+                    // if dmx.port_address.universe == 2 {
+                    let _ = tx.try_send(DmxEvent::ArtNetPacket((dmx.port_address, dmx.sequence)));
+                    // }
                 }
-                match tx.try_send(DmxEvent::ArtNetPacket(buf)) {
-                    Ok(_) => {}
-                    Err(_) => error!("Unable to send DMX Event packet"),
-                }
+                // match tx.try_send(DmxEvent::ArtNetPacket((dmx.port_address, dmx.sequence))) {
+                //     Ok(_) => {}
+                //     Err(_) => error!("Unable to send DMX Event packet"),
+                // };
+
+                // // package the dmx data into 513 bytes
+                // let mut buf_out = [0_u8; DMX_BUFF_SIZE];
+                // // dmx.data does not include the DMX start byte.
+                // dmx.data.iter().enumerate().for_each(|(i, v)| buf_out[i + 1] = *v);
+
+                // if !tx.is_empty() {
+                //     info!("ArtNet DMX Buffer Full - Clearing DMX channel");
+                //     tx.clear(); // clear any existing message on the channel
+                // }
+                // match tx.try_send(DmxEvent::ArtNetPacket((buf_out, dmx.port_address, dmx.sequence))) {
+                //     Ok(_) => {}
+                //     Err(_) => error!("Unable to send DMX Event packet"),
+                // }
             }
             Ok(Art::Sync) => {
                 debug!("RX: ArtSync - Use these to buffer DMX packets and then synchronize the rendering of multiple DMX universes.");
@@ -122,7 +149,7 @@ pub async fn artnet_task(
 
                 let reply_message = poll_reply.ser();
 
-                socket
+                let _ = socket
                     .send_to(
                         //&buf[..msg_len],
                         &reply_message,

@@ -1,5 +1,5 @@
 mod poll_reply;
-use defmt::{info, trace, Format};
+use defmt::{trace, Format};
 pub use poll_reply::PollReply;
 
 use core::ops::RangeInclusive;
@@ -50,7 +50,7 @@ impl<'a> From<nom::Err<nom::error::Error<&'a [u8]>>> for Error {
 
 pub fn from_slice<'a>(s: &'a [u8]) -> Result<Art<'a>, Error> {
     // ID
-    let (s, a) = tag(&ID[..])(s)?;
+    let (s, _a) = tag(&ID[..])(s)?;
 
     let (s, op_code) = le_u16(s)?;
     let (s, protocol_version): (&'a [u8], u16) = be_u16(s)?;
@@ -95,7 +95,7 @@ fn parse_esta_manufacturer_code<'a>(s: &'a [u8]) -> IResult<&'a [u8], ESTAManufa
 /// Bits:
 ///     | 15 | 8-14 | 4-7    | 0-3      |
 ///     | 0  | Net  | SubNet | Universe |
-#[derive(Debug, Format)]
+#[derive(Debug, Format, Default)]
 pub struct PortAddress {
     pub net: u8,
     pub sub_net: u8,
@@ -124,6 +124,9 @@ impl PortAddress {
     /// Combines the Net, SubNet and Universe into a single usize index. Note this is not the same as the little endian u16 sent over the wire.
     pub fn as_index(&self) -> usize {
         (self.net as usize >> 14) + (self.sub_net as usize >> 7) + (self.universe as usize)
+    }
+    pub fn new(net: u8, sub_net: u8, universe: u8) -> Self {
+        Self { net, sub_net, universe }
     }
 }
 

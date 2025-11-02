@@ -3,13 +3,15 @@ use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, ThreadModeRawMu
 use embassy_sync::channel::{Channel, Receiver, Sender};
 use embassy_sync::watch::{Receiver as WatchReceiver, Sender as WatchSender, Watch};
 
-use crate::event_router::{DmxEvent, GlobalData, RouterEvent, MainEvent};
+// use embassy_sync::pubsub::{PubSubChannel, Publisher, Subscriber};
+
+use crate::event_router::{DmxEvent, DmxFeedbackEvent, GlobalData, MainEvent, RouterEvent};
 // use crate::led::LedEvent;
 use crate::pwm_i2c::PwmEvent;
 use crate::smart_led::SmartLedEvent;
 // use crate::artnet::ArtNetEvent;
-use crate::ui::UiEvent;
 use crate::eeprom::EepromEvent;
+use crate::ui::UiEvent;
 
 pub type RouterChannel = Channel<ThreadModeRawMutex, RouterEvent, 10>;
 pub type RouterChannelRx = Receiver<'static, ThreadModeRawMutex, RouterEvent, 10>;
@@ -20,6 +22,11 @@ pub type DmxChannel = Channel<ThreadModeRawMutex, DmxEvent, 1>;
 pub type DmxChannelRx = Receiver<'static, ThreadModeRawMutex, DmxEvent, 1>;
 pub type DmxChannelTx = Sender<'static, ThreadModeRawMutex, DmxEvent, 1>;
 pub static CHANNEL_DMX: DmxChannel = Channel::new();
+
+pub type DmxFeedbackChannel = Watch<ThreadModeRawMutex, DmxFeedbackEvent, 2>;
+pub type DmxFeedbackChannelRx = WatchReceiver<'static, ThreadModeRawMutex, DmxFeedbackEvent, 2>;
+pub type DmxFeedbackChannelTx = WatchSender<'static, ThreadModeRawMutex, DmxFeedbackEvent, 2>;
+pub static CHANNEL_DMX_FEEDBACK: DmxFeedbackChannel = Watch::new();
 
 // pub type LedChannel = Channel<ThreadModeRawMutex, LedEvent, 1>;
 // pub type LedChannelRx = Receiver<'static, ThreadModeRawMutex, LedEvent, 1>;
@@ -59,7 +66,6 @@ pub type GlobalDataChannel = Watch<CriticalSectionRawMutex, GlobalData, 2>;
 pub type GlobalDataChannelRx = WatchReceiver<'static, CriticalSectionRawMutex, GlobalData, 2>;
 pub type GlobalDataChannelTx = WatchSender<'static, CriticalSectionRawMutex, GlobalData, 2>;
 pub static CHANNEL_LOG: GlobalDataChannel = Watch::new();
-
 
 pub type EepromChannel = Channel<ThreadModeRawMutex, EepromEvent, 1>;
 pub type EepromChannelRx = Receiver<'static, ThreadModeRawMutex, EepromEvent, 1>;

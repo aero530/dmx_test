@@ -1,7 +1,7 @@
 //! LED & Button interaction
 use defmt::Format;
 // use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
-use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
+// use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
 use embassy_time::{with_timeout, Duration};
 use pwm_pca9685::{Channel, Pca9685};
 
@@ -76,13 +76,12 @@ impl<I2C: I2CTRAIT> PwmI2c<I2C> {
 }
 
 #[embassy_executor::task]
-pub async fn pwm_i2c_task(mut i2c: I2cSharedDev, address: u8, rx: PwmChannelRx) {
+pub async fn pwm_i2c_task(i2c: I2cSharedDev, address: u8, rx: PwmChannelRx) {
     // let i2c_bus_dev = I2cDevice::new(i2c_bus_manager);
 
     let mut pwm = PwmI2c::new(i2c, address, rx);
     pwm.configure().await;
     loop {
-        
         //for testing only
         pwm.configure().await;
         //

@@ -9,32 +9,21 @@ use embedded_graphics::{
     },
     Drawable,
 };
-use heapless::Vec;
 
-use crate::ui::{
-    ArtNetAddr, 
-    EthernetIPMode, 
-    IncDec, 
-    InputMode, 
-    IpAddrMenu, 
-    MenuMovement, 
-    NextPrev, 
-    SelectionMode, 
-    SmartLedColorMode, 
-    SmartLedPortMode, 
-    SmartLedDmxGroupSize, 
-    Udigit,
-};
 use crate::ui::{View, COLOR_EDITING_TEXT, COLOR_SELECTED_TEXT, COLOR_VALUE_TEXT};
+use crate::{
+    ui::{ArtNetAddr, EthernetIPMode, IncDec, InputMode, IpAddrMenu, MenuMovement, NextPrev, SelectionMode, SmartLedColorMode, SmartLedDmxGroupSize, SmartLedPortMode, Udigit},
+    SMARTLED_PORT_COUNT,
+};
 use arrayvec::ArrayString;
 use az::SaturatingAs;
-use core::{fmt::Write, net::Ipv4Addr};
+use bincode::{Decode, Encode};
+use core::fmt::Write;
 use embedded_text::{alignment::HorizontalAlignment, TextBox};
 use u8g2_fonts::U8g2TextStyle;
-use bincode::{Encode, Decode};
 
 use crate::DISPLAY_HEIGHT;
-use defmt::{info, error, Format};
+use defmt::{error, info, Format};
 
 /// Menu Value are values that can be configured in the menu
 #[derive(Clone)]
@@ -141,9 +130,9 @@ impl Drawable for MenuValue {
                 let mut p = self.bounds().top_left;
 
                 let box_size = self.character_style.measure_string("888", p, Baseline::Bottom).bounding_box.size;
-                
+
                 p.x += (self.bounds().size.width - box_size.width).saturating_as::<i32>();
-                p.y += (self.bounds().size.height - box_size.height/2).saturating_as::<i32>();
+                p.y += (self.bounds().size.height - box_size.height / 2).saturating_as::<i32>();
 
                 for (index, d) in v.iter().rev().enumerate() {
                     self.set_text_style(index, &mut text_style);
@@ -165,20 +154,17 @@ impl Drawable for MenuValue {
                 let mut p = self.bounds().top_left;
 
                 let box_size = self.character_style.measure_string("888 888 888 888", p, Baseline::Bottom).bounding_box.size;
-                
+
                 p.x += (self.bounds().size.width - box_size.width).saturating_as::<i32>();
-                p.y += (self.bounds().size.height - box_size.height/2).saturating_as::<i32>();
+                p.y += (self.bounds().size.height - box_size.height / 2).saturating_as::<i32>();
 
                 for (index, d) in v_all.iter().rev().enumerate() {
                     text_style.set_text_color(Some(COLOR_VALUE_TEXT));
                     p = match index {
-                        // 0 => Text::new("", p, text_style.clone()).draw(display)?,
-                        3| 6 | 9 => Text::new(" ", p, text_style.clone()).draw(display)?,
-                        // 6 => Text::new(" ", p, text_style.clone()).draw(display)?,
-                        // 9 => Text::new(" ", p, text_style.clone()).draw(display)?,
+                        3 | 6 | 9 => Text::new(" ", p, text_style.clone()).draw(display)?,
                         _ => p,
                     };
-                    
+
                     self.set_text_style(index, &mut text_style);
                     let mut buf = ArrayString::<1>::new();
                     write!(&mut buf, "{}", d.0).expect("Can't write");
@@ -196,9 +182,9 @@ impl Drawable for MenuValue {
                 let mut p = self.bounds().top_left;
 
                 let box_size = self.character_style.measure_string("N888 SN888 U888", p, Baseline::Bottom).bounding_box.size;
-                
+
                 p.x += (self.bounds().size.width - box_size.width).saturating_as::<i32>();
-                p.y += (self.bounds().size.height - box_size.height/2).saturating_as::<i32>();
+                p.y += (self.bounds().size.height - box_size.height / 2).saturating_as::<i32>();
 
                 for (index, d) in v_all.iter().rev().enumerate() {
                     text_style.set_text_color(Some(COLOR_VALUE_TEXT));
@@ -208,13 +194,31 @@ impl Drawable for MenuValue {
                         6 => Text::new(" U", p, text_style.clone()).draw(display)?,
                         _ => p,
                     };
-                    
+
                     self.set_text_style(index, &mut text_style);
                     let mut buf = ArrayString::<1>::new();
                     write!(&mut buf, "{}", d.0).expect("Can't write");
                     p = Text::new(&buf, p, text_style.clone()).draw(display)?;
                 }
             }
+            // ValueType::PortUniverseOffsets(x) => {
+            //     let mut p = self.bounds().top_left;
+
+            //     let box_size = self.character_style.measure_string("88 88 88", p, Baseline::Bottom).bounding_box.size;
+
+            //     p.x += (self.bounds().size.width - box_size.width).saturating_as::<i32>();
+            //     p.y += (self.bounds().size.height - box_size.height / 2).saturating_as::<i32>();
+
+            //     for (index, d) in x.iter().rev().enumerate() {
+            //         text_style.set_text_color(Some(COLOR_VALUE_TEXT));
+            //         p = Text::new(" ", p, text_style.clone()).draw(display)?;
+
+            //         self.set_text_style(index, &mut text_style);
+            //         let mut buf = ArrayString::<2>::new();
+            //         write!(&mut buf, "{}", d).expect("Can't write");
+            //         p = Text::new(&buf, p, text_style.clone()).draw(display)?;
+            //     }
+            // }
             _ => {
                 self.set_text_style(self.value_index, &mut text_style);
                 let mut buf = ArrayString::<20>::new();
@@ -240,6 +244,7 @@ pub enum ValueType {
     Ip(IpAddrMenu),
     ArtNetAddr(ArtNetAddr),
     SmartLedDmxGroupSize(SmartLedDmxGroupSize),
+    PortUniverseOffsets([u16; SMARTLED_PORT_COUNT]),
 }
 
 impl ValueType {
@@ -255,6 +260,7 @@ impl ValueType {
             ValueType::EthernetIPMode(_x) => 1,
             ValueType::Ip(_x) => 1,
             ValueType::ArtNetAddr(_x) => 9,
+            ValueType::PortUniverseOffsets(_x) => 1,
         }
     }
 
@@ -265,7 +271,7 @@ impl ValueType {
             _ => {
                 error!("Unable to extract u8 - setting to default value");
                 0
-            },
+            }
         }
     }
 
@@ -277,7 +283,7 @@ impl ValueType {
             _ => {
                 error!("Unable to extract port mode - setting to default value");
                 SmartLedPortMode::default()
-            },
+            }
         }
     }
 
@@ -289,7 +295,7 @@ impl ValueType {
             _ => {
                 error!("Unable to extract LED color mode - setting to default value");
                 SmartLedColorMode::default()
-            },
+            }
         }
     }
 
@@ -301,7 +307,7 @@ impl ValueType {
             _ => {
                 error!("Unable to extract DMX group size - setting to default value");
                 SmartLedDmxGroupSize::default()
-            },
+            }
         }
     }
 
@@ -312,7 +318,7 @@ impl ValueType {
             _ => {
                 error!("Unable to extract UINT3 - setting to default value");
                 0
-            },
+            }
         }
     }
 
@@ -324,7 +330,7 @@ impl ValueType {
             _ => {
                 error!("Unable to extract input mode - setting to default value");
                 InputMode::default()
-            },
+            }
         }
     }
 
@@ -336,7 +342,7 @@ impl ValueType {
             _ => {
                 error!("Unable to extract ethernet ip mode - setting to default value");
                 EthernetIPMode::default()
-            },
+            }
         }
     }
 
@@ -347,7 +353,7 @@ impl ValueType {
             _ => {
                 error!("Unable to extract ip - setting to default value");
                 IpAddrMenu::new(0, 0, 0, 0)
-            },
+            }
         }
     }
 
@@ -358,14 +364,11 @@ impl ValueType {
             _ => {
                 error!("Unable to extract ArtNetAddr - setting to default value");
                 ArtNetAddr::default()
-            },
+            }
         }
     }
-
-
 }
 impl IncDec for ValueType {
-
     fn increment(&self, index: usize) -> Self {
         match self {
             ValueType::None => ValueType::None,
@@ -377,19 +380,15 @@ impl IncDec for ValueType {
                 let b_index = index / 3;
                 let e = new.0[b_index] as u16;
                 let mut v = split_digits_no_std(e, 3);
-                
-                let i = (v.len() - 1) - (index-b_index*3);
+
+                let i = (v.len() - 1) - (index - b_index * 3);
                 v[i] = v[i].increment(i);
                 let j = digits_to_u16(v);
-                let out = if j > 999 {
-                    new.0[b_index]
-                } else {
-                    j
-                };
+                let out = if j > 999 { new.0[b_index] } else { j };
 
                 new.0[b_index] = out;
                 ValueType::SmartLedDmxGroupSize(new)
-            },
+            }
             ValueType::InputMode(x) => ValueType::InputMode(x.increment(index)),
             ValueType::EthernetIPMode(x) => ValueType::EthernetIPMode(x.increment(index)),
             ValueType::Uint3(x) => {
@@ -399,29 +398,26 @@ impl IncDec for ValueType {
                 v[i] = v[i].increment(i);
                 let out = digits_to_u16(v);
                 ValueType::Uint3(out)
-            },
+            }
             ValueType::Ip(x) => {
                 //todo!();
                 ValueType::Ip(*x)
-            },
+            }
             ValueType::ArtNetAddr(x) => {
                 let mut new = *x;
                 let b_index = index / 3;
                 let e = new.0[b_index] as u16;
                 let mut v = split_digits_no_std(e, 3);
-                
-                let i = (v.len() - 1) - (index-b_index*3);
+
+                let i = (v.len() - 1) - (index - b_index * 3);
                 v[i] = v[i].increment(i);
                 let j = digits_to_u16(v);
-                let out = if j > u8::MAX.into() {
-                    new.0[b_index]
-                } else {
-                    j as u8
-                };
+                let out = if j > u8::MAX.into() { new.0[b_index] } else { j as u8 };
 
                 new.0[b_index] = out;
                 ValueType::ArtNetAddr(new)
-            },
+            }
+            ValueType::PortUniverseOffsets(x) => ValueType::PortUniverseOffsets(*x),
         }
     }
 
@@ -446,18 +442,14 @@ impl IncDec for ValueType {
                 // };
                 let e = new.0[b_index] as u16;
                 let mut v = split_digits_no_std(e, 3);
-                
-                let i = (v.len() - 1) - (index-b_index*3);
+
+                let i = (v.len() - 1) - (index - b_index * 3);
                 v[i] = v[i].decrement(i);
                 let j = digits_to_u16(v);
-                let out = if j > 999 {
-                    new.0[b_index]
-                } else {
-                    j
-                };
+                let out = if j > 999 { new.0[b_index] } else { j };
                 new.0[b_index] = out;
                 ValueType::SmartLedDmxGroupSize(new)
-            },
+            }
             ValueType::InputMode(x) => ValueType::InputMode(x.decrement(index)),
             ValueType::EthernetIPMode(x) => ValueType::EthernetIPMode(x.decrement(index)),
             ValueType::Uint3(x) => {
@@ -467,28 +459,25 @@ impl IncDec for ValueType {
                 v[i] = v[i].decrement(i);
                 let out = digits_to_u16(v);
                 ValueType::Uint3(out)
-            },
+            }
             ValueType::Ip(x) => {
                 //todo!();
                 ValueType::Ip(*x)
-            },
+            }
             ValueType::ArtNetAddr(x) => {
                 let mut new: ArtNetAddr = *x;
                 let b_index = index / 3;
                 let e = new.0[b_index] as u16;
                 let mut v = split_digits_no_std(e, 3);
-                
-                let i = (v.len() - 1) - (index-b_index*3);
+
+                let i = (v.len() - 1) - (index - b_index * 3);
                 v[i] = v[i].decrement(i);
                 let j = digits_to_u16(v);
-                let out = if j > u8::MAX.into() {
-                    new.0[b_index]
-                } else {
-                    j as u8
-                };
+                let out = if j > u8::MAX.into() { new.0[b_index] } else { j as u8 };
                 new.0[b_index] = out;
                 ValueType::ArtNetAddr(new)
-            },
+            }
+            ValueType::PortUniverseOffsets(x) => ValueType::PortUniverseOffsets(*x),
         }
     }
 }
@@ -508,8 +497,9 @@ impl core::fmt::Display for ValueType {
             ValueType::Ip(x) => {
                 let b = x.octets();
                 write!(f, "{}.{}.{}.{}", b[0], b[1], b[2], b[3])
-            },
+            }
             ValueType::ArtNetAddr(x) => write!(f, "{} {} {}", x.0[0], x.0[1], x.0[2]),
+            ValueType::PortUniverseOffsets(x) => write!(f, "{} {} {} {}", x[0], x[1], x[2], x[3]),
         }
     }
 }
@@ -534,5 +524,3 @@ fn digits_to_u16(n: heapless::Vec<Udigit, 5>) -> u16 {
     n.iter().enumerate().for_each(|(index, val)| out += val.0 as u16 * 10_u16.pow((index as u16).into()));
     out
 }
-
-

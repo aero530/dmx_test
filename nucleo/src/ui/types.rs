@@ -1,14 +1,40 @@
 use core::net::Ipv4Addr;
 
-use crate::ui::menu_value::ValueType;
+use crate::{ui::menu_value::ValueType, SMARTLED_PORT_COUNT};
 use bincode::{Decode, Encode};
-use embassy_net::IpAddress;
+// use embassy_net::IpAddress;
+use heapless::Vec;
+use micromath::F32Ext;
 
-use smart_leds::{RGB, RGB8};
+use smart_leds::RGB8;
 
 use super::IncDec;
-use defmt::{Format, error};
+use defmt::{error, Format};
 use enum_ordinalize::Ordinalize;
+
+#[derive(Clone, Copy, Default, PartialEq, Format, Debug)]
+pub struct DmxRange {
+    pub start: DmxAddr,
+    pub end: DmxAddr,
+}
+
+impl DmxRange {
+    pub fn new(start: DmxAddr, end: DmxAddr) -> Self {
+        Self { start, end }
+    }
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Format, Debug)]
+pub struct DmxAddr {
+    pub dmx: usize,
+    pub universe: usize,
+}
+
+impl DmxAddr {
+    pub fn new(dmx: usize, universe: usize) -> Self {
+        Self { dmx, universe }
+    }
+}
 
 #[derive(Clone, Copy, Default, PartialEq, Format, Debug, Decode, Encode)]
 pub enum ModuleType {
@@ -30,7 +56,7 @@ pub enum MenuMovement {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Format, Debug, Decode, Encode)]
-pub struct IpAddrMenu([u8;4]);
+pub struct IpAddrMenu([u8; 4]);
 
 impl IpAddrMenu {
     pub fn new(a: u8, b: u8, c: u8, d: u8) -> Self {
@@ -40,12 +66,11 @@ impl IpAddrMenu {
     pub fn octets(&self) -> [u8; 4] {
         self.0
     }
-    
 }
 
 impl Default for IpAddrMenu {
     fn default() -> Self {
-        IpAddrMenu([0,0,0,0])
+        IpAddrMenu([0, 0, 0, 0])
     }
 }
 
@@ -55,7 +80,6 @@ impl From<Ipv4Addr> for IpAddrMenu {
         IpAddrMenu(b)
     }
 }
-
 
 /// Data displayed / configured in the menu system
 #[derive(Clone, Copy, PartialEq, Format, Debug, Decode, Encode)]
@@ -72,11 +96,11 @@ impl Default for MenuData {
     fn default() -> Self {
         Self {
             dmx_address: 1,
-            input_mode: InputMode::DMX,
+            input_mode: InputMode::Dmx,
             ethernet_ip_mode: EthernetIPMode::DHCP,
             artnet_address: ArtNetAddr::default(),
             module: ModuleSettings::default(),
-            ip_addr: IpAddrMenu::new(0,0,0,0)
+            ip_addr: IpAddrMenu::new(0, 0, 0, 0),
         }
     }
 }
@@ -103,12 +127,46 @@ pub struct PwmSettings {
 /// Smart LED module settings
 #[derive(Default, Clone, Copy, PartialEq, Format, Debug, Decode, Encode)]
 pub struct SmartLedSettings {
-    pub leds_per_port: [u16; 4],
+    pub leds_per_port: [u16; SMARTLED_PORT_COUNT],
+    // pub universe_offset: [u16; SMARTLED_PORT_COUNT],
+    // pub virtual_leds_per_port: [u16; SMARTLED_PORT_COUNT],
     pub color_mode: SmartLedColorMode,
     pub port_mode: SmartLedPortMode,
     pub dmx_group_size: SmartLedDmxGroupSize,
 }
 
+impl SmartLedSettings {
+    pub fn virtual_leds_per_port(&self) -> [u16; SMARTLED_PORT_COUNT] {
+        self.leds_per_port
+            .iter()
+            .zip(self.dmx_group_size.0.iter())
+            .map(|(led_count, grouping)| (*led_count as f32 / *grouping as f32).ceil() as u16)
+            .collect::<Vec<u16, SMARTLED_PORT_COUNT>>()
+            .as_slice()
+            .try_into()
+            .unwrap_or_default()
+    }
+
+    pub fn universe_offset(&self) -> [u16; SMARTLED_PORT_COUNT] {
+        let universe_count: [u16; SMARTLED_PORT_COUNT] = self
+            .virtual_leds_per_port()
+            .iter()
+            .map(|num_virtual_leds| (*num_virtual_leds as f32 * self.color_mode.addr_size() as f32 / 512.0).ceil() as u16)
+            .collect::<Vec<u16, SMARTLED_PORT_COUNT>>()
+            .as_slice()
+            .try_into()
+            .unwrap_or_default();
+
+        universe_count
+            .iter()
+            .enumerate()
+            .map(|(i, c)| universe_count[0..i].iter().sum())
+            .collect::<Vec<u16, SMARTLED_PORT_COUNT>>()
+            .as_slice()
+            .try_into()
+            .unwrap_or_default()
+    }
+}
 /// Impl increment and decrement for u8
 impl IncDec for u8 {
     fn increment(&self, _index: usize) -> u8 {
@@ -128,27 +186,28 @@ impl IncDec for u8 {
     }
 }
 
-
-
-
-
-
-
-
 /// Input mode
 #[derive(Default, Clone, Copy, PartialEq, Eq, Ordinalize, Format, Debug, Decode, Encode)]
 pub enum InputMode {
     #[default]
-    DMX,
+    Dmx,
     ArtNet,
 }
 
+impl InputMode {
+    pub fn dmx_addr_limit(&self) -> usize {
+        match self {
+            InputMode::Dmx => 512,
+            InputMode::ArtNet => 512, // ArtNet still uses a 512 byte universe
+        }
+    }
+}
 impl IncDec for InputMode {
     fn increment(&self, _index: usize) -> Self {
         let next = self.ordinal().saturating_add(1);
         match Self::from_ordinal(next) {
             Some(n) => n,
-            None => InputMode::DMX,
+            None => InputMode::Dmx,
         }
     }
 
@@ -164,13 +223,11 @@ impl IncDec for InputMode {
 impl core::fmt::Display for InputMode {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
-            InputMode::DMX => write!(f, "DMX"),
+            InputMode::Dmx => write!(f, "DMX"),
             InputMode::ArtNet => write!(f, "ArtNet"),
         }
     }
 }
-
-
 
 /// Ethernet IP mode
 #[derive(Default, Clone, Copy, PartialEq, Eq, Ordinalize, Format, Debug, Decode, Encode)]
@@ -207,8 +264,6 @@ impl core::fmt::Display for EthernetIPMode {
     }
 }
 
-
-
 /// Smart LED group address type
 #[derive(Default, Clone, Copy, PartialEq, Eq, Ordinalize, Format, Debug, Decode, Encode)]
 pub enum SmartLedColorMode {
@@ -231,17 +286,17 @@ impl SmartLedColorMode {
                 if data.len() >= 3 {
                     RGB8::new(data[0], data[1], data[2])
                 } else {
-                    RGB8::new(0,0,0)
+                    RGB8::new(0, 0, 0)
                 }
-            },
+            }
             SmartLedColorMode::RGBW => {
                 error!("Using RGBW color space but that it not implimented yet.");
                 if data.len() >= 4 {
                     RGB8::new(data[0], data[1], data[2])
                 } else {
-                    RGB8::new(0,0,0)
+                    RGB8::new(0, 0, 0)
                 }
-            },
+            }
         }
     }
 }
@@ -310,10 +365,9 @@ impl core::fmt::Display for SmartLedPortMode {
     }
 }
 
-
 // LED DMX Group Size (1 to #PHYLEDs)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Format, Decode, Encode)]
-pub struct SmartLedDmxGroupSize(pub [u16;4]);
+pub struct SmartLedDmxGroupSize(pub [u16; 4]);
 
 impl Default for SmartLedDmxGroupSize {
     fn default() -> Self {
@@ -343,6 +397,5 @@ impl IncDec for Udigit {
     }
 }
 
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Format, Decode, Encode)]
-pub struct ArtNetAddr(pub [u8;3]);
+pub struct ArtNetAddr(pub [u8; 3]);

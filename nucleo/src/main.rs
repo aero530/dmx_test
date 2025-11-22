@@ -3,6 +3,7 @@
 
 use cfg_if::cfg_if;
 use defmt::*;
+use {defmt_rtt as _, panic_probe as _};
 
 use core::cell::RefCell;
 
@@ -14,6 +15,9 @@ use embassy_stm32::time::Hertz;
 // use embassy_stm32::usart::{Config as UsartConfig, DataBits, StopBits, Uart};
 use embassy_stm32::spi::{Config as SpiConfig, Mode as SpiMode, Phase, Polarity, Spi};
 use embassy_stm32::{bind_interrupts, i2c, peripherals, usb, Config};
+use embassy_stm32::rcc::{
+    AHBPrescaler, APBPrescaler, HSIPrescaler, Hse, HseMode, Hsi48Config, Pll, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale, mux
+};
 use embassy_sync::blocking_mutex::raw::{NoopRawMutex, ThreadModeRawMutex};
 use embassy_sync::blocking_mutex::NoopMutex;
 use embassy_sync::mutex::Mutex;
@@ -26,33 +30,6 @@ use static_cell::StaticCell;
 use crate::eeprom::EepromEvent;
 use crate::event_router::{MainEvent, ReturnChannel, RouterEvent};
 use crate::ui::{EthernetIPMode, MenuData, ModuleType};
-
-cfg_if! {
-    if #[cfg(feature = "semihosting")] {
-        use panic_probe as _;
-        use defmt_rtt as _;
-    } else {
-        use panic_reset as _;
-
-        #[defmt::global_logger]
-        struct Logger;
-
-        unsafe impl defmt::Logger for Logger {
-            fn acquire() {
-                // ...
-            }
-            unsafe fn flush() {
-                // ...
-            }
-            unsafe fn release() {
-                // ...
-            }
-            unsafe fn write(bytes: &[u8]) {
-                // ...
-            }
-        }
-    }
-}
 
 // Eth
 cfg_if! {
@@ -105,8 +82,8 @@ cfg_if! {
 mod event_router;
 use event_router::{event_router, Router, DMX_BUFFER};
 
-// mod led;
-// use led::led_task;
+mod led;
+use led::led_task;
 
 mod logger;
 use logger::log_task;
@@ -173,98 +150,125 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let mut config = Config::default();
-    {
-        use embassy_stm32::rcc::*;
-        config.rcc.hsi = None;
-        // config.rcc.hsi48 = Some(Default::default()); // needed for RNG
-        config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
-        config.rcc.hse = Some(Hse {
-            // High speed external clock
-            freq: Hertz(8_000_000), // 4 - 26MHz
-            mode: HseMode::BypassDigital,
-        });
 
-        config.rcc.csi = true; // enable CSI clock
+    cfg_if! {
+        if #[cfg(feature = "clock_stlink")] {
+            // HSE on the Nucleo board defaults to an output from the STLink micro.
+            // There is also an on board 25MHz clock that could be used by changing some jumpers.
+            // The config here is for the STLink source at 8MHz.
+            config.rcc.hse = Some(Hse {
+                freq: Hertz(8_000_000),
+                mode: HseMode::BypassDigital,
+            });
 
-        // System
-        // PLL1Q -> Ethernet
-        config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV2,
-            mul: PllMul::MUL125,
-            divp: Some(PllDiv::DIV2), // PLL P divisor => pll_src / prediv * mul / divp = 8mhz / 2 * 125 / 2 = 250Mhz
-            divq: Some(PllDiv::DIV2), // PLL Q divisor => pll_src / prediv * mul / divp = 8mhz / 2 * 215 / 2 = 250Mhz
-            divr: None,
-        });
-        // SPI
-        config.rcc.pll2 = Some(Pll {
-            source: PllSource::CSI, // 4 MHz
-            prediv: PllPreDiv::DIV2,
-            mul: PllMul::MUL100,
-            divp: Some(PllDiv::DIV2), // PLL P divisor => pll_src / prediv * mul / divp = 4mhz / 2 * 100 / 2 = 100Mhz
-            divq: Some(PllDiv::DIV2), // PLL Q divisor => pll_src / prediv * mul / divp = 4mhz / 2 * 100 / 2 = 100Mhz
-            divr: None,
-        });
-        // I2C
-        config.rcc.pll3 = Some(Pll {
-            source: PllSource::CSI, // 4 MHz
-            prediv: PllPreDiv::DIV2,
-            mul: PllMul::MUL100,
-            divp: Some(PllDiv::DIV2), // PLL P divisor => pll_src / prediv * mul / divp = 4mhz / 2 * 100 / 2 = 100Mhz
-            divq: Some(PllDiv::DIV2), // PLL Q divisor => pll_src / prediv * mul / divp = 4mhz / 2 * 100 / 2 = 100Mhz
-            divr: Some(PllDiv::DIV2), // PLL R divisor => pll_src / prediv * mul / divp = 4mhz / 2 * 100 / 2 = 100Mhz
-        });
+            config.rcc.hsi = None;
 
-        config.rcc.ahb_pre = AHBPrescaler::DIV1; // AHBPrescaler::DIV2;
-        config.rcc.apb1_pre = APBPrescaler::DIV1; // APBPrescaler::DIV4;
-        config.rcc.apb2_pre = APBPrescaler::DIV1; // APBPrescaler::DIV2;
-        config.rcc.apb3_pre = APBPrescaler::DIV1; // APBPrescaler::DIV4;
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.voltage_scale = VoltageScale::Scale0;
+            // System
+            // PLL1Q -> Ethernet
+            config.rcc.pll1 = Some(Pll {
+                source: PllSource::HSE, // use HSE as the clock source
+                prediv: PllPreDiv::DIV2,
+                mul: PllMul::MUL125,
+                divp: Some(PllDiv::DIV2), // PLL P divisor => pll_src / prediv * mul / divp = 8mhz / 2 * 125 / 2 = 250Mhz
+                divq: Some(PllDiv::DIV2), // PLL Q divisor => pll_src / prediv * mul / divp = 8mhz / 2 * 125 / 2 = 250Mhz
+                divr: None,
+            });
+            
+        } else if #[cfg(feature = "clock_25MHz_osc")] {
+            // The Nucleo board also has an on board 25MHz clock that could be used by changing some jumpers.
+            config.rcc.hse = Some(Hse {
+                freq: Hertz(25_000_000),
+                mode: HseMode::Oscillator,
+            });
 
-        // config.rcc.mux.rtcsel = mux::Rtcsel::LSI;
-        // config.rcc.mux.uart4sel = mux::Usartsel;
-        // config.rcc.mux.uart5sel = mux::Usartsel;
-        // config.rcc.mux.uart7sel = mux::Usartsel;
-        // config.rcc.mux.uart8sel = mux::Usartsel;
-        // config.rcc.mux.uart9sel = mux::Usartsel;
-        // config.rcc.mux.usart10sel = mux::Usartsel;
-        // config.rcc.mux.usart1sel = mux::Usart1sel;
-        // config.rcc.mux.usart2sel = mux::Usartsel;
-        // config.rcc.mux.usart3sel = mux::Usartsel;
-        // config.rcc.mux.usart6sel = mux::Usartsel;
-        // config.rcc.mux.lptim1sel = mux::Lptimsel;
-        // config.rcc.mux.lptim2sel = mux::Lptim2sel;
-        // config.rcc.mux.lptim3sel = mux::Lptimsel;
-        // config.rcc.mux.lptim4sel = mux::Lptimsel;
-        // config.rcc.mux.lptim5sel = mux::Lptimsel;
-        // config.rcc.mux.lptim6sel = mux::Lptimsel;
-        // config.rcc.mux.usart11sel = mux::Usartsel;
-        // config.rcc.mux.lpuart1sel = mux::Lpusartsel;
-        config.rcc.mux.spi1sel = mux::Spi1sel::PLL2_P;
-        config.rcc.mux.spi2sel = mux::Spi2sel::PLL2_P;
-        config.rcc.mux.spi3sel = mux::Spi3sel::PLL2_P;
-        config.rcc.mux.spi4sel = mux::Spi4sel::PLL2_Q;
-        config.rcc.mux.spi5sel = mux::Spi5sel::PLL2_Q;
-        config.rcc.mux.spi6sel = mux::Spi6sel::PLL2_Q;
-        config.rcc.mux.i2c1sel = mux::I2csel::PLL3_R;
-        config.rcc.mux.i2c2sel = mux::I2csel::PLL3_R;
-        // config.rcc.mux.i2c3sel = mux::I2c34sel;
-        config.rcc.mux.i2c4sel = mux::I2c34sel::PLL3_R;
-        // config.rcc.mux.i3c1sel = mux::I2csel;
-        // config.rcc.mux.octospi1sel = mux::Octospisel;
-        // config.rcc.mux.sdmmc1sel = mux::Sdmmcsel;
-        // config.rcc.mux.sdmmc2sel = mux::Sdmmcsel;
-        config.rcc.mux.usbsel = mux::Usbsel::HSI48;
-        // config.rcc.mux.adcdacsel = mux::Adcdacsel;
-        // config.rcc.mux.cecsel = mux::Cecsel;
-        // config.rcc.mux.fdcan12sel = mux::Fdcansel;
-        config.rcc.mux.persel = mux::Persel::HSI;
-        config.rcc.mux.rngsel = mux::Rngsel::HSI48;
-        // config.rcc.mux.sai1sel = mux::Saisel;
-        // config.rcc.mux.sai2sel = mux::Saisel;
+            config.rcc.hsi = None;
+
+            // System
+            // PLL1Q -> Ethernet
+            config.rcc.pll1 = Some(Pll {
+                source: PllSource::HSE, // use HSE as the clock source
+                prediv: PllPreDiv::DIV2,
+                mul: PllMul::MUL40,
+                divp: Some(PllDiv::DIV2), // PLL P divisor => pll_src / prediv * mul / divp = 25mhz / 2 * 40 / 2 = 250Mhz
+                divq: Some(PllDiv::DIV2), // PLL Q divisor => pll_src / prediv * mul / divp = 25mhz / 2 * 40 / 2 = 250Mhz
+                divr: None,
+            });
+            
+        } else {
+            // This option defaults to using the high speed internal clock as the main PLL source.
+            // This clock is less accurate than using an external clock.
+            // The internal clock is 64MHz.  Divide that clock by 8 to get an input of 8MHz to the
+            // rest of the clock chain.
+            config.rcc.hsi = Some(HSIPrescaler::DIV8);
+
+            // System
+            // PLL1Q -> Ethernet
+            config.rcc.pll1 = Some(Pll {
+                source: PllSource::HSI, // use HSI as the clock source
+                prediv: PllPreDiv::DIV2,
+                mul: PllMul::MUL125,
+                divp: Some(PllDiv::DIV2), // PLL P divisor => pll_src / prediv * mul / divp = 8mhz / 2 * 125 / 2 = 250Mhz
+                divq: Some(PllDiv::DIV2), // PLL Q divisor => pll_src / prediv * mul / divp = 8mhz / 2 * 215 / 2 = 250Mhz
+                divr: None,
+            });
+        }
     }
+
+    // config.rcc.hsi48 = Some(Default::default());
+    config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
+
+    config.rcc.csi = true; // enable CSI clock
+    
+    // SPI
+    config.rcc.pll2 = Some(Pll {
+        source: PllSource::CSI, // 4 MHz
+        prediv: PllPreDiv::DIV2,
+        mul: PllMul::MUL100,
+        divp: Some(PllDiv::DIV2), // PLL P divisor => pll_src / prediv * mul / divp = 4mhz / 2 * 100 / 2 = 100Mhz
+        divq: Some(PllDiv::DIV2), // PLL Q divisor => pll_src / prediv * mul / divp = 4mhz / 2 * 100 / 2 = 100Mhz
+        divr: None,
+    });
+    // I2C
+    config.rcc.pll3 = Some(Pll {
+        source: PllSource::CSI, // 4 MHz
+        prediv: PllPreDiv::DIV2,
+        mul: PllMul::MUL100,
+        divp: Some(PllDiv::DIV2), // PLL P divisor => pll_src / prediv * mul / divp = 4mhz / 2 * 100 / 2 = 100Mhz
+        divq: Some(PllDiv::DIV2), // PLL Q divisor => pll_src / prediv * mul / divp = 4mhz / 2 * 100 / 2 = 100Mhz
+        divr: Some(PllDiv::DIV2), // PLL R divisor => pll_src / prediv * mul / divp = 4mhz / 2 * 100 / 2 = 100Mhz
+    });
+
+    config.rcc.ahb_pre = AHBPrescaler::DIV1; // AHBPrescaler::DIV2;
+    config.rcc.apb1_pre = APBPrescaler::DIV1; // APBPrescaler::DIV4;
+    config.rcc.apb2_pre = APBPrescaler::DIV1; // APBPrescaler::DIV2;
+    config.rcc.apb3_pre = APBPrescaler::DIV1; // APBPrescaler::DIV4;
+    config.rcc.sys = Sysclk::PLL1_P;
+    config.rcc.voltage_scale = VoltageScale::Scale0;
+
+    config.rcc.mux.spi1sel = mux::Spi1sel::PLL2_P;
+    config.rcc.mux.spi2sel = mux::Spi2sel::PLL2_P;
+    config.rcc.mux.spi3sel = mux::Spi3sel::PLL2_P;
+    config.rcc.mux.spi4sel = mux::Spi4sel::PLL2_Q;
+    config.rcc.mux.spi5sel = mux::Spi5sel::PLL2_Q;
+    config.rcc.mux.spi6sel = mux::Spi6sel::PLL2_Q;
+    config.rcc.mux.i2c1sel = mux::I2csel::PLL3_R;
+    config.rcc.mux.i2c2sel = mux::I2csel::PLL3_R;
+    config.rcc.mux.i2c4sel = mux::I2c34sel::PLL3_R;
+    config.rcc.mux.usbsel = mux::Usbsel::HSI48;
+    config.rcc.mux.persel = mux::Persel::HSI;
+    config.rcc.mux.rngsel = mux::Rngsel::HSI48;
+
+
     let p = embassy_stm32::init(config);
+
+    // -----------------------------------
+    // On board LEDs
+    // -----------------------------------
+
+    // let mut led0 = Output::new(p.PB0, Level::High, Speed::Low);
+    // // let mut led1 = Output::new(p.PF4, Level::High, Speed::Low);
+    // // let mut led2 = Output::new(p.PG4, Level::High, Speed::Low);
+    // spawner.spawn(led_task(led0)).unwrap();
 
     // -----------------------------------
     // Initialize data static memory locations
@@ -342,6 +346,8 @@ async fn main(spawner: Spawner) {
     Timer::after_millis(10).await;
     let factor_reset = button.is_low();
     spawner.spawn(button_task(button, CHANNEL.sender())).unwrap();
+
+
 
     // -----------------------------------
     // Display board buttons
@@ -491,7 +497,6 @@ async fn main(spawner: Spawner) {
         CHANNEL.receiver(),
         CHANNEL_DMX.receiver(),
         CHANNEL_DMX_FEEDBACK.sender(),
-        // CHANNEL_LED.sender(),
         // CHANNEL_PWM.sender(),
         CHANNEL_PWM_I2C.sender(),
         CHANNEL_SMART_LED.sender(),
@@ -528,9 +533,6 @@ async fn main(spawner: Spawner) {
     info!("Try to read settings");
     let _ = CHANNEL_EEPROM.send(EepromEvent::ReadSettings).await;
     Timer::after_millis(50).await;
-
-    // info!("waiting for eeprom read to finish");
-    // Timer::after_millis(1000).await;
 
     info!("Try to get module type");
     let _ = CHANNEL.try_send(RouterEvent::GetModuleType(ReturnChannel::Main));
@@ -658,4 +660,5 @@ async fn main(spawner: Spawner) {
     }
 
     let _ = CHANNEL.try_send(RouterEvent::StoreBootComplete(true));
+
 }

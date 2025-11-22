@@ -11,13 +11,14 @@ bench = false
 [features]
 # default = []
 
-default = ["ethernet", "semihosting"]
+default = ["ethernet", "clock_25MHz_osc"]
 ethernet = []
 pwm_native = []
 pwm = []
 display = []
 usb = []
-semihosting = []
+clock_stlink = []
+clock_25MHz_osc = []
 
 [dependencies]
 

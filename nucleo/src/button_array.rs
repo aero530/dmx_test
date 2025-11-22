@@ -1,5 +1,5 @@
 //! Button interaction
-use defmt::{error, Format};
+use defmt::{error, debug, Format};
 use embassy_time::Timer;
 
 use embassy_stm32::gpio::{Input, OutputOpenDrain};
@@ -176,6 +176,7 @@ pub async fn button_row_task(row: [Input<'static>; 4], tx: RouterChannelTx) {
                     KeyPadEvent::Released => events[map[location]] = KeyPadEvent::Pressed,
                     KeyPadEvent::Held => events[map[location]] = KeyPadEvent::Held,
                 }
+                debug!("{} is pressed", location);
             } else {
                 // button not pressed
                 match events[map[location]] {

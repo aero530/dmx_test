@@ -49,13 +49,17 @@ pub type UiChannelRx = Receiver<'static, ThreadModeRawMutex, UiEvent, 1>;
 pub type UiChannelTx = Sender<'static, ThreadModeRawMutex, UiEvent, 1>;
 pub static CHANNEL_UI: UiChannel = Channel::new();
 
+#[allow(unused)]
 pub type UsbChannel = Channel<ThreadModeRawMutex, [u8; 64], 1>;
+#[allow(unused)]
 pub type UsbChannelRx = Receiver<'static, ThreadModeRawMutex, [u8; 64], 1>;
+#[allow(unused)]
 pub type UsbChannelTx = Sender<'static, ThreadModeRawMutex, [u8; 64], 1>;
+#[allow(unused)]
 pub static CHANNEL_USB: UsbChannel = Channel::new();
 
 pub type GlobalDataChannel = Watch<CriticalSectionRawMutex, GlobalData, 2>;
-pub type GlobalDataChannelRx = WatchReceiver<'static, CriticalSectionRawMutex, GlobalData, 2>;
+// pub type GlobalDataChannelRx = WatchReceiver<'static, CriticalSectionRawMutex, GlobalData, 2>;
 pub type GlobalDataChannelTx = WatchSender<'static, CriticalSectionRawMutex, GlobalData, 2>;
 pub static CHANNEL_LOG: GlobalDataChannel = Watch::new();
 
@@ -65,6 +69,6 @@ pub type EepromChannelTx = Sender<'static, ThreadModeRawMutex, EepromEvent, 1>;
 pub static CHANNEL_EEPROM: EepromChannel = Channel::new();
 
 pub type MainChannel = Channel<ThreadModeRawMutex, MainEvent, 2>;
-pub type MainChannelRx = Receiver<'static, ThreadModeRawMutex, MainEvent, 2>;
+// pub type MainChannelRx = Receiver<'static, ThreadModeRawMutex, MainEvent, 2>;
 pub type MainChannelTx = Sender<'static, ThreadModeRawMutex, MainEvent, 2>;
 pub static CHANNEL_MAIN: MainChannel = Channel::new();

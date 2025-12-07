@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 mod poll_reply;
 use defmt::{trace, Format};
 pub use poll_reply::PollReply;
@@ -11,11 +13,11 @@ use nom::{
     IResult, Parser,
 };
 
-const ID: &'static [u8; 8] = b"Art-Net\0";
+const ID: &[u8; 8] = b"Art-Net\0";
 pub const PORT: u16 = 0x1936;
 
-const DEFAULT_4_BYTES: &'static [u8; 4] = &[0; 4];
-const DEFAULT_6_BYTES: &'static [u8; 6] = &[0; 6];
+const DEFAULT_4_BYTES: &[u8; 4] = &[0; 4];
+const DEFAULT_6_BYTES: &[u8; 6] = &[0; 6];
 
 #[derive(Debug)]
 pub enum Art<'a> {
@@ -31,7 +33,7 @@ pub enum Error {
     UnsupportedProtocolVersion(u16),
     UnsupportedOpCode(u16),
     ParseIncomplete(Option<usize>),
-    ParseError(usize),
+    ParseFault(usize),
     ParseFailure,
 }
 
@@ -42,7 +44,7 @@ impl<'a> From<nom::Err<nom::error::Error<&'a [u8]>>> for Error {
                 nom::Needed::Unknown => Error::ParseIncomplete(None),
                 nom::Needed::Size(non_zero) => Error::ParseIncomplete(Some(usize::from(non_zero))),
             },
-            nom::Err::Error(e) => Error::ParseError(e.code as usize),
+            nom::Err::Error(e) => Error::ParseFault(e.code as usize),
             nom::Err::Failure(_f) => Error::ParseFailure,
         }
     }
@@ -76,7 +78,7 @@ pub fn from_slice<'a>(s: &'a [u8]) -> Result<Art<'a>, Error> {
 /// (ESTAManLo, ESTAManHi)
 pub type ESTAManufacturerCode = (char, char);
 
-fn parse_esta_manufacturer_code<'a>(s: &'a [u8]) -> IResult<&'a [u8], ESTAManufacturerCode> {
+fn parse_esta_manufacturer_code(s: &[u8]) -> IResult<&[u8], ESTAManufacturerCode> {
     let (s, (lo, hi)) = (number::u8, number::u8).parse(s)?;
     Ok((s, (lo as char, hi as char)))
 }
@@ -102,7 +104,7 @@ pub struct PortAddress {
     pub universe: u8,
 }
 
-fn parse_port_address<'a>(s: &'a [u8]) -> IResult<&'a [u8], PortAddress> {
+fn parse_port_address(s: &[u8]) -> IResult<&[u8], PortAddress> {
     use nom::bits::complete as bits;
 
     let (s, (sub_net, universe, _, net)): (&[u8], (u8, u8, u8, u8)) = nom::bits::bits((
@@ -176,6 +178,7 @@ fn parse_poll<'a>(s: &'a [u8]) -> Result<Poll, Error> {
 }
 
 #[derive(Debug)]
+
 pub struct Command<'a> {
     pub esta_manufacturer_code: ESTAManufacturerCode,
     pub data: &'a [u8],
@@ -191,6 +194,7 @@ fn parse_command<'a>(s: &'a [u8]) -> Result<Command<'a>, Error> {
 }
 
 #[derive(Debug, Format)]
+#[allow(unused)]
 pub struct Dmx<'a> {
     /// The sequence number is used to ensure that
     /// ArtDmx packets are used in the correct order.
@@ -222,6 +226,7 @@ pub struct Dmx<'a> {
     pub data: &'a [u8],
 }
 
+#[allow(unused)]
 fn parse_dmx<'a>(s: &'a [u8]) -> Result<Dmx<'a>, Error> {
     let (s, sequence) = number::u8(s)?;
     let (s, physical) = number::u8(s)?;
@@ -239,7 +244,8 @@ fn parse_dmx<'a>(s: &'a [u8]) -> Result<Dmx<'a>, Error> {
     })
 }
 
-fn parse_sync<'a>(s: &'a [u8]) -> Result<(), Error> {
+#[allow(unused)]
+fn parse_sync(s: &[u8]) -> Result<(), Error> {
     let (s, _aux1) = number::u8(s)?;
     let (_s, _aux2) = number::u8(s)?;
 

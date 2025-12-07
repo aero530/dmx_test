@@ -46,7 +46,7 @@ pub struct Eeprom<I2C: I2CTRAIT> {
 // impl<I2C: embedded_hal_1::i2c::I2c> Eeprom<I2C> {
 impl<I2C: I2CTRAIT> Eeprom<I2C> {
     pub fn new(i2c: I2C, address: u8, rx: EepromChannelRx, tx: RouterChannelTx) -> Self {
-        info!("making new eeprom dev");
+        info!("Define eeprom dev");
         let dev = M24x02::new(i2c, address);
         Self { dev, rx, tx }
     }
@@ -95,7 +95,8 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                 });
 
                 if length > 0 {
-                    let _ = self.dev.write_byte_wait(MODULE_TYPE_MEMLOC, slice[0]); //.await; // throw away write due to shared bus issues
+                    #[allow(clippy::let_underscore_future)]
+                    let _ = self.dev.write_byte_wait(MODULE_TYPE_MEMLOC, slice[0]); // throw away write due to shared bus issues
                     match self.dev.write_byte_wait(MODULE_TYPE_MEMLOC, slice[0]).await {
                         Ok(_) => {
                             let _ = self.tx.try_send(RouterEvent::StoreModuleType(Some(module)));
@@ -137,6 +138,7 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                 //
                 // This problem appears to have something to do with using the shared bus...like the bus isn't properly cleared on other
                 // read / write attempts.
+                #[allow(clippy::let_underscore_future)]
                 let _ = self.dev.write_byte_wait(MAC_ADDRESS_MEMLOC, mac[0]); //.await;
                 match self.dev.write_page_wait(MAC_ADDRESS_MEMLOC, &mac).await {
                     Ok(_) => {
@@ -193,6 +195,7 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                     //
                     // This problem appears to have something to do with using the shared bus...like the bus isn't properly cleared on other
                     // read / write attempts.
+                    #[allow(clippy::let_underscore_future)]
                     let _ = self.dev.write_byte_wait(SETTINGS_MEMLOC, slice[0]); //.await;
 
                     for (num, chunk) in chunks {

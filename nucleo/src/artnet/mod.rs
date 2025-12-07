@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use defmt::*;
 // use embassy_executor::Spawner;
 use embassy_futures::yield_now;
@@ -12,7 +14,7 @@ use embassy_stm32::peripherals::ETH;
 // use embedded_io_async::Write;
 
 use crate::channels::{DmxChannelTx, DmxFeedbackChannelRx, RouterChannelTx};
-use crate::event_router::{DmxEvent, DmxFeedbackEvent, RouterEvent, DMX_BUFFER};
+use crate::event_router::{DmxEvent, DmxFeedbackEvent, PacketAddress, RouterEvent, DMX_BUFFER};
 use crate::ui::InputMode;
 use crate::DMX_ADDR_MAX;
 
@@ -30,7 +32,7 @@ pub async fn artnet_task(
 ) {
     // Ensure DHCP configuration is up before trying connect
     info!("Waiting for DHCP...");
-    let a = stack.wait_config_up().await;
+    let _a = stack.wait_config_up().await;
 
     let cfg = stack.config_v4().unwrap();
 
@@ -93,7 +95,7 @@ pub async fn artnet_task(
                 // );
 
                 let universe = dmx.port_address.universe as usize;
-                let start = 0 + DMX_ADDR_MAX * universe;
+                let start = DMX_ADDR_MAX * universe;
                 let end = DMX_ADDR_MAX + DMX_ADDR_MAX * universe;
                 let mut dmx_buffer = DMX_BUFFER.lock().await;
                 dmx_buffer[start..end].copy_from_slice(dmx.data);
@@ -101,7 +103,7 @@ pub async fn artnet_task(
 
                 if input_mode == InputMode::ArtNet {
                     // if dmx.port_address.universe == 2 {
-                    let _ = tx.try_send(DmxEvent::ArtNetPacket((dmx.port_address, dmx.sequence)));
+                    let _ = tx.try_send(DmxEvent::ArtNetPacket(PacketAddress::new(dmx.port_address, dmx.sequence)));
                     // }
                 }
                 // match tx.try_send(DmxEvent::ArtNetPacket((dmx.port_address, dmx.sequence))) {
@@ -126,7 +128,7 @@ pub async fn artnet_task(
             Ok(Art::Sync) => {
                 debug!("RX: ArtSync - Use these to buffer DMX packets and then synchronize the rendering of multiple DMX universes.");
             }
-            Ok(Art::Poll(poll)) => {
+            Ok(Art::Poll(_poll)) => {
                 // info!("RX: ArtPoll - Someone is looking for ArtNet nodes. Let's respond to them to make this node discoverable! {:?}", poll);
                 debug!("RX: ArtPoll - Someone is looking for ArtNet nodes. Let's respond to them to make this node discoverable!");
 
@@ -156,7 +158,7 @@ pub async fn artnet_task(
                         from_addr,
                     )
                     .await
-                    .map_err(|e| error!("Artnet Unable to send on socket."));
+                    .map_err(|_e| error!("Artnet Unable to send on socket."));
 
                 debug!("Sent ArtPollReply to {:?}:{:?} {:?}", from_addr.endpoint.addr, from_addr.endpoint.port, poll_reply);
             }
@@ -176,7 +178,7 @@ pub async fn artnet_task(
                     tiny_artnet::Error::ParseIncomplete(e) => {
                         error!("ArtNet parse incomplete {}", e)
                     }
-                    tiny_artnet::Error::ParseError(error_kind) => {
+                    tiny_artnet::Error::ParseFault(error_kind) => {
                         error!("ArtNet parse error {}", error_kind)
                     }
                     tiny_artnet::Error::ParseFailure => error!("ArtNet parse failure"),

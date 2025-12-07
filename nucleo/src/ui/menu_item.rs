@@ -26,7 +26,7 @@ pub struct MenuItemInput {
     pub line_break: bool,
 }
 
-impl<'a> MenuItemInput {
+impl MenuItemInput {
     pub fn new(name: &'static str, value: ValueType, editable: bool, line_break: bool) -> Self {
         Self { name, value, editable, line_break }
     }
@@ -39,6 +39,7 @@ pub struct MenuItem<'a> {
     bounds: Rectangle,
     character_style: U8g2TextStyle<Rgb565>,
     pub editable: bool,
+    #[allow(unused)]
     line_break: bool,
 }
 
@@ -92,15 +93,15 @@ impl<'a> NextPrev for MenuItem<'a> {
 /// `View` teaches `embedded-layout` where our object is, how big it is and how to move it.
 impl<'a> View for MenuItem<'a> {
     #[inline]
+    fn bounds(&self) -> Rectangle {
+        self.bounds
+    }
+
+    #[inline]
     fn translate_impl(&mut self, by: Point) {
         // make sure you don't accidentally call `translate`!
         self.bounds.translate_mut(by);
         self.value.bounds.translate_mut(by);
-    }
-
-    #[inline]
-    fn bounds(&self) -> Rectangle {
-        self.bounds
     }
 }
 

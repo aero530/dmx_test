@@ -30,7 +30,7 @@ use crate::ui::layout::NextPrev;
 use crate::ui::menu_tab::NUM_ITEMS;
 use crate::ui::menu_value::ValueType;
 
-use crate::{DISPLAY_HEIGHT, DISPLAY_OFFSET, DISPLAY_WIDTH, SMARTLED_PORT_COUNT};
+use crate::{DISPLAY_HEIGHT, DISPLAY_OFFSET, DISPLAY_WIDTH};
 
 mod menu_item;
 use menu_item::{MenuItem, MenuItemInput};
@@ -119,7 +119,7 @@ impl From<MenuData> for MenuTabData {
 
 impl MenuTabData {
     #[allow(unused)]
-    fn to_menu_data(&self, module_type: ModuleType) -> MenuData {
+    fn to_menu_data(self, module_type: ModuleType) -> MenuData {
         // info!("Convert menu tab data to menu data.");
         let module_settings = match module_type {
             ModuleType::Pwm => ModuleSettings::Pwm(PwmSettings { freq: todo!() }),
@@ -132,42 +132,13 @@ impl MenuTabData {
                     self.0[2][2].value.extract_uint3(),
                     self.0[2][3].value.extract_uint3(),
                 ];
-                // let virtual_leds_per_port: [u16; SMARTLED_PORT_COUNT] = leds_per_port
-                //     .iter()
-                //     .zip(dmx_group_size.0.iter())
-                //     .map(|(led_count, grouping)| (*led_count as f32 / *grouping as f32).ceil() as u16)
-                //     .collect::<Vec<u16, SMARTLED_PORT_COUNT>>()
-                //     .as_slice()
-                //     .try_into()
-                //     .unwrap_or_default();
-
-                // let universe_count: [u16; SMARTLED_PORT_COUNT] = virtual_leds_per_port
-                //     .iter()
-                //     .map(|num_virtual_leds| (*num_virtual_leds as f32 * color_mode.addr_size() as f32 / 512.0).ceil() as u16)
-                //     .collect::<Vec<u16, SMARTLED_PORT_COUNT>>()
-                //     .as_slice()
-                //     .try_into()
-                //     .unwrap_or_default();
-
-                // let universe_offset = universe_count
-                //     .iter()
-                //     .enumerate()
-                //     .map(|(i, c)| universe_count[0..i].iter().sum())
-                //     .collect::<Vec<u16, SMARTLED_PORT_COUNT>>()
-                //     .as_slice()
-                //     .try_into()
-                //     .unwrap_or_default();
-
-                // info!("universe_count {}", universe_count);
-                // info!("universe_offset {}", universe_offset);
 
                 ModuleSettings::SmartLed(SmartLedSettings {
                     port_mode: self.0[1][0].value.extract_port_mode(),
                     dmx_group_size,
                     color_mode,
                     leds_per_port,
-                    // universe_offset,
-                    // virtual_leds_per_port,
+
                 })
             }
             ModuleType::Unknown => {

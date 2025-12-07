@@ -13,12 +13,11 @@ use embassy_stm32::i2c::{Config as I2cConfig, I2c, Master};
 use embassy_stm32::time::Hertz;
 // use embassy_stm32::usb::Driver;
 // use embassy_stm32::usart::{Config as UsartConfig, DataBits, StopBits, Uart};
+use embassy_stm32::rcc::{mux, AHBPrescaler, APBPrescaler, Hse, HseMode, Hsi48Config, Pll, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale};
 use embassy_stm32::spi::{Config as SpiConfig, Mode as SpiMode, Phase, Polarity, Spi};
 use embassy_stm32::{bind_interrupts, i2c, peripherals, usb, Config};
-use embassy_stm32::rcc::{
-    AHBPrescaler, APBPrescaler, HSIPrescaler, Hse, HseMode, Hsi48Config, Pll, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale, mux
-};
 use embassy_sync::blocking_mutex::raw::{NoopRawMutex, ThreadModeRawMutex};
+// use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::NoopMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{with_timeout, Duration, Timer};
@@ -29,19 +28,24 @@ use static_cell::StaticCell;
 
 use crate::eeprom::EepromEvent;
 use crate::event_router::{MainEvent, ReturnChannel, RouterEvent};
-use crate::ui::{EthernetIPMode, MenuData, ModuleType};
+use crate::ui::{MenuData, ModuleType};
 
 // Eth
 cfg_if! {
     if #[cfg(feature = "ethernet")] {
+        use crate::ui::EthernetIPMode;
         use embassy_net::StackResources;
         use embassy_net::{Ipv4Cidr, Ipv4Address};
         // use embassy_stm32::eth::generic_smi::GenericSMI;
         use embassy_stm32::eth::{Ethernet, PacketQueue, GenericPhy};
         use embassy_stm32::rng::Rng;
         use embassy_stm32::{eth, rng};
+    }
+}
 
-        mod artnet;
+mod artnet;
+cfg_if! {
+    if #[cfg(feature = "ethernet")] {
         use crate::artnet::{artnet_task, net_task};
     }
 }
@@ -85,8 +89,8 @@ use event_router::{event_router, Router, DMX_BUFFER};
 mod led;
 use led::led_task;
 
-mod logger;
-use logger::log_task;
+// mod logger;
+// use logger::log_task;
 
 mod channels;
 use channels::*;
@@ -111,7 +115,8 @@ use eeprom::eeprom_i2c_task;
 // static DMX_DATA: StaticCell<Mutex<ThreadModeRawMutex, [u8; DMX_BUFF_SIZE]>> = StaticCell::new();
 
 type I2c1Bus = Mutex<ThreadModeRawMutex, I2c<'static, embassy_stm32::mode::Async, Master>>;
-type I2cSharedDev = I2cDevice<'static, NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, i2c::Master>>;
+// type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, Master>>;
+type I2cSharedDev = I2cDevice<'static, NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, Master>>;
 
 /// Display I2C / Smbus - I2C2
 /// SCL: PF1
@@ -173,7 +178,7 @@ async fn main(spawner: Spawner) {
                 divq: Some(PllDiv::DIV2), // PLL Q divisor => pll_src / prediv * mul / divp = 8mhz / 2 * 125 / 2 = 250Mhz
                 divr: None,
             });
-            
+
         } else if #[cfg(feature = "clock_25MHz_osc")] {
             // The Nucleo board also has an on board 25MHz clock that could be used by changing some jumpers.
             config.rcc.hse = Some(Hse {
@@ -182,6 +187,7 @@ async fn main(spawner: Spawner) {
             });
 
             config.rcc.hsi = None;
+
 
             // System
             // PLL1Q -> Ethernet
@@ -193,22 +199,29 @@ async fn main(spawner: Spawner) {
                 divq: Some(PllDiv::DIV2), // PLL Q divisor => pll_src / prediv * mul / divp = 25mhz / 2 * 40 / 2 = 250Mhz
                 divr: None,
             });
-            
+
         } else {
             // This option defaults to using the high speed internal clock as the main PLL source.
             // This clock is less accurate than using an external clock.
             // The internal clock is 64MHz.  Divide that clock by 8 to get an input of 8MHz to the
             // rest of the clock chain.
-            config.rcc.hsi = Some(HSIPrescaler::DIV8);
+            // config.rcc.hsi = Some(HSIPrescaler::DIV8);
+            config.rcc.hsi = None;
 
             // System
             // PLL1Q -> Ethernet
             config.rcc.pll1 = Some(Pll {
-                source: PllSource::HSI, // use HSI as the clock source
-                prediv: PllPreDiv::DIV2,
+                // source: PllSource::HSI, // use HSI as the clock source
+                // prediv: PllPreDiv::DIV2,
+                // mul: PllMul::MUL125,
+                // divp: Some(PllDiv::DIV2), // PLL P divisor => pll_src / prediv * mul / divp = 8mhz / 2 * 125 / 2 = 250Mhz
+                // divq: Some(PllDiv::DIV2), // PLL Q divisor => pll_src / prediv * mul / divp = 8mhz / 2 * 215 / 2 = 250Mhz
+                // divr: None,
+                source: PllSource::CSI,
+                prediv: PllPreDiv::DIV1,
                 mul: PllMul::MUL125,
                 divp: Some(PllDiv::DIV2), // PLL P divisor => pll_src / prediv * mul / divp = 8mhz / 2 * 125 / 2 = 250Mhz
-                divq: Some(PllDiv::DIV2), // PLL Q divisor => pll_src / prediv * mul / divp = 8mhz / 2 * 215 / 2 = 250Mhz
+                divq: Some(PllDiv::DIV4), // PLL Q divisor => pll_src / prediv * mul / divp = 8mhz / 2 * 215 / 2 = 250Mhz
                 divr: None,
             });
         }
@@ -218,7 +231,7 @@ async fn main(spawner: Spawner) {
     config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
 
     config.rcc.csi = true; // enable CSI clock
-    
+
     // SPI
     config.rcc.pll2 = Some(Pll {
         source: PllSource::CSI, // 4 MHz
@@ -255,9 +268,8 @@ async fn main(spawner: Spawner) {
     config.rcc.mux.i2c2sel = mux::I2csel::PLL3_R;
     config.rcc.mux.i2c4sel = mux::I2c34sel::PLL3_R;
     config.rcc.mux.usbsel = mux::Usbsel::HSI48;
-    config.rcc.mux.persel = mux::Persel::HSI;
+    // config.rcc.mux.persel = mux::Persel::HSI;
     config.rcc.mux.rngsel = mux::Rngsel::HSI48;
-
 
     let p = embassy_stm32::init(config);
 
@@ -265,10 +277,10 @@ async fn main(spawner: Spawner) {
     // On board LEDs
     // -----------------------------------
 
-    // let mut led0 = Output::new(p.PB0, Level::High, Speed::Low);
+    let led0 = Output::new(p.PB0, Level::High, Speed::Low);
     // // let mut led1 = Output::new(p.PF4, Level::High, Speed::Low);
     // // let mut led2 = Output::new(p.PG4, Level::High, Speed::Low);
-    // spawner.spawn(led_task(led0)).unwrap();
+    spawner.spawn(led_task(led0)).unwrap();
 
     // -----------------------------------
     // Initialize data static memory locations
@@ -346,8 +358,6 @@ async fn main(spawner: Spawner) {
     Timer::after_millis(10).await;
     let factor_reset = button.is_low();
     spawner.spawn(button_task(button, CHANNEL.sender())).unwrap();
-
-
 
     // -----------------------------------
     // Display board buttons
@@ -511,7 +521,7 @@ async fn main(spawner: Spawner) {
     if factor_reset {
         info!("");
         info!("");
-        info!("Restting to factory defaults");
+        info!("Resetting to factory defaults");
         info!("");
         info!("");
         let _ = CHANNEL_EEPROM.send(EepromEvent::WriteModuleType(ModuleType::SmartLed)).await;
@@ -551,6 +561,7 @@ async fn main(spawner: Spawner) {
         error!("Unable to get module type.");
         ModuleType::Unknown
     };
+    info!("Module Types {}", module_type);
 
     info!("Try to get settings");
     let _ = CHANNEL.try_send(RouterEvent::GetSettings(ReturnChannel::Main));
@@ -563,6 +574,7 @@ async fn main(spawner: Spawner) {
         error!("Unable to get settings.");
         MenuData::default()
     };
+    info!("Boot Settings {}", boot_settings);
 
     cfg_if! {
         if #[cfg(feature = "ethernet")] {
@@ -617,9 +629,17 @@ async fn main(spawner: Spawner) {
             rng.fill_bytes(&mut seed);
             let seed = u64::from_le_bytes(seed);
 
+            info!("Eth Setup 0");
+
             static PACKETS: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
+
+            info!("Eth Setup 0a");
+            let l = PACKETS.init(PacketQueue::<4, 4>::new());
+
+            info!("Eth Setup 0b");
+
             let ethernet_device = Ethernet::new(
-                PACKETS.init(PacketQueue::<4, 4>::new()),
+                l,
                 p.ETH,
                 Irqs,
                 p.PA1,
@@ -635,6 +655,7 @@ async fn main(spawner: Spawner) {
                 mac_addr,
             );
 
+            info!("Eth Setup 1");
 
             // Choose between dhcp or static ip
             let config = match boot_settings.ethernet_ip_mode {
@@ -646,19 +667,25 @@ async fn main(spawner: Spawner) {
                 })
             };
 
+            info!("Eth Setup 2");
+
             // Init network stack
             static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
             let (stack, runner) = embassy_net::new(ethernet_device, config, RESOURCES.init(StackResources::new()), seed);
 
+            info!("Eth Setup 3");
+
             // Launch network task
-            spawner.spawn(net_task(runner)).unwrap();
+            spawner.spawn(net_task(runner)).unwrap_or_else(|_| error!("Unable to spawn net task."));
+
+            info!("Eth Setup 4");
 
             spawner
                 .spawn(artnet_task(stack, CHANNEL_DMX.sender(), CHANNEL.sender(), CHANNEL_DMX_FEEDBACK.receiver().unwrap()))
-                .unwrap();
+                .unwrap_or_else(|_| error!("Unable to spawn artnet task."));
+            info!("Eth Setup 5");
         }
     }
 
     let _ = CHANNEL.try_send(RouterEvent::StoreBootComplete(true));
-
 }

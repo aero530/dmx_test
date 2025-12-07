@@ -125,7 +125,7 @@ where
 
         let mut payload: [u8; (ADDR_BYTES + PAGE_SIZE) as usize] = [0; (ADDR_BYTES + PAGE_SIZE) as usize];
         payload[0] = memory_address;
-        payload[(ADDR_BYTES as usize)..(ADDR_BYTES as usize + data_len)].copy_from_slice(&data);
+        payload[(ADDR_BYTES as usize)..(ADDR_BYTES as usize + data_len)].copy_from_slice(data);
 
         self.i2c.write(self.address, &payload).map_err(|e| Error::I2C(e))
     }

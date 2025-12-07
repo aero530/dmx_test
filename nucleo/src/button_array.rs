@@ -1,5 +1,5 @@
 //! Button interaction
-use defmt::{error, debug, Format};
+use defmt::{debug, error, Format};
 use embassy_time::Timer;
 
 use embassy_stm32::gpio::{Input, OutputOpenDrain};

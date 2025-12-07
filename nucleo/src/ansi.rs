@@ -5,6 +5,7 @@ use core::fmt;
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Canvas {
     Background,
+    #[allow(unused)]
     Foreground,
 }
 
@@ -23,6 +24,7 @@ pub trait FormatColor {
 }
 
 /// Something that will have a foreground color applied
+#[allow(unused)]
 pub struct WithForeground<Item, Formatter: FormatColor> {
     item: Item,
     formatter: Formatter,
@@ -43,6 +45,7 @@ pub trait Colorable: Sized {
     }
 
     /// Add a foreground color
+    #[allow(unused)]
     fn fg<TFormatColor: FormatColor>(self, formatter: TFormatColor) -> WithForeground<Self, TFormatColor> {
         WithForeground { item: self, formatter }
     }

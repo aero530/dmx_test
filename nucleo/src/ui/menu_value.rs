@@ -144,10 +144,10 @@ impl Drawable for MenuValue {
             }
 
             ValueType::SmartLedDmxGroupSize(x) => {
-                let v0 = split_digits_no_std(x.0[0].into(), 3);
-                let v1 = split_digits_no_std(x.0[1].into(), 3);
-                let v2 = split_digits_no_std(x.0[2].into(), 3);
-                let v3 = split_digits_no_std(x.0[3].into(), 3);
+                let v0 = split_digits_no_std(x.0[0], 3);
+                let v1 = split_digits_no_std(x.0[1], 3);
+                let v2 = split_digits_no_std(x.0[2], 3);
+                let v3 = split_digits_no_std(x.0[3], 3);
 
                 let v_all = [v3[0], v3[1], v3[2], v2[0], v2[1], v2[2], v1[0], v1[1], v1[2], v0[0], v0[1], v0[2]];
 
@@ -378,7 +378,7 @@ impl IncDec for ValueType {
             ValueType::SmartLedDmxGroupSize(x) => {
                 let mut new = *x;
                 let b_index = index / 3;
-                let e = new.0[b_index] as u16;
+                let e = new.0[b_index];
                 let mut v = split_digits_no_std(e, 3);
 
                 let i = (v.len() - 1) - (index - b_index * 3);
@@ -440,7 +440,7 @@ impl IncDec for ValueType {
                 // } else {
                 //     0
                 // };
-                let e = new.0[b_index] as u16;
+                let e = new.0[b_index];
                 let mut v = split_digits_no_std(e, 3);
 
                 let i = (v.len() - 1) - (index - b_index * 3);

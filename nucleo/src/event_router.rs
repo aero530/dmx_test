@@ -4,22 +4,22 @@ use core::net::Ipv4Addr;
 use crate::artnet::PortAddress;
 use crate::button::ButtonEvent;
 use crate::button_array::{KeyPadButton, KeyPadEvent};
+use crate::channels::*;
 use crate::eeprom::EepromEvent;
 use crate::pwm_i2c::PwmEvent;
 use crate::smart_led::{SmartLedEvent, NUM_LEDS_MAX};
 use crate::ui::{InputMode, IpAddrMenu, MenuData, ModuleSettings, ModuleType, SmartLedPortMode, UiEvent};
 use crate::SMARTLED_PORT_COUNT;
-use crate::{channels::*, DMX_ADDR_MAX};
 use defmt::*;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{with_timeout, Duration};
 use micromath::F32Ext;
-use smart_leds::RGB8; // Or CriticalSectionRawMutex for interrupts
+use smart_leds::RGB8;
 
-type LedBuffer = Mutex<ThreadModeRawMutex, [[RGB8; NUM_LEDS_MAX]; SMARTLED_PORT_COUNT]>;
+pub type LedBuffer = Mutex<ThreadModeRawMutex, [[RGB8; NUM_LEDS_MAX]; SMARTLED_PORT_COUNT]>;
 // static LED_COLORS: LedBuffer = Mutex::new([[]]);
-static LED_COLORS: LedBuffer = Mutex::new([[RGB8::new(0, 0, 0); NUM_LEDS_MAX]; SMARTLED_PORT_COUNT]);
+pub static LED_COLORS: LedBuffer = Mutex::new([[RGB8::new(0, 0, 0); NUM_LEDS_MAX]; SMARTLED_PORT_COUNT]);
 
 type DmxBuffer = Mutex<ThreadModeRawMutex, [u8; 256 * 512]>; // 4 is the max number of colors per LED // type DmxBuffer = Mutex<ThreadModeRawMutex, [u8; SMARTLED_PORT_COUNT * NUM_LEDS_MAX * COLORS_PER_LED_MAX]>; // 4 is the max number of colors per LED
 
@@ -32,20 +32,20 @@ pub struct GlobalData {
     pub module_type: Option<ModuleType>,
     pub mac: Option<[u8; 6]>,
     pub boot_complete: bool,
-    // pub vled_ranges: Option<[DmxRange; SMARTLED_PORT_COUNT]>,
-    // pub virtual_leds_per_port: Option<[usize; SMARTLED_PORT_COUNT]>,
-    // pub port_universe_offset: Option<[usize; SMARTLED_PORT_COUNT]>,
+
 }
 
 #[derive(Format)]
 pub enum ReturnChannel {
     Main,
+    #[allow(unused)]
     Ui,
 }
 
 /// Events the router watches for.  These trigger the router to pass along an event to another object.
 #[derive(Format)]
 pub enum RouterEvent {
+    #[allow(unused)]
     UsbCommand(u8),
     ButtonArray((KeyPadButton, KeyPadEvent)),
     Button(ButtonEvent),
@@ -55,17 +55,33 @@ pub enum RouterEvent {
     StoreModuleType(Option<ModuleType>),
     StoreMacAddress(Option<[u8; 6]>),
     StoreBootComplete(bool),
+    #[allow(unused)]
     StoreIpAddr(Option<Ipv4Addr>),
 
     GetModuleType(ReturnChannel),
+    #[allow(unused)]
     GetMacAddress(ReturnChannel),
     GetSettings(ReturnChannel),
 }
 
 #[derive(Format)]
+pub struct PacketAddress {
+    port: PortAddress,
+    sequence: u8,
+}
+
+impl PacketAddress {
+    pub fn new(port: PortAddress, sequence: u8) -> Self {
+        Self { port, sequence }
+    }
+}
+
+#[derive(Format)]
 pub enum DmxEvent {
-    DmxPacket((PortAddress, u8)),
-    ArtNetPacket((PortAddress, u8)),
+    #[allow(unused)]
+    DmxPacket(PacketAddress),
+    #[allow(unused)]
+    ArtNetPacket(PacketAddress),
 }
 
 #[derive(Copy, Clone, Debug, Format)]
@@ -74,6 +90,7 @@ pub enum DmxFeedbackEvent {
 }
 
 #[derive(Format)]
+#[allow(clippy::enum_variant_names)]
 pub enum MainEvent {
     // ReturnIpMode(EthernetIPMode),
     ReturnModuleType(Option<ModuleType>),
@@ -193,7 +210,7 @@ impl Router {
 
                     info!("Update settings on display {}", x);
                     let _ = self.channel_ui.try_send(UiEvent::Load(x));
-                    let _ = self.channel_dmx_feedback.send(DmxFeedbackEvent::Mode(x.input_mode));
+                    self.channel_dmx_feedback.send(DmxFeedbackEvent::Mode(x.input_mode));
                 }
             }
             RouterEvent::StoreModuleType(module_type) => {
@@ -216,6 +233,7 @@ impl Router {
             RouterEvent::GetModuleType(ch) => {
                 match ch {
                     ReturnChannel::Main => {
+                        info!("get module type {}", self.data.module_type);
                         let _ = self.channel_main.try_send(MainEvent::ReturnModuleType(self.data.module_type));
                     }
                     ReturnChannel::Ui => {} //self.channel_ui.try_send(MainEvent::ReturnModuleType(self.data.module_type)),
@@ -242,89 +260,83 @@ impl Router {
     }
     pub async fn update_leds(&mut self, event: DmxEvent) {
         if self.data.boot_complete {
-            let (port_address, sequence) = match event {
+            let _packet_addr = match event {
                 DmxEvent::DmxPacket(d) => d,
-                DmxEvent::ArtNetPacket((port_address, sequence)) => {
-                    if port_address.net != self.data.menu_settings.artnet_address.0[0] {
-                        warn!("ArtNet Net does not match {} {}", port_address.net, self.data.menu_settings.artnet_address.0[0]);
+                DmxEvent::ArtNetPacket(packet_addr) => {
+                    if packet_addr.port.net != self.data.menu_settings.artnet_address.0[0] {
+                        warn!("ArtNet Net does not match {} {}", packet_addr.port.net, self.data.menu_settings.artnet_address.0[0]);
                         return;
                     }
-                    if port_address.sub_net != self.data.menu_settings.artnet_address.0[1] {
-                        warn!("ArtNet SubNet does not match {} {}", port_address.sub_net, self.data.menu_settings.artnet_address.0[1]);
+                    if packet_addr.port.sub_net != self.data.menu_settings.artnet_address.0[1] {
+                        warn!("ArtNet SubNet does not match {} {}", packet_addr.port.sub_net, self.data.menu_settings.artnet_address.0[1]);
                         return;
                     }
-                    // if port_address.universe != self.data.menu_settings.artnet_address.0[2] {
-                    //     warn!("ArtNet Universe does not match {} {}", port_address.universe, self.data.menu_settings.artnet_address.0[2]);
-                    //     return;
-                    // }
-                    (port_address, sequence)
+                    packet_addr
                 }
             };
 
-            if let Ok(mut colors) = LED_COLORS.try_lock() {
-                match self.data.menu_settings.module {
-                    ModuleSettings::Pwm(_pwm_settings) => {
-                        error!("Module LED settings not programmed");
-                        let dmx_buffer = DMX_BUFFER.lock().await;
-                        let _ = self.channel_pwm_i2c.try_send(PwmEvent::Value([dmx_buffer[1], dmx_buffer[2], dmx_buffer[3]]));
-                    }
-                    ModuleSettings::SmartLed(smart_led_settings) => {
-                        let dmx_group_size = smart_led_settings.dmx_group_size.0;
-                        let led_per_port = smart_led_settings.leds_per_port;
+            let mut colors = LED_COLORS.lock().await;
 
-                        let dmx_buffer = DMX_BUFFER.lock().await;
-                        // info!("{}", dmx_buffer[0..768]);
-                        // info!("buffer len {}", dmx_buffer.len());
+            match self.data.menu_settings.module {
+                ModuleSettings::Pwm(_pwm_settings) => {
+                    error!("Module LED settings not programmed");
+                    let dmx_buffer = DMX_BUFFER.lock().await;
+                    let _ = self.channel_pwm_i2c.try_send(PwmEvent::Value([dmx_buffer[1], dmx_buffer[2], dmx_buffer[3]]));
+                }
+                ModuleSettings::SmartLed(smart_led_settings) => {
+                    let dmx_group_size = smart_led_settings.dmx_group_size.0;
 
-                        match smart_led_settings.port_mode {
-                            SmartLedPortMode::Individual => {
-                                let mut port_u_offset = match self.data.menu_settings.input_mode {
+                    let dmx_buffer = DMX_BUFFER.lock().await;
+
+                    match smart_led_settings.port_mode {
+                        SmartLedPortMode::Individual => {
+                            // Offset index to account for many universes stored flat in dmx_buffer.  This value is always 0 for DMX but can vary for ArtNet data.
+                            let mut port_u_offset = match self.data.menu_settings.input_mode {
+                                InputMode::Dmx => 0, // DMX can only handle one universe
+                                InputMode::ArtNet => self.data.menu_settings.artnet_address.0[2] as usize,
+                            };
+
+                            for (port_index, num_virtual_leds) in smart_led_settings.virtual_leds_per_port().iter().enumerate() {
+                                // Calculate hoe many universes this port consumes. Each new port will start at a new universe...I think.
+                                let port_universe_count = match self.data.menu_settings.input_mode {
                                     InputMode::Dmx => 0, // DMX can only handle one universe
-                                    InputMode::ArtNet => self.data.menu_settings.artnet_address.0[2] as usize,
+                                    InputMode::ArtNet => (*num_virtual_leds as f32 * smart_led_settings.color_mode.addr_size() as f32 / 512.0).ceil() as usize,
                                 };
 
-                                for (port_index, num_virtual_leds) in smart_led_settings.virtual_leds_per_port().iter().enumerate() {
-                                    let port_universe_count = match self.data.menu_settings.input_mode {
-                                        InputMode::Dmx => 0, // DMX can only handle one universe
-                                        InputMode::ArtNet => (*num_virtual_leds as f32 * smart_led_settings.color_mode.addr_size() as f32 / 512.0).ceil() as usize,
-                                    };
-
-                                    for vled_index in 0..*num_virtual_leds as usize {
-                                        let dmx_buffer_start = port_u_offset * 512 + (self.data.menu_settings.dmx_address as usize - 1) + vled_index * smart_led_settings.color_mode.addr_size();
-                                        let dmx_buffer_end = dmx_buffer_start + smart_led_settings.color_mode.addr_size() - 1;
-
-                                        let c = smart_led_settings.color_mode.rgb(&dmx_buffer[dmx_buffer_start..=dmx_buffer_end]); // calculate a color from the dmx data
-
-                                        for i in 0..dmx_group_size[port_index] {
-                                            let place = i as usize + dmx_group_size[port_index] as usize * vled_index;
-                                            colors[port_index][place] = c;
-                                            // apply color to the physical led
-                                        }
-                                    }
-                                    port_u_offset += port_universe_count;
-                                }
-                            }
-                            SmartLedPortMode::Mirror => {
-                                for vled_index in 0..smart_led_settings.virtual_leds_per_port()[0] as usize {
-                                    let dmx_buffer_start = (self.data.menu_settings.dmx_address as usize - 1) + vled_index * smart_led_settings.color_mode.addr_size();
+                                for vled_index in 0..*num_virtual_leds as usize {
+                                    let dmx_buffer_start = port_u_offset * 512 + self.data.menu_settings.dmx_address as usize + vled_index * smart_led_settings.color_mode.addr_size();
                                     let dmx_buffer_end = dmx_buffer_start + smart_led_settings.color_mode.addr_size() - 1;
+
                                     let c = smart_led_settings.color_mode.rgb(&dmx_buffer[dmx_buffer_start..=dmx_buffer_end]); // calculate a color from the dmx data
 
-                                    for i in 0..dmx_group_size[0] {
-                                        let place = i as usize + dmx_group_size[0] as usize * vled_index;
-                                        for (port_index, _) in smart_led_settings.virtual_leds_per_port().iter().enumerate() {
-                                            colors[port_index][place] = c;
-                                        }
+                                    // Loop through each group and assign the individual
+                                    for i in 0..dmx_group_size[port_index] {
+                                        let place = i as usize + dmx_group_size[port_index] as usize * vled_index;
+                                        colors[port_index][place] = c;
+                                        // apply color to the physical led
+                                    }
+                                }
+                                port_u_offset += port_universe_count;
+                            }
+                        }
+                        SmartLedPortMode::Mirror => {
+                            for vled_index in 0..smart_led_settings.virtual_leds_per_port()[0] as usize {
+                                let dmx_buffer_start = self.data.menu_settings.dmx_address as usize + vled_index * smart_led_settings.color_mode.addr_size();
+                                let dmx_buffer_end = dmx_buffer_start + smart_led_settings.color_mode.addr_size() - 1;
+                                let c = smart_led_settings.color_mode.rgb(&dmx_buffer[dmx_buffer_start..=dmx_buffer_end]); // calculate a color from the dmx data
+
+                                for i in 0..dmx_group_size[0] {
+                                    let place = i as usize + dmx_group_size[0] as usize * vled_index;
+                                    for (port_index, _) in smart_led_settings.virtual_leds_per_port().iter().enumerate() {
+                                        colors[port_index][place] = c;
                                     }
                                 }
                             }
                         }
-
-                        let _ = self.channel_smart_led.try_send(SmartLedEvent::Individual((led_per_port, *colors)));
                     }
+
+                    let _ = self.channel_smart_led.try_send(SmartLedEvent::UpdateLEDs);
                 }
-            } else {
-                error!("Unable to get lock on LED_COLORS data");
             }
         }
     }
@@ -332,28 +344,13 @@ impl Router {
 
 #[embassy_executor::task]
 pub async fn event_router(mut router: Router) {
-    // LED_COLORS.init(Mutex::new([[RGB8::new(0, 0, 0); NUM_LEDS_MAX]; SMARTLED_PORT_COUNT]));
-
     loop {
         if let Ok(new_message) = with_timeout(Duration::from_millis(5), router.channel.receive()).await {
             router.process_event(new_message).await;
         }
 
-        // if let Ok(dmx_message) = router.channel_dmx.try_receive() {
-        //     router.process_dmx(dmx_message).await;
-        // }
-
         if let Ok(new_message) = with_timeout(Duration::from_millis(5), router.channel_dmx.receive()).await {
             router.update_leds(new_message).await;
         }
-    }
-}
-
-fn upper_limit(input: usize, limit: usize) -> usize {
-    if input > limit {
-        error!("DMX address range error");
-        limit
-    } else {
-        input
     }
 }

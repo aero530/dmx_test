@@ -11,7 +11,12 @@ bench = false
 [features]
 # default = []
 
-default = ["ethernet", "clock_25MHz_osc"]
+# Header should be on CHARGE
+
+
+ default = ["clock_stlink"]
+# default = ["ethernet", "clock_stlink"]
+# default = ["ethernet", "clock_25MHz_osc"]
 ethernet = []
 pwm_native = []
 pwm = []

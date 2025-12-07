@@ -12,29 +12,29 @@ use super::IncDec;
 use defmt::{error, Format};
 use enum_ordinalize::Ordinalize;
 
-#[derive(Clone, Copy, Default, PartialEq, Format, Debug)]
-pub struct DmxRange {
-    pub start: DmxAddr,
-    pub end: DmxAddr,
-}
+// #[derive(Clone, Copy, Default, PartialEq, Format, Debug)]
+// pub struct DmxRange {
+//     pub start: DmxAddr,
+//     pub end: DmxAddr,
+// }
 
-impl DmxRange {
-    pub fn new(start: DmxAddr, end: DmxAddr) -> Self {
-        Self { start, end }
-    }
-}
-
-#[derive(Clone, Copy, Default, PartialEq, Format, Debug)]
-pub struct DmxAddr {
-    pub dmx: usize,
-    pub universe: usize,
-}
-
-impl DmxAddr {
-    pub fn new(dmx: usize, universe: usize) -> Self {
-        Self { dmx, universe }
-    }
-}
+// impl DmxRange {
+//     pub fn new(start: DmxAddr, end: DmxAddr) -> Self {
+//         Self { start, end }
+//     }
+// }
+//
+// #[derive(Clone, Copy, Default, PartialEq, Format, Debug)]
+// pub struct DmxAddr {
+//     pub dmx: usize,
+//     pub universe: usize,
+// }
+//
+// impl DmxAddr {
+//     pub fn new(dmx: usize, universe: usize) -> Self {
+//         Self { dmx, universe }
+//     }
+// }
 
 #[derive(Clone, Copy, Default, PartialEq, Format, Debug, Decode, Encode)]
 pub enum ModuleType {
@@ -55,7 +55,7 @@ pub enum MenuMovement {
     None,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Format, Debug, Decode, Encode)]
+#[derive(Clone, Copy, Default, PartialEq, Eq, Format, Debug, Decode, Encode)]
 pub struct IpAddrMenu([u8; 4]);
 
 impl IpAddrMenu {
@@ -65,12 +65,6 @@ impl IpAddrMenu {
 
     pub fn octets(&self) -> [u8; 4] {
         self.0
-    }
-}
-
-impl Default for IpAddrMenu {
-    fn default() -> Self {
-        IpAddrMenu([0, 0, 0, 0])
     }
 }
 
@@ -97,7 +91,7 @@ impl Default for MenuData {
         Self {
             dmx_address: 1,
             input_mode: InputMode::Dmx,
-            ethernet_ip_mode: EthernetIPMode::DHCP,
+            ethernet_ip_mode: EthernetIPMode::Dhcp,
             artnet_address: ArtNetAddr::default(),
             module: ModuleSettings::default(),
             ip_addr: IpAddrMenu::new(0, 0, 0, 0),
@@ -136,6 +130,9 @@ pub struct SmartLedSettings {
 }
 
 impl SmartLedSettings {
+    /// Return the number of virtual LEDs on each port.
+    /// The number of virtual LEDs is calcuated based the number of physical LEDs
+    /// and the grouping size for each port.
     pub fn virtual_leds_per_port(&self) -> [u16; SMARTLED_PORT_COUNT] {
         self.leds_per_port
             .iter()
@@ -160,7 +157,7 @@ impl SmartLedSettings {
         universe_count
             .iter()
             .enumerate()
-            .map(|(i, c)| universe_count[0..i].iter().sum())
+            .map(|(i, _c)| universe_count[0..i].iter().sum())
             .collect::<Vec<u16, SMARTLED_PORT_COUNT>>()
             .as_slice()
             .try_into()
@@ -195,6 +192,7 @@ pub enum InputMode {
 }
 
 impl InputMode {
+    #[allow(unused)]
     pub fn dmx_addr_limit(&self) -> usize {
         match self {
             InputMode::Dmx => 512,
@@ -205,18 +203,12 @@ impl InputMode {
 impl IncDec for InputMode {
     fn increment(&self, _index: usize) -> Self {
         let next = self.ordinal().saturating_add(1);
-        match Self::from_ordinal(next) {
-            Some(n) => n,
-            None => InputMode::Dmx,
-        }
+        Self::from_ordinal(next).unwrap_or(InputMode::Dmx)
     }
 
     fn decrement(&self, _index: usize) -> Self {
         let prev = self.ordinal().saturating_sub(1);
-        match Self::from_ordinal(prev) {
-            Some(n) => n,
-            None => InputMode::ArtNet,
-        }
+        Self::from_ordinal(prev).unwrap_or(InputMode::ArtNet)
     }
 }
 
@@ -233,32 +225,26 @@ impl core::fmt::Display for InputMode {
 #[derive(Default, Clone, Copy, PartialEq, Eq, Ordinalize, Format, Debug, Decode, Encode)]
 pub enum EthernetIPMode {
     #[default]
-    DHCP,
+    Dhcp,
     Static,
 }
 
 impl IncDec for EthernetIPMode {
     fn increment(&self, _index: usize) -> Self {
         let next = self.ordinal().saturating_add(1);
-        match Self::from_ordinal(next) {
-            Some(n) => n,
-            None => EthernetIPMode::DHCP,
-        }
+        Self::from_ordinal(next).unwrap_or(EthernetIPMode::Dhcp)
     }
 
     fn decrement(&self, _index: usize) -> Self {
         let prev = self.ordinal().saturating_sub(1);
-        match Self::from_ordinal(prev) {
-            Some(n) => n,
-            None => EthernetIPMode::Static,
-        }
+        Self::from_ordinal(prev).unwrap_or(EthernetIPMode::Static)
     }
 }
 
 impl core::fmt::Display for EthernetIPMode {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
-            EthernetIPMode::DHCP => write!(f, "DHCP"),
+            EthernetIPMode::Dhcp => write!(f, "DHCP"),
             EthernetIPMode::Static => write!(f, "Static"),
         }
     }
@@ -268,28 +254,28 @@ impl core::fmt::Display for EthernetIPMode {
 #[derive(Default, Clone, Copy, PartialEq, Eq, Ordinalize, Format, Debug, Decode, Encode)]
 pub enum SmartLedColorMode {
     #[default]
-    RGB,
-    RGBW,
+    Rgb,
+    Rgbw,
 }
 
 impl SmartLedColorMode {
     pub fn addr_size(&self) -> usize {
         match self {
-            SmartLedColorMode::RGB => 3,
-            SmartLedColorMode::RGBW => 4,
+            SmartLedColorMode::Rgb => 3,
+            SmartLedColorMode::Rgbw => 4,
         }
     }
 
     pub fn rgb(&self, data: &[u8]) -> RGB8 {
         match self {
-            SmartLedColorMode::RGB => {
+            SmartLedColorMode::Rgb => {
                 if data.len() >= 3 {
                     RGB8::new(data[0], data[1], data[2])
                 } else {
                     RGB8::new(0, 0, 0)
                 }
             }
-            SmartLedColorMode::RGBW => {
+            SmartLedColorMode::Rgbw => {
                 error!("Using RGBW color space but that it not implimented yet.");
                 if data.len() >= 4 {
                     RGB8::new(data[0], data[1], data[2])
@@ -306,7 +292,7 @@ impl IncDec for SmartLedColorMode {
         let next = self.ordinal().saturating_add(1);
         match Self::from_ordinal(next) {
             Some(n) => n,
-            None => SmartLedColorMode::RGB,
+            None => SmartLedColorMode::Rgb,
         }
     }
 
@@ -314,7 +300,7 @@ impl IncDec for SmartLedColorMode {
         let prev = self.ordinal().saturating_sub(1);
         match Self::from_ordinal(prev) {
             Some(n) => n,
-            None => SmartLedColorMode::RGBW,
+            None => SmartLedColorMode::Rgbw,
         }
     }
 }
@@ -322,8 +308,8 @@ impl IncDec for SmartLedColorMode {
 impl core::fmt::Display for SmartLedColorMode {
     fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         match self {
-            SmartLedColorMode::RGB => write!(f, "RGB"),
-            SmartLedColorMode::RGBW => write!(f, "RGBW"),
+            SmartLedColorMode::Rgb => write!(f, "RGB"),
+            SmartLedColorMode::Rgbw => write!(f, "RGBW"),
         }
     }
 }

@@ -1,4 +1,4 @@
-//! Button interaction
+//! Button row and array interaction
 use defmt::{debug, error, Format};
 use embassy_time::Timer;
 

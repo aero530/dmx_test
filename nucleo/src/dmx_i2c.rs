@@ -1,4 +1,6 @@
 //! DMX receiver
+//!
+//! Get DMX data over I2C from RPI
 use defmt::error;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_time::Timer;
@@ -11,6 +13,9 @@ use crate::ui::InputMode;
 use crate::I2c1Bus;
 use crate::{DMX_BUFFER, DMX_BUFF_SIZE};
 
+/// Pull DMX data from RPI via I2C.
+///
+/// This only runs if the mode is set to DMX from the main menu.
 #[embassy_executor::task]
 pub async fn dmx_task(i2c_bus_manager: &'static I2c1Bus, address: u8, tx: DmxChannelTx, mut rx: DmxFeedbackChannelRx) {
     let mut i2c_bus_dev = I2cDevice::new(i2c_bus_manager);
@@ -20,8 +25,8 @@ pub async fn dmx_task(i2c_bus_manager: &'static I2c1Bus, address: u8, tx: DmxCha
 
     // DMX data is split between multiple ranges due to limited hardware buffer sizes
     loop {
+        // Try to update current mode
         if let Some(input_data) = rx.try_changed() {
-            // info!("DMX - update mode to {}", input_data);
             match input_data {
                 DmxFeedbackEvent::Mode(new_mode) => {
                     input_mode = new_mode;
@@ -29,6 +34,7 @@ pub async fn dmx_task(i2c_bus_manager: &'static I2c1Bus, address: u8, tx: DmxCha
             }
         }
 
+        // Only try to get data if we are in DMX mode (vs ArtNet mode)
         if input_mode == InputMode::Dmx {
             match i2c_bus_dev.write_read(address, &[0x01], &mut data_buffer[0..199]).await {
                 Ok(()) => {

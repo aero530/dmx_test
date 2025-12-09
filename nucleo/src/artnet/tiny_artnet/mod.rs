@@ -1,3 +1,4 @@
+//! Embedded ArtNet minimal implementation
 #![allow(unused)]
 
 mod poll_reply;

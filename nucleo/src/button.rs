@@ -6,14 +6,20 @@ use embassy_time::Timer;
 use crate::channels::RouterChannelTx;
 use crate::event_router::RouterEvent;
 
+/// States to define button actions
 #[derive(Copy, Clone, Format, PartialEq)]
 pub enum ButtonEvent {
+    /// Null event
     None,
+    /// Button was pressed
     Pressed,
+    /// Button was released
     Released,
+    /// Button is held
     Held,
 }
 
+/// Task to monitor a single button
 #[embassy_executor::task]
 pub async fn button_task(button: Input<'static>, tx: RouterChannelTx) {
     let mut event: ButtonEvent;

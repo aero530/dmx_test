@@ -1,3 +1,4 @@
+//! A single row of information in the menu
 use defmt::Format;
 use embedded_graphics::{
     draw_target::DrawTarget,
@@ -11,22 +12,30 @@ use embedded_graphics::{
 use embedded_text::{alignment::HorizontalAlignment, TextBox};
 use u8g2_fonts::U8g2TextStyle;
 
-use crate::ui::{layout::NextPrev, MenuMovement, COLOR_DEFAULT_TEXT, COLOR_ITEM_TEXT, DEFAULT_FONT};
+use crate::ui::{traits::NextPrev, MenuMovement, COLOR_DEFAULT_TEXT, COLOR_ITEM_TEXT, DEFAULT_FONT};
 
 use super::{MenuValue, View};
 
-use crate::ui::menu_value::ValueType;
+use crate::ui::ValueType;
 use crate::DISPLAY_HEIGHT;
 
+/// Values needed to create a MenuItem
+///
+/// This mirrors MenuItem without the internal data as a unique type to allow easier updates of
+/// underlying data and the displayed user interface.
 #[derive(Clone, Copy, PartialEq, Eq, Format)]
-pub struct MenuItemInput {
+pub struct MenuItemInputs {
+    /// Item display name
     pub name: &'static str,
+    /// Item value
     pub value: ValueType,
+    /// If the item is editable
     pub editable: bool,
+    /// If display name and value should be split across two lines
     pub line_break: bool,
 }
 
-impl MenuItemInput {
+impl MenuItemInputs {
     pub fn new(name: &'static str, value: ValueType, editable: bool, line_break: bool) -> Self {
         Self { name, value, editable, line_break }
     }
@@ -34,17 +43,23 @@ impl MenuItemInput {
 
 #[derive(Clone)]
 pub struct MenuItem<'a> {
+    /// Item display name
     name: &'a str,
+    /// Item value
     pub value: MenuValue,
+    /// Item display bounds
     bounds: Rectangle,
+    /// Item character style
     character_style: U8g2TextStyle<Rgb565>,
+    /// If the item is editable
     pub editable: bool,
+    /// If display name and value should be split across two lines
     #[allow(unused)]
     line_break: bool,
 }
 
 impl<'a> MenuItem<'a> {
-    pub fn new(input: MenuItemInput, position: Point, character_style: U8g2TextStyle<Rgb565>) -> Self {
+    pub fn new(input: MenuItemInputs, position: Point, character_style: U8g2TextStyle<Rgb565>) -> Self {
         let (height, value_position) = match input.line_break {
             true => (2 * character_style.line_height(), Point::new(position.x, position.y + character_style.line_height() as i32)),
             false => (character_style.line_height(), position),

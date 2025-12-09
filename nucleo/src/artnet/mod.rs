@@ -1,26 +1,27 @@
+//! ArtNet receiver
+//!
+//! Get DMX data over ethernet
+
 #![allow(unused)]
 
 use defmt::*;
-// use embassy_executor::Spawner;
 use embassy_futures::yield_now;
-// use embassy_net::tcp::TcpSocket;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::Stack;
 use embassy_stm32::eth::{Ethernet, GenericPhy};
 use embassy_stm32::peripherals::ETH;
 
-// use embassy_time::{Duration, Timer};
-// use embassy_net::Ipv4Address;
-// use embedded_io_async::Write;
-
 use crate::channels::{DmxChannelTx, DmxFeedbackChannelRx, RouterChannelTx};
-use crate::event_router::{DmxEvent, DmxFeedbackEvent, PacketAddress, RouterEvent, DMX_BUFFER};
+use crate::event_router::{DmxEvent, DmxFeedbackEvent, PacketAddress, RouterEvent};
 use crate::ui::InputMode;
-use crate::DMX_ADDR_MAX;
+use crate::{DMX_BUFFER, DMX_UNIVERSE_SIZE};
 
 mod tiny_artnet;
 pub use tiny_artnet::{Art, PortAddress};
 
+/// Pull DMX data from ArtNet via ethernet.
+///
+/// This only runs if the mode is set to ArtNet from the main menu.
 #[embassy_executor::task]
 pub async fn artnet_task(
     stack: Stack<'static>,
@@ -72,6 +73,7 @@ pub async fn artnet_task(
     let mut input_mode = InputMode::default();
 
     loop {
+        // Try to update current mode
         if let Some(input_data) = rx.try_changed() {
             // info!("ArtNet - update mode to {}", input_data);
             match input_data {
@@ -95,8 +97,8 @@ pub async fn artnet_task(
                 // );
 
                 let universe = dmx.port_address.universe as usize;
-                let start = DMX_ADDR_MAX * universe;
-                let end = DMX_ADDR_MAX + DMX_ADDR_MAX * universe;
+                let start = DMX_UNIVERSE_SIZE * universe;
+                let end = DMX_UNIVERSE_SIZE + DMX_UNIVERSE_SIZE * universe;
                 let mut dmx_buffer = DMX_BUFFER.lock().await;
                 dmx_buffer[start..end].copy_from_slice(dmx.data);
                 // info!("{}", dmx_buffer[start..end]);
@@ -190,11 +192,13 @@ pub async fn artnet_task(
 
 type Device = Ethernet<'static, ETH, GenericPhy>;
 
+/// Run embassy net task.
 #[embassy_executor::task]
 pub async fn net_task(mut runner: embassy_net::Runner<'static, Device>) -> ! {
     runner.run().await
 }
 
+/// Wait for static config
 async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfigV4 {
     loop {
         if let Some(config) = stack.config_v4() {

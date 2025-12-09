@@ -1,7 +1,4 @@
-// use bytes::BufMut;
-
-// use super::put_esta_manufacturer_code;
-
+//! ArtNet poll reply
 use defmt::{info, Format};
 
 const OP_POLL_REPLY: u16 = 0x2100;

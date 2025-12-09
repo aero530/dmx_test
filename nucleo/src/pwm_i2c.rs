@@ -1,4 +1,4 @@
-//! LED & Button interaction
+//! PWM output module for low power LEDs
 use defmt::Format;
 // use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 // use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;

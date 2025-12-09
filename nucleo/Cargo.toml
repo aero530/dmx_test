@@ -10,11 +10,7 @@ bench = false
 
 [features]
 # default = []
-
-# Header should be on CHARGE
-
-
- default = ["clock_stlink"]
+default = ["clock_stlink"]
 # default = ["ethernet", "clock_stlink"]
 # default = ["ethernet", "clock_25MHz_osc"]
 ethernet = []

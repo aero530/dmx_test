@@ -1,40 +1,32 @@
 //! Event router to send commands between tasks
-use core::net::Ipv4Addr;
-
 use crate::artnet::PortAddress;
 use crate::button::ButtonEvent;
 use crate::button_array::{KeyPadButton, KeyPadEvent};
 use crate::channels::*;
 use crate::eeprom::EepromEvent;
 use crate::pwm_i2c::PwmEvent;
-use crate::smart_led::{SmartLedEvent, NUM_LEDS_MAX};
+use crate::smart_led::SmartLedEvent;
 use crate::ui::{InputMode, IpAddrMenu, MenuData, ModuleSettings, ModuleType, SmartLedPortMode, UiEvent};
-use crate::SMARTLED_PORT_COUNT;
+use crate::{DMX_BUFFER, DMX_UNIVERSE_SIZE, LED_COLORS};
+use core::net::Ipv4Addr;
 use defmt::*;
-use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
-use embassy_sync::mutex::Mutex;
 use embassy_time::{with_timeout, Duration};
 use micromath::F32Ext;
-use smart_leds::RGB8;
-
-pub type LedBuffer = Mutex<ThreadModeRawMutex, [[RGB8; NUM_LEDS_MAX]; SMARTLED_PORT_COUNT]>;
-// static LED_COLORS: LedBuffer = Mutex::new([[]]);
-pub static LED_COLORS: LedBuffer = Mutex::new([[RGB8::new(0, 0, 0); NUM_LEDS_MAX]; SMARTLED_PORT_COUNT]);
-
-type DmxBuffer = Mutex<ThreadModeRawMutex, [u8; 256 * 512]>; // 4 is the max number of colors per LED // type DmxBuffer = Mutex<ThreadModeRawMutex, [u8; SMARTLED_PORT_COUNT * NUM_LEDS_MAX * COLORS_PER_LED_MAX]>; // 4 is the max number of colors per LED
-
-pub static DMX_BUFFER: DmxBuffer = Mutex::new([0_u8; 256 * 512]); // pub static DMX_BUFFER: DmxBuffer = Mutex::new([0_u8; SMARTLED_PORT_COUNT * NUM_LEDS_MAX * COLORS_PER_LED_MAX]);
 
 /// Data stored for global use (primarily for logging / terminal display)
 #[derive(Debug, PartialEq, Copy, Clone, Default)]
 pub struct GlobalData {
+    /// Current menu settings
     pub menu_settings: MenuData,
+    /// Detected module type
     pub module_type: Option<ModuleType>,
+    /// Board MAC address - only defined if ETH is enabled
     pub mac: Option<[u8; 6]>,
+    /// Monitor boot process
     pub boot_complete: bool,
-
 }
 
+/// Indicate which channel should be used to return data
 #[derive(Format)]
 pub enum ReturnChannel {
     Main,
@@ -47,26 +39,36 @@ pub enum ReturnChannel {
 pub enum RouterEvent {
     #[allow(unused)]
     UsbCommand(u8),
+
     ButtonArray((KeyPadButton, KeyPadEvent)),
     Button(ButtonEvent),
     WriteSettingsToEeprom(MenuData),
-
+    /// Store settings in global data
     StoreSettings(Option<MenuData>),
+    /// Store module type in global data
     StoreModuleType(Option<ModuleType>),
+    /// Store MAC address in global data
     StoreMacAddress(Option<[u8; 6]>),
+    /// Store boot complete in global data
     StoreBootComplete(bool),
+    /// Store IP address in global data
     #[allow(unused)]
     StoreIpAddr(Option<Ipv4Addr>),
-
+    /// Get module type from global data
     GetModuleType(ReturnChannel),
+    /// Get MAC address from global data
     #[allow(unused)]
     GetMacAddress(ReturnChannel),
+    /// Get settings from global data
     GetSettings(ReturnChannel),
 }
 
+/// Data packet address and sequence info either passed through from ArtNet or set to default for DMX packets
 #[derive(Format)]
 pub struct PacketAddress {
+    /// packet address info either passed through from ArtNet or set to default for DMX packets
     port: PortAddress,
+    /// ArtNet packet sequence address - can be used to ensure packet order
     sequence: u8,
 }
 
@@ -76,28 +78,33 @@ impl PacketAddress {
     }
 }
 
+/// Send data from DMX or ArtNet task to event router
 #[derive(Format)]
 pub enum DmxEvent {
+    /// New data came from wired DMX
     #[allow(unused)]
     DmxPacket(PacketAddress),
+    /// New data came from ethernet / ArtNet
     #[allow(unused)]
     ArtNetPacket(PacketAddress),
 }
 
+/// Send data back to DMX task or ArtNet task
 #[derive(Copy, Clone, Debug, Format)]
 pub enum DmxFeedbackEvent {
     Mode(InputMode),
 }
 
+/// Send data back to the main task
 #[derive(Format)]
 #[allow(clippy::enum_variant_names)]
 pub enum MainEvent {
-    // ReturnIpMode(EthernetIPMode),
     ReturnModuleType(Option<ModuleType>),
     ReturnSettings(MenuData),
     ReturnMacAddress(Option<[u8; 6]>),
 }
 
+/// Main communication interface between application tasks
 pub struct Router {
     /// Listen for event router tasks
     pub channel: RouterChannelRx,
@@ -159,7 +166,8 @@ impl Router {
         }
     }
 
-    pub async fn process_event(&mut self, event: RouterEvent) {
+    /// Main event router
+    pub async fn process_router_event(&mut self, event: RouterEvent) {
         match event {
             RouterEvent::UsbCommand(input) => {
                 info!("USB command {}", input);
@@ -170,31 +178,19 @@ impl Router {
             RouterEvent::ButtonArray((btn, evt)) => {
                 info!("Button array event {} {}", btn, evt);
                 match btn {
-                    KeyPadButton::A => {}
-                    KeyPadButton::B => {}
-                    KeyPadButton::C => {}
                     KeyPadButton::D => {
                         let _ = self.channel_ui.try_send(UiEvent::Down);
                     }
                     KeyPadButton::N0 => {
                         let _ = self.channel_ui.try_send(UiEvent::Select);
                     }
-                    KeyPadButton::N1 => {}
-                    KeyPadButton::N2 => {}
-                    KeyPadButton::N3 => {}
-                    KeyPadButton::N4 => {}
-                    KeyPadButton::N5 => {}
-                    KeyPadButton::N6 => {}
-                    KeyPadButton::N7 => {}
-                    KeyPadButton::N8 => {}
-                    KeyPadButton::N9 => {}
                     KeyPadButton::Star => {
                         let _ = self.channel_ui.try_send(UiEvent::Esc);
                     }
                     KeyPadButton::Pound => {
                         let _ = self.channel_ui.try_send(UiEvent::Up);
                     }
-                    KeyPadButton::None => {}
+                    _ => {}
                 }
             }
             RouterEvent::WriteSettingsToEeprom(menu_data) => {
@@ -258,8 +254,11 @@ impl Router {
             },
         }
     }
-    pub async fn update_leds(&mut self, event: DmxEvent) {
+
+    /// Update LED color in memory and apply to physical LEDs
+    pub async fn process_dmx_event(&mut self, event: DmxEvent) {
         if self.data.boot_complete {
+            // Check to make sure the incoming ArtNet packet address info matches current settings (ie make sure this packet was for us)
             let _packet_addr = match event {
                 DmxEvent::DmxPacket(d) => d,
                 DmxEvent::ArtNetPacket(packet_addr) => {
@@ -275,6 +274,7 @@ impl Router {
                 }
             };
 
+            // Lock global led color buffer
             let mut colors = LED_COLORS.lock().await;
 
             match self.data.menu_settings.module {
@@ -285,7 +285,7 @@ impl Router {
                 }
                 ModuleSettings::SmartLed(smart_led_settings) => {
                     let dmx_group_size = smart_led_settings.dmx_group_size.0;
-
+                    // Lock global dmx data buffer
                     let dmx_buffer = DMX_BUFFER.lock().await;
 
                     match smart_led_settings.port_mode {
@@ -300,20 +300,20 @@ impl Router {
                                 // Calculate hoe many universes this port consumes. Each new port will start at a new universe...I think.
                                 let port_universe_count = match self.data.menu_settings.input_mode {
                                     InputMode::Dmx => 0, // DMX can only handle one universe
-                                    InputMode::ArtNet => (*num_virtual_leds as f32 * smart_led_settings.color_mode.addr_size() as f32 / 512.0).ceil() as usize,
+                                    InputMode::ArtNet => (*num_virtual_leds as f32 * smart_led_settings.color_mode.addr_size() as f32 / DMX_UNIVERSE_SIZE as f32).ceil() as usize,
                                 };
 
+                                // Copy data from DMX_BUFFER to LED_COLORS
                                 for vled_index in 0..*num_virtual_leds as usize {
-                                    let dmx_buffer_start = port_u_offset * 512 + self.data.menu_settings.dmx_address as usize + vled_index * smart_led_settings.color_mode.addr_size();
+                                    let dmx_buffer_start = port_u_offset * DMX_UNIVERSE_SIZE + self.data.menu_settings.dmx_address as usize + vled_index * smart_led_settings.color_mode.addr_size();
                                     let dmx_buffer_end = dmx_buffer_start + smart_led_settings.color_mode.addr_size() - 1;
 
                                     let c = smart_led_settings.color_mode.rgb(&dmx_buffer[dmx_buffer_start..=dmx_buffer_end]); // calculate a color from the dmx data
 
-                                    // Loop through each group and assign the individual
+                                    // Loop through each group and assign to individual LEDs
                                     for i in 0..dmx_group_size[port_index] {
                                         let place = i as usize + dmx_group_size[port_index] as usize * vled_index;
                                         colors[port_index][place] = c;
-                                        // apply color to the physical led
                                     }
                                 }
                                 port_u_offset += port_universe_count;
@@ -346,11 +346,11 @@ impl Router {
 pub async fn event_router(mut router: Router) {
     loop {
         if let Ok(new_message) = with_timeout(Duration::from_millis(5), router.channel.receive()).await {
-            router.process_event(new_message).await;
+            router.process_router_event(new_message).await;
         }
 
         if let Ok(new_message) = with_timeout(Duration::from_millis(5), router.channel_dmx.receive()).await {
-            router.update_leds(new_message).await;
+            router.process_dmx_event(new_message).await;
         }
     }
 }

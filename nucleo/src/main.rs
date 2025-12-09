@@ -1,3 +1,10 @@
+//! DMX & ArtNet Device
+//!
+//! Firmware to process incoming DMX or ArtNet data and update attached LEDs.
+//! Multiple output module types are supported including SmartLED (WS2812),
+//! PWM output (low power LEDs), and high power LED drivers. A user interface
+//! on the fixture allows for DMX / ArtNet configuration and for output LEDs
+//! to be addressed individually or in groups.
 #![no_std]
 #![no_main]
 
@@ -9,22 +16,19 @@ use core::cell::RefCell;
 
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Input, Level, Output, OutputOpenDrain, Pull, Speed};
-use embassy_stm32::i2c::{Config as I2cConfig, I2c, Master};
+use embassy_stm32::i2c::{Config as I2cConfig, I2c};
 use embassy_stm32::time::Hertz;
 // use embassy_stm32::usb::Driver;
 // use embassy_stm32::usart::{Config as UsartConfig, DataBits, StopBits, Uart};
 use embassy_stm32::rcc::{mux, AHBPrescaler, APBPrescaler, Hse, HseMode, Hsi48Config, Pll, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale};
 use embassy_stm32::spi::{Config as SpiConfig, Mode as SpiMode, Phase, Polarity, Spi};
 use embassy_stm32::{bind_interrupts, i2c, peripherals, usb, Config};
-use embassy_sync::blocking_mutex::raw::{NoopRawMutex, ThreadModeRawMutex};
-// use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+// use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::blocking_mutex::NoopMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{with_timeout, Duration, Timer};
 
 use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
-
-use static_cell::StaticCell;
 
 use crate::eeprom::EepromEvent;
 use crate::event_router::{MainEvent, ReturnChannel, RouterEvent};
@@ -56,6 +60,9 @@ pub use pwm_i2c::pwm_i2c_task;
 mod constants;
 pub use constants::*;
 
+mod statics;
+pub use statics::*;
+
 // -----
 
 // PWM Chip
@@ -84,7 +91,7 @@ cfg_if! {
 }
 
 mod event_router;
-use event_router::{event_router, Router, DMX_BUFFER};
+use event_router::{event_router, Router};
 
 mod led;
 use led::led_task;
@@ -97,9 +104,6 @@ use channels::*;
 
 mod ansi;
 
-// mod dmx;
-// use dmx::dmx_task;
-
 mod dmx_i2c;
 use dmx_i2c::dmx_task;
 
@@ -111,29 +115,6 @@ use ui::ui_task_spi;
 
 mod eeprom;
 use eeprom::eeprom_i2c_task;
-
-// static DMX_DATA: StaticCell<Mutex<ThreadModeRawMutex, [u8; DMX_BUFF_SIZE]>> = StaticCell::new();
-
-type I2c1Bus = Mutex<ThreadModeRawMutex, I2c<'static, embassy_stm32::mode::Async, Master>>;
-// type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, Master>>;
-type I2cSharedDev = I2cDevice<'static, NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, Master>>;
-
-/// Display I2C / Smbus - I2C2
-/// SCL: PF1
-/// SDA: PF0
-/// Alert#: PF2
-/// Reset: PF3
-static _I2C_BUS_DISPLAY: StaticCell<I2c1Bus> = StaticCell::new();
-
-/// DMX I2C / Smbus - I2C1
-/// SCL: PB8
-/// SDA: PB9
-/// Alert#: PB5
-/// Reset: PA3
-static I2C_BUS_DMX: StaticCell<I2c1Bus> = StaticCell::new();
-
-/// LED (output) I2C / Smbus - I2C4
-static I2C_BUS_LED: StaticCell<NoopMutex<RefCell<I2c<'static, embassy_stm32::mode::Async, Master>>>> = StaticCell::new();
 
 bind_interrupts!(struct Irqs {
     USB_DRD_FS => usb::InterruptHandler<peripherals::USB>;
@@ -281,11 +262,6 @@ async fn main(spawner: Spawner) {
     // // let mut led1 = Output::new(p.PF4, Level::High, Speed::Low);
     // // let mut led2 = Output::new(p.PG4, Level::High, Speed::Low);
     spawner.spawn(led_task(led0)).unwrap();
-
-    // -----------------------------------
-    // Initialize data static memory locations
-    // -----------------------------------
-    // DMX_DATA.init(Mutex::new([0_u8; 513]));
 
     // -----------------------------------
     // Configure I2C for module led board devices

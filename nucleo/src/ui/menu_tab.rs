@@ -1,3 +1,4 @@
+//! A single page (view) of the user interface.
 use az::SaturatingAs;
 use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb565, prelude::Point, primitives::Rectangle, text::renderer::TextRenderer, Drawable};
 
@@ -6,28 +7,38 @@ use u8g2_fonts::U8g2TextStyle;
 
 use defmt::info;
 
-use crate::ui::{layout::IncDec, menu_value::ValueType, MenuMovement, COLOR_DEFAULT_TEXT, COLOR_MENU_TEXT, DEFAULT_FONT}; // DEFAULT_FONT};
-use crate::ui::{layout::NextPrev, MenuItem, SelectionMode, View};
+use crate::ui::{traits::IncDec, traits::NextPrev, MenuItem, MenuMovement, SelectionMode, ValueType, View, COLOR_DEFAULT_TEXT, COLOR_MENU_TEXT, DEFAULT_FONT};
 
-pub const NUM_ITEMS: usize = 5;
+use crate::MENU_ITEMS_PER_TAB;
 
+/// MenuTab is a single page (view) of the user interface.
 #[derive(Default)]
 pub struct MenuTab<'a> {
+    /// Title for the tab / page
     name: &'a str,
-    items: [MenuItem<'a>; NUM_ITEMS],
-    // items: &'a mut [MenuItem<'a>],
+    /// List of MenuItems to display
+    items: [MenuItem<'a>; MENU_ITEMS_PER_TAB],
+    /// Number of values that are selectable.
+    /// This could be more than the number of MenuItems if some MenuItems have multiple user interaction (such as a 3 digit number).
+    /// This could be less than the number of MenuItems if some MenuItems do not support user editing.
     num_selectable_items: usize,
+    /// Index of current value that is selected
     item_index: usize,
+    /// If this MenuTab has a value that is being edited.
     editing: bool,
 }
 
 impl<'a> MenuTab<'a> {
+    /// Assign a value to an item
+    ///
+    /// # Args
+    /// * `item_index` - Index of the MenuItem to update
+    /// * `val` - Value to assign to the item
     pub fn set(&mut self, item_index: usize, val: ValueType) {
         self.items[item_index].value.value = val;
     }
 
-    // pub fn new(name: &'a str, items: &'a mut [MenuItem<'a>]) -> Self {
-    pub fn new(name: &'a str, items: [MenuItem<'a>; NUM_ITEMS]) -> Self {
+    pub fn new(name: &'a str, items: [MenuItem<'a>; MENU_ITEMS_PER_TAB]) -> Self {
         let num_selectable_items = items.iter().filter(|item| item.editable).count();
         Self {
             name,
@@ -38,6 +49,7 @@ impl<'a> MenuTab<'a> {
         }
     }
 
+    /// Apply y translations to items so they are displayed one after another vertically.
     pub fn arrange(&mut self) {
         let mut by = Point::zero();
 
@@ -50,6 +62,7 @@ impl<'a> MenuTab<'a> {
         });
     }
 
+    /// Update the selection mode for each item
     pub fn update(&mut self) {
         self.items.iter_mut().enumerate().for_each(|(index, item)| {
             if index == self.item_index {
@@ -64,12 +77,14 @@ impl<'a> MenuTab<'a> {
         });
     }
 
+    /// Set the editing mode for the MenuTab
     pub fn set_editing(&mut self, mode: bool) {
         if self.items[self.item_index].editable {
             self.editing = mode;
         }
     }
 
+    /// Return if the MenuTab is being edited
     pub fn editing(&mut self) -> bool {
         self.editing
     }
@@ -91,15 +106,6 @@ impl<'a> NextPrev for MenuTab<'a> {
             info!("Next: selected is now {}", self.item_index);
             MenuMovement::FirstItem
         } else {
-            // find the next editable item
-            // let b = self.items.iter().enumerate().filter(|(i,item)| item.editable && i > self.item_index).next();
-            // match b {
-            //     Some((index, item))=> {
-            //         self.items[self.item_index].value.value_index = self.items[self.item_index].value.value_index.saturating_add(1);
-            //     },
-            //     None => {}
-            // }
-
             self.items[self.item_index].value.value_index = self.items[self.item_index].value.value_index.saturating_add(1);
             MenuMovement::NextItem
         }

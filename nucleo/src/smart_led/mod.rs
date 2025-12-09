@@ -1,4 +1,4 @@
-//! Smart LED Interface
+//! SmartLED (WS2812) interface
 use defmt::Format;
 use embassy_stm32::mode::Async;
 use embassy_stm32::spi::Spi;
@@ -8,8 +8,8 @@ use smart_leds::SmartLedsWriteAsync;
 use crate::channels::SmartLedChannelRx;
 
 mod ws2812_async;
-use crate::event_router::LED_COLORS;
-pub use ws2812_async::NUM_LEDS_MAX;
+use crate::LED_COLORS;
+
 use ws2812_async::{Grb, Ws2812};
 
 #[allow(unused)]
@@ -25,6 +25,9 @@ impl Format for SmartLedEvent {
     }
 }
 
+/// SmartLED module
+///
+/// Each module has 4 ports and a return communication channel
 pub struct SmartLed<'a> {
     ws_1: Ws2812<Spi<'a, Async>, Grb>,
     ws_2: Ws2812<Spi<'a, Async>, Grb>,
@@ -80,6 +83,7 @@ impl<'a> SmartLed<'a> {
     }
 }
 
+/// Task to manage SmartLED module (WS2812 and the like)
 #[embassy_executor::task]
 pub async fn smart_led_task(spi_1: Spi<'static, Async>, spi_2: Spi<'static, Async>, spi_3: Spi<'static, Async>, spi_4: Spi<'static, Async>, rx: SmartLedChannelRx) {
     let mut smart_led = SmartLed::new(spi_1, spi_2, spi_3, spi_4, rx);

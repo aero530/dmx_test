@@ -1,6 +1,8 @@
+//! Types used in the user interface
+
 use core::net::Ipv4Addr;
 
-use crate::{ui::menu_value::ValueType, SMARTLED_PORT_COUNT};
+use crate::{ui::ValueType, DMX_UNIVERSE_SIZE, SMARTLED_PORT_COUNT};
 use bincode::{Decode, Encode};
 // use embassy_net::IpAddress;
 use heapless::Vec;
@@ -12,30 +14,18 @@ use super::IncDec;
 use defmt::{error, Format};
 use enum_ordinalize::Ordinalize;
 
-// #[derive(Clone, Copy, Default, PartialEq, Format, Debug)]
-// pub struct DmxRange {
-//     pub start: DmxAddr,
-//     pub end: DmxAddr,
-// }
+/// Flag to monitor a values selection mode
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SelectionMode {
+    /// Not selected
+    Normal,
+    /// Highlighted but not editing
+    Selected,
+    /// Currently editing the value
+    Editing,
+}
 
-// impl DmxRange {
-//     pub fn new(start: DmxAddr, end: DmxAddr) -> Self {
-//         Self { start, end }
-//     }
-// }
-//
-// #[derive(Clone, Copy, Default, PartialEq, Format, Debug)]
-// pub struct DmxAddr {
-//     pub dmx: usize,
-//     pub universe: usize,
-// }
-//
-// impl DmxAddr {
-//     pub fn new(dmx: usize, universe: usize) -> Self {
-//         Self { dmx, universe }
-//     }
-// }
-
+/// Output module type (defines which kind of module is connected)
 #[derive(Clone, Copy, Default, PartialEq, Format, Debug, Decode, Encode)]
 pub enum ModuleType {
     #[default]
@@ -44,14 +34,23 @@ pub enum ModuleType {
     Pwm,
 }
 
+/// Action to take based on user interaction and current menu state.
 pub enum MenuMovement {
+    /// Go to next tab
     NextTab,
+    /// Go to previous tab
     PreviousTab,
+    /// Go to next item on the tab
     NextItem,
+    /// Go to previous item on the tab
     PreviousItem,
+    /// Go to the first item on the tab
     FirstItem,
+    /// Go to the last item on the tab
     LastItem,
+    /// Update the item value
     UpdateValue((usize, usize, ValueType)),
+    /// Take no action
     None,
 }
 
@@ -148,7 +147,7 @@ impl SmartLedSettings {
         let universe_count: [u16; SMARTLED_PORT_COUNT] = self
             .virtual_leds_per_port()
             .iter()
-            .map(|num_virtual_leds| (*num_virtual_leds as f32 * self.color_mode.addr_size() as f32 / 512.0).ceil() as u16)
+            .map(|num_virtual_leds| (*num_virtual_leds as f32 * self.color_mode.addr_size() as f32 / DMX_UNIVERSE_SIZE as f32).ceil() as u16)
             .collect::<Vec<u16, SMARTLED_PORT_COUNT>>()
             .as_slice()
             .try_into()
@@ -195,8 +194,8 @@ impl InputMode {
     #[allow(unused)]
     pub fn dmx_addr_limit(&self) -> usize {
         match self {
-            InputMode::Dmx => 512,
-            InputMode::ArtNet => 512, // ArtNet still uses a 512 byte universe
+            InputMode::Dmx => DMX_UNIVERSE_SIZE,
+            InputMode::ArtNet => DMX_UNIVERSE_SIZE, // ArtNet still uses a 512 byte universe
         }
     }
 }

@@ -1,13 +1,8 @@
-// use cfg_if::cfg_if;
-
-// use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
+//! EEPROM interface
+//!
+//! Each output module has an EEPROM that is used to store module type information along with the system settings.
 use embassy_time::{with_timeout, Duration};
 use embedded_hal_1::i2c::I2c as I2CTRAIT;
-
-// use embassy_futures::block_on;
-// use embassy_sync::blocking_mutex::raw::NoopRawMutex;
-// use core::cell::RefCell;
-// use embassy_stm32::i2c::{I2c, Master};
 
 use crate::{
     channels::RouterChannelTx,
@@ -21,22 +16,42 @@ use defmt::{error, info, Format};
 mod m24x02;
 use m24x02::{M24x02, PAGE_SIZE};
 
-const MODULE_TYPE_MEMLOC: u8 = 0x01; // must be a low enough address such that module type data does not interfere with settings at SETTINGS_ADDRESS
-const MAC_ADDRESS_MEMLOC: u8 = 0x02; // MAC is 6 bytes long
-const SETTINGS_MEMLOC: u8 = 0x20; // 0x20 = 32 which is the start of the third page of memory
-const SETTINGS_SIZE: usize = 32; // number of bytes to reserve for menu settings
+/// Memory location for module type data
+///
+/// must be a low enough address such that module type data does not interfere with settings at SETTINGS_ADDRESS
+const MODULE_TYPE_MEMLOC: u8 = 0x01;
+
+/// Memory location for MAC address data
+///
+/// MAC is 6 bytes long
+const MAC_ADDRESS_MEMLOC: u8 = 0x02;
+
+/// Memory location for settings data
+///
+/// 0x20 = 32 which is the start of the third page of memory
+const SETTINGS_MEMLOC: u8 = 0x20;
+
+/// Number of bytes to reserve for storing menu settings
+const SETTINGS_SIZE: usize = 32;
 
 #[allow(unused)]
 #[derive(Clone, Copy, Format, Debug)]
 pub enum EepromEvent {
+    /// Read module type from EEPROM
     ReadModuleType,
+    /// Write module type to EEPROM
     WriteModuleType(ModuleType),
+    /// Read settings from EEPROM
     ReadSettings,
+    /// Write settings to EEPROM
     WriteSettings(MenuData),
+    /// Read MAC address from EEPROM
     ReadMacAddress,
+    /// Write MAC address to EEPROM
     WriteMacAddress([u8; 6]),
 }
 
+/// EEPROM abstraction holding reference to physical chip
 pub struct Eeprom<I2C: I2CTRAIT> {
     dev: M24x02<I2C>,
     rx: EepromChannelRx,
@@ -67,11 +82,9 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
     async fn process_event(&mut self, event: EepromEvent) -> Result<(), ()> {
         match event {
             EepromEvent::ReadModuleType => {
-                // let _ = self.dev.read_byte(MODULE_TYPE_MEMLOC); //.await;
                 let data = self.dev.read_byte(MODULE_TYPE_MEMLOC);
 
                 match data {
-                    //.await {
                     Ok(data) => {
                         let decoded: ModuleType = bincode::decode_from_slice(&[data], bincode::config::standard()).unwrap_or_default().0;
                         let _ = self.tx.try_send(RouterEvent::StoreModuleType(Some(decoded)));
@@ -111,7 +124,6 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
             }
             EepromEvent::ReadMacAddress => {
                 let mut buf = [0u8; 6];
-                // let _ = self.dev.read_byte(MAC_ADDRESS_MEMLOC); // .await; // throw away read due to shared bus issues
 
                 match self.dev.read_data(MAC_ADDRESS_MEMLOC, &mut buf) {
                     // .await {
@@ -125,9 +137,6 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                         return Err(());
                     }
                 }
-                // if let Some(data) = self.read_mac_address() {
-                //     let _ = self.tx.try_send(RouterEvent::StoreMacAddress(data));
-                // }
             }
             EepromEvent::WriteMacAddress(mac) => {
                 info!("EEPROM Store mac {:#X}", mac);
@@ -152,12 +161,7 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                 }
             }
             EepromEvent::ReadSettings => {
-                // if let Some(data) = self.read_settings() {
-                //     let _ = self.tx.try_send(RouterEvent::StoreSettings(data));
-                // }
-
                 let mut buf = [0u8; SETTINGS_SIZE];
-                // let _ = self.dev.read_byte(SETTINGS_MEMLOC); //.await; // throw away read due to shared bus issues
 
                 match self.dev.read_data(SETTINGS_MEMLOC, &mut buf) {
                     // .await {
@@ -217,6 +221,7 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
     }
 }
 
+/// Task to manage the I2C EEPROM device
 #[embassy_executor::task]
 pub async fn eeprom_i2c_task(i2c: I2cSharedDev, address: u8, rx: EepromChannelRx, tx: RouterChannelTx) {
     let mut eeprom = Eeprom::new(i2c, address, rx, tx);

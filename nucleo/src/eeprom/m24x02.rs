@@ -1,13 +1,17 @@
 use embassy_time::Timer;
 use embedded_hal_1::i2c::I2c;
 
-pub const PAGE_SIZE: u8 = 16; // 16 byte page size
-const ADDR_BYTES: u8 = 1; //
-const WRITE_TIME_DELAY: u64 = 5; // in ms
-                                 // total size 2Kbit -> 256 x 8
+/// EEPROM page size = 16 bytes per page
+pub const PAGE_SIZE: u8 = 16;
+/// EEPROM number of address bytes to use (1)
+const ADDR_BYTES: u8 = 1;
+/// Delay (in ms) when writing to EEPROM
+const WRITE_TIME_DELAY: u64 = 5;
 
-#[allow(unused)]
+// total size 2Kbit -> 256 x 8
+
 /// All possible errors in this crate
+#[allow(unused)]
 #[derive(Debug)]
 pub enum Error<E> {
     /// I²C bus error
@@ -43,11 +47,12 @@ where
     }
 }
 
+/// Underlying EEPROM memory chip interface
 #[derive(Debug)]
 pub struct M24x02<I2C> {
-    /// The concrete I²C device implementation.
+    /// The concrete I2C device implementation.
     i2c: I2C,
-    /// The I²C device address.
+    /// The I2C device address.
     address: u8,
 }
 
@@ -56,10 +61,12 @@ impl<I2C, E> M24x02<I2C>
 where
     I2C: I2c<Error = E>,
 {
+    /// Initialize a new interface
     pub fn new(i2c: I2C, address: u8) -> Self {
         M24x02 { i2c, address }
     }
 
+    /// Attempt a wake up
     pub async fn refresh_bus(&mut self) -> Result<(), Error<E>> {
         // info!("{:#X} to {:#X}", data, memory_address);
         // let payload = [memory_address, data];
@@ -80,6 +87,7 @@ where
         self.i2c.write(self.address, &payload).map_err(|e| Error::I2C(e))
     }
 
+    /// Write a byte and wait for the EEPROM to finish
     pub async fn write_byte_wait(&mut self, memory_address: u8, data: u8) -> Result<(), Error<E>> {
         self.write_byte(memory_address, data)?;
         Timer::after_millis(WRITE_TIME_DELAY).await;
@@ -87,7 +95,7 @@ where
         Ok(())
     }
 
-    /// Read a single byte from an address.S
+    /// Read a single byte from an address
     pub fn read_byte(&mut self, memory_address: u8) -> Result<u8, Error<E>> {
         let mut data = [0_u8; 1];
         self.i2c.write_read(self.address, &[memory_address], &mut data).map_err(Error::I2C).and(Ok(data[0]))
@@ -130,6 +138,7 @@ where
         self.i2c.write(self.address, &payload).map_err(|e| Error::I2C(e))
     }
 
+    /// Write a page of data and wait for the EEPROM to finish.
     pub async fn write_page_wait(&mut self, memory_address: u8, data: &[u8]) -> Result<(), Error<E>> {
         // info!("page write wait mem address {:#X}, data {:#X}", memory_address, data);
         self.write_page(memory_address, data)?;
@@ -138,6 +147,7 @@ where
         Ok(())
     }
 
+    /// Wait for the EEPROM to finish.  Check every millisecond until the EEPROM is ready again.
     async fn wait(&mut self, memory_address: u8) -> Result<(), Error<E>> {
         let mut read_temp = [memory_address; 1];
         let mut count = 0;

@@ -291,21 +291,32 @@ impl Router {
                     match smart_led_settings.port_mode {
                         SmartLedPortMode::Individual => {
                             // Offset index to account for many universes stored flat in dmx_buffer.  This value is always 0 for DMX but can vary for ArtNet data.
-                            let mut port_u_offset = match self.data.menu_settings.input_mode {
-                                InputMode::Dmx => 0, // DMX can only handle one universe
-                                InputMode::ArtNet => self.data.menu_settings.artnet_address.0[2] as usize,
+                            // let mut port_u_offset = match self.data.menu_settings.input_mode {
+                            //     InputMode::Dmx => 0, // DMX can only handle one universe
+                            //     InputMode::ArtNet => self.data.menu_settings.artnet_address.0[2] as usize,
+                            // };
+
+                            // Byte offset to place virtual leds at the right buffer location for each port
+                            let mut port_virtual_led_offset = match self.data.menu_settings.input_mode {
+                                InputMode::Dmx => 0,
+                                InputMode::ArtNet => (self.data.menu_settings.artnet_address.0[2] as usize) * DMX_UNIVERSE_SIZE,
                             };
 
                             for (port_index, num_virtual_leds) in smart_led_settings.virtual_leds_per_port().iter().enumerate() {
                                 // Calculate hoe many universes this port consumes. Each new port will start at a new universe...I think.
-                                let port_universe_count = match self.data.menu_settings.input_mode {
-                                    InputMode::Dmx => 0, // DMX can only handle one universe
-                                    InputMode::ArtNet => (*num_virtual_leds as f32 * smart_led_settings.color_mode.addr_size() as f32 / DMX_UNIVERSE_SIZE as f32).ceil() as usize,
-                                };
+                                // let port_universe_count = match self.data.menu_settings.input_mode {
+                                //     InputMode::Dmx => 0, // DMX can only handle one universe
+                                //     InputMode::ArtNet => (*num_virtual_leds as f32 * smart_led_settings.color_mode.addr_size() as f32 / DMX_UNIVERSE_SIZE as f32).ceil() as usize,
+                                // };
+                                //
+                                // let dmx_addr_offset = match self.data.menu_settings.input_mode {
+                                //     InputMode::Dmx => 0, // DMX can only handle one universe
+                                //     InputMode::ArtNet => port_u_offset * DMX_UNIVERSE_SIZE,
+                                // };
 
                                 // Copy data from DMX_BUFFER to LED_COLORS
                                 for vled_index in 0..*num_virtual_leds as usize {
-                                    let dmx_buffer_start = port_u_offset * DMX_UNIVERSE_SIZE + self.data.menu_settings.dmx_address as usize + vled_index * smart_led_settings.color_mode.addr_size();
+                                    let dmx_buffer_start = self.data.menu_settings.dmx_address as usize + port_virtual_led_offset + vled_index * smart_led_settings.color_mode.addr_size();
                                     let dmx_buffer_end = dmx_buffer_start + smart_led_settings.color_mode.addr_size() - 1;
 
                                     let c = smart_led_settings.color_mode.rgb(&dmx_buffer[dmx_buffer_start..=dmx_buffer_end]); // calculate a color from the dmx data
@@ -316,7 +327,11 @@ impl Router {
                                         colors[port_index][place] = c;
                                     }
                                 }
-                                port_u_offset += port_universe_count;
+                                // port_u_offset += port_universe_count;
+                                port_virtual_led_offset += match self.data.menu_settings.input_mode {
+                                    InputMode::Dmx => *num_virtual_leds as usize * smart_led_settings.color_mode.addr_size(), // offset by the number of virtual LEDs in the current port
+                                    InputMode::ArtNet => (*num_virtual_leds as f32 * smart_led_settings.color_mode.addr_size() as f32 / DMX_UNIVERSE_SIZE as f32).ceil() as usize * DMX_UNIVERSE_SIZE // Offset by the number of universes this port uses times the dmx size per universe
+                                };
                             }
                         }
                         SmartLedPortMode::Mirror => {

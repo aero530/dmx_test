@@ -1,6 +1,7 @@
 //! EEPROM interface
 //!
 //! Each output module has an EEPROM that is used to store module type information along with the system settings.
+use cfg_if::cfg_if;
 use embassy_time::{with_timeout, Duration};
 use embedded_hal_1::i2c::I2c as I2CTRAIT;
 
@@ -11,7 +12,14 @@ use crate::{
     EepromChannelRx, I2cSharedDev,
 };
 
-use defmt::{error, info, Format};
+use defmt::Format;
+cfg_if! {
+    if #[cfg(feature = "usb")] {
+        use log::{error, info};
+    } else {
+        use defmt::{error, info};
+    }
+}
 
 mod m24x02;
 use m24x02::{M24x02, PAGE_SIZE};
@@ -91,7 +99,7 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                     }
                     Err(e) => {
                         let _ = self.tx.try_send(RouterEvent::StoreModuleType(None));
-                        error!("Eeprom - error {}", e);
+                        error!("Eeprom - error {:?}", e);
                         return Err(());
                     }
                 }
@@ -113,10 +121,10 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                     match self.dev.write_byte_wait(MODULE_TYPE_MEMLOC, slice[0]).await {
                         Ok(_) => {
                             let _ = self.tx.try_send(RouterEvent::StoreModuleType(Some(module)));
-                            info!("Wrote module type as {}", module);
+                            info!("Wrote module type as {:?}", module);
                         }
                         Err(e) => {
-                            error!("Eeprom - error {}", e);
+                            error!("Eeprom - error {:?}", e);
                             return Err(());
                         }
                     }
@@ -128,18 +136,18 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                 match self.dev.read_data(MAC_ADDRESS_MEMLOC, &mut buf) {
                     // .await {
                     Ok(_) => {
-                        info!("EEPROM Read mac {:#X}", buf);
+                        info!("EEPROM Read mac {:?}", buf);
                         let _ = self.tx.try_send(RouterEvent::StoreMacAddress(Some(buf)));
                     }
                     Err(e) => {
-                        error!("Eeprom - error {}", e);
+                        error!("Eeprom - error {:?}", e);
                         let _ = self.tx.try_send(RouterEvent::StoreMacAddress(None));
                         return Err(());
                     }
                 }
             }
             EepromEvent::WriteMacAddress(mac) => {
-                info!("EEPROM Store mac {:#X}", mac);
+                info!("EEPROM Store mac {:?}", mac);
 
                 // There is something going on that makes it so page write only works if you write a byte to the device first then
                 // do the page write...something with the address not being transmitted. Not sure if this is something the eeprom
@@ -152,10 +160,10 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                 match self.dev.write_page_wait(MAC_ADDRESS_MEMLOC, &mac).await {
                     Ok(_) => {
                         let _ = self.tx.try_send(RouterEvent::StoreMacAddress(Some(mac)));
-                        info!("EEPROM MAC stored to {:#X} -- {:#X}", MAC_ADDRESS_MEMLOC, mac);
+                        info!("EEPROM MAC stored to {:?} -- {:?}", MAC_ADDRESS_MEMLOC, mac);
                     }
                     Err(e) => {
-                        error!("MAC store {:#X} error {:#X} -- {:#X}", MAC_ADDRESS_MEMLOC, e, mac);
+                        error!("MAC store {:?} error {:?} -- {:?}", MAC_ADDRESS_MEMLOC, e, mac);
                         return Err(());
                     }
                 }
@@ -171,7 +179,7 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                         let _ = self.tx.try_send(RouterEvent::StoreSettings(Some(decoded)));
                     }
                     Err(e) => {
-                        error!("Eeprom - error {}", e);
+                        error!("Eeprom - error {:?}", e);
                         let _ = self.tx.try_send(RouterEvent::StoreSettings(None));
                         return Err(());
                     }
@@ -189,7 +197,7 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                 });
 
                 if length > 0 {
-                    info!("Store settings {}. Data is {} bytes long", menu_settings, length);
+                    info!("Store settings {:?}. Data is {:?} bytes long", menu_settings, length);
 
                     let chunks = slice.chunks(PAGE_SIZE as usize).enumerate();
 
@@ -206,9 +214,9 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                         let mem_addr = SETTINGS_MEMLOC + (num as u8) * PAGE_SIZE;
                         // self.dev.write_page_wait(mem_addr, chunk).await;
                         match self.dev.write_page_wait(mem_addr, chunk).await {
-                            Ok(_) => info!("Data chunk {}/{:#X} stored -- {:#X}", num, mem_addr, chunk),
+                            Ok(_) => info!("Data chunk {:?}/{:?} stored -- {:?}", num, mem_addr, chunk),
                             Err(e) => {
-                                error!("Data chunk {}/{:#X} error {:#X} -- {:#X}", num, mem_addr, e, chunk);
+                                error!("Data chunk {:?}/{:?} error {:?} -- {:?}", num, mem_addr, e, chunk);
                                 return Err(());
                             }
                         }

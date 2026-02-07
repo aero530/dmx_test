@@ -9,7 +9,17 @@
 #![no_main]
 
 use cfg_if::cfg_if;
-use defmt::*;
+// use defmt::*;
+
+// use defmt::Format;
+cfg_if! {
+    if #[cfg(feature = "usb")] {
+        use log::{info, error};
+    } else {
+        use defmt::{info, error};
+    }
+}
+
 use {defmt_rtt as _, panic_probe as _};
 
 use core::cell::RefCell;
@@ -23,7 +33,6 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::rcc::{mux, AHBPrescaler, APBPrescaler, Hse, HseMode, Hsi48Config, Pll, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale};
 use embassy_stm32::spi::{Config as SpiConfig, Mode as SpiMode, Phase, Polarity, Spi};
 use embassy_stm32::{bind_interrupts, i2c, peripherals, usb, Config};
-// use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::blocking_mutex::NoopMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{with_timeout, Duration, Timer};
@@ -40,10 +49,10 @@ cfg_if! {
         use crate::ui::EthernetIPMode;
         use embassy_net::StackResources;
         use embassy_net::{Ipv4Cidr, Ipv4Address};
-        // use embassy_stm32::eth::generic_smi::GenericSMI;
         use embassy_stm32::eth::{Ethernet, PacketQueue, GenericPhy};
         use embassy_stm32::rng::Rng;
         use embassy_stm32::{eth, rng};
+        use static_cell::StaticCell;
     }
 }
 
@@ -83,9 +92,10 @@ use button::button_task;
 mod button_array;
 use button_array::button_row_task;
 
+mod usb_io;
 cfg_if! {
     if #[cfg(feature = "usb")] {
-        mod usb_io;
+        use embassy_stm32::usb::Driver;
         use usb_io::usb_task;
     }
 }
@@ -96,8 +106,6 @@ use event_router::{event_router, Router};
 mod led;
 use led::led_task;
 
-// mod logger;
-// use logger::log_task;
 
 mod channels;
 use channels::*;
@@ -117,6 +125,7 @@ mod eeprom;
 use eeprom::eeprom_i2c_task;
 
 bind_interrupts!(struct Irqs {
+    #[cfg(feature = "usb")]
     USB_DRD_FS => usb::InterruptHandler<peripherals::USB>;
     // USART6 => usart::InterruptHandler<peripherals::USART6>;
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
@@ -209,7 +218,15 @@ async fn main(spawner: Spawner) {
     }
 
     // config.rcc.hsi48 = Some(Default::default());
-    config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
+    // config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
+
+
+    cfg_if! {
+        if #[cfg(feature = "clock_stlink")] {
+            config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
+        }
+    }
+
 
     config.rcc.csi = true; // enable CSI clock
 
@@ -248,7 +265,12 @@ async fn main(spawner: Spawner) {
     config.rcc.mux.i2c1sel = mux::I2csel::PLL3_R;
     config.rcc.mux.i2c2sel = mux::I2csel::PLL3_R;
     config.rcc.mux.i2c4sel = mux::I2c34sel::PLL3_R;
-    config.rcc.mux.usbsel = mux::Usbsel::HSI48;
+    cfg_if! {
+        if #[cfg(feature = "clock_stlink")] {
+            config.rcc.mux.usbsel = mux::Usbsel::HSI48;
+        }
+    }
+    // config.rcc.mux.usbsel = mux::Usbsel::HSI48;
     // config.rcc.mux.persel = mux::Persel::HSI;
     config.rcc.mux.rngsel = mux::Rngsel::HSI48;
 
@@ -374,8 +396,7 @@ async fn main(spawner: Spawner) {
                 d
             };
 
-            spawner.spawn(usb_task(driver, CHANNEL_USB.receiver(), CHANNEL.sender())).unwrap();
-            spawner.spawn(log_task(CHANNEL.sender(), CHANNEL_LOG.receiver().unwrap(), CHANNEL_USB.sender())).unwrap();
+            spawner.spawn(usb_task(driver)).unwrap();
         }
     }
 
@@ -488,7 +509,6 @@ async fn main(spawner: Spawner) {
         CHANNEL_SMART_LED.sender(),
         CHANNEL_UI.sender(),
         CHANNEL_EEPROM.sender(),
-        CHANNEL_LOG.sender(),
         CHANNEL_MAIN.sender(),
     );
 
@@ -537,7 +557,7 @@ async fn main(spawner: Spawner) {
         error!("Unable to get module type.");
         ModuleType::Unknown
     };
-    info!("Module Types {}", module_type);
+    info!("Module Types {:?}", module_type);
 
     info!("Try to get settings");
     let _ = CHANNEL.try_send(RouterEvent::GetSettings(ReturnChannel::Main));
@@ -550,7 +570,7 @@ async fn main(spawner: Spawner) {
         error!("Unable to get settings.");
         MenuData::default()
     };
-    info!("Boot Settings {}", boot_settings);
+    info!("Boot Settings {:?}", boot_settings);
 
     cfg_if! {
         if #[cfg(feature = "ethernet")] {
@@ -572,7 +592,7 @@ async fn main(spawner: Spawner) {
                 ([0, 0, 0, 0, 0, 0], false)
             };
 
-            info!("MAC Address currently: {:#X}", mac_address);
+            info!("MAC Address currently: {:?}", mac_address);
 
             let mut mac_addr = mac_address;
             let mut rng = Rng::new(p.RNG, Irqs);
@@ -583,7 +603,7 @@ async fn main(spawner: Spawner) {
 
                 // force the least significant bit of addr0 to be 0 so the mac is unicast.
                 mac_addr[0] = (mac_addr[0] >> 1) << 1;
-                info!("New calculated MAC Address: {:#X}", mac_addr);
+                info!("New calculated MAC Address: {:?}", mac_addr);
 
                 // store new mac address but only if we successfully read all zeros.  otherwise we assume i2c error and don't overwrite the mac
                 if read_mac_success {
@@ -596,7 +616,7 @@ async fn main(spawner: Spawner) {
             let oem: [u8; 2] = ARTNET_OEM.to_be_bytes();
             let static_ip = [2, mac_addr[3] + oem[0] + oem[1], mac_addr[4], mac_addr[5]];
 
-            info!("Calcuated IP: {}", static_ip);
+            info!("Calcuated IP: {:?}", static_ip);
 
             // Generate random seed.
             // let mut rng = Rng::new(p.RNG, Irqs);
@@ -605,14 +625,9 @@ async fn main(spawner: Spawner) {
             rng.fill_bytes(&mut seed);
             let seed = u64::from_le_bytes(seed);
 
-            info!("Eth Setup 0");
 
             static PACKETS: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
-
-            info!("Eth Setup 0a");
             let l = PACKETS.init(PacketQueue::<4, 4>::new());
-
-            info!("Eth Setup 0b");
 
             let ethernet_device = Ethernet::new(
                 l,
@@ -631,11 +646,9 @@ async fn main(spawner: Spawner) {
                 mac_addr,
             );
 
-            info!("Eth Setup 1");
-
             // Choose between dhcp or static ip
             let config = match boot_settings.ethernet_ip_mode {
-                EthernetIPMode::DHCP => embassy_net::Config::dhcpv4(Default::default()),
+                EthernetIPMode::Dhcp => embassy_net::Config::dhcpv4(Default::default()),
                 EthernetIPMode::Static => embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
                     address: Ipv4Cidr::new(Ipv4Address::new(static_ip[0],static_ip[1],static_ip[2],static_ip[3]), 24),
                     dns_servers: Default::default(),
@@ -643,23 +656,16 @@ async fn main(spawner: Spawner) {
                 })
             };
 
-            info!("Eth Setup 2");
-
             // Init network stack
             static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
             let (stack, runner) = embassy_net::new(ethernet_device, config, RESOURCES.init(StackResources::new()), seed);
 
-            info!("Eth Setup 3");
-
             // Launch network task
             spawner.spawn(net_task(runner)).unwrap_or_else(|_| error!("Unable to spawn net task."));
-
-            info!("Eth Setup 4");
 
             spawner
                 .spawn(artnet_task(stack, CHANNEL_DMX.sender(), CHANNEL.sender(), CHANNEL_DMX_FEEDBACK.receiver().unwrap()))
                 .unwrap_or_else(|_| error!("Unable to spawn artnet task."));
-            info!("Eth Setup 5");
         }
     }
 

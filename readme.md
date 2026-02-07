@@ -1,8 +1,6 @@
 DMX Test
 
-```
-cargo build --bin nucleo --target thumbv8m.main-none-eabi
-```
+**Compile / install from within each folder.**
 
 == UI
 

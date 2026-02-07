@@ -3,8 +3,15 @@
 //! The user interface is made up of multiple MenuTabs. Each MenuTab contains rows of MenuItems.
 //! A MenuItem has a name and value. The type of the value defined how the data is displayed and
 //! interacted with in the menu system (ie if it is an enum dropdown, number select, etc).
-
-use defmt::{error, info, Format};
+use cfg_if::cfg_if;
+use defmt::Format;
+cfg_if! {
+    if #[cfg(feature = "usb")] {
+        use log::{error, info};
+    } else {
+        use defmt::{error, info};
+    }
+}
 use embassy_stm32::gpio::{Output, OutputOpenDrain};
 use embassy_stm32::mode::Async;
 use embassy_stm32::spi::Spi;
@@ -324,10 +331,10 @@ impl<'a> Ui<'a> {
                         if self.menus[self.current_tab].editing() {
                             self.menus[self.current_tab].set_editing(false);
                             self.menu_data = self.menu_tab_data.to_menu_data(self.module_type);
-                            info!("UI Event Select - menu data {}", self.menu_data);
+                            info!("UI Event Select - menu data {:?}", self.menu_data);
                             match self.tx.try_send(RouterEvent::WriteSettingsToEeprom(self.menu_data)) {
                                 Ok(_) => {}
-                                Err(e) => error!("Message dropped. Channel full. {}", e),
+                                Err(e) => error!("Message dropped. Channel full. {:?}", e),
                             };
                         } else {
                             self.menus[self.current_tab].set_editing(true);

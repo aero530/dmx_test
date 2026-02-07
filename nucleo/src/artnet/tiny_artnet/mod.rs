@@ -1,8 +1,17 @@
 //! Embedded ArtNet minimal implementation
 #![allow(unused)]
+use cfg_if::cfg_if;
 
 mod poll_reply;
-use defmt::{trace, Format};
+
+use defmt::Format;
+cfg_if! {
+    if #[cfg(feature = "usb")] {
+        use log::trace;
+    } else {
+        use defmt::trace;
+    }
+}
 pub use poll_reply::PollReply;
 
 use core::ops::RangeInclusive;

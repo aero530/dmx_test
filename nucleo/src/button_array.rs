@@ -1,5 +1,15 @@
 //! Button row and array interaction
-use defmt::{debug, error, Format};
+
+use cfg_if::cfg_if;
+use defmt::Format;
+cfg_if! {
+    if #[cfg(feature = "usb")] {
+        use log::{debug, error};
+    } else {
+        use defmt::{debug, error};
+    }
+}
+
 use embassy_time::Timer;
 
 use embassy_stm32::gpio::{Input, OutputOpenDrain};
@@ -7,7 +17,7 @@ use embassy_stm32::gpio::{Input, OutputOpenDrain};
 use crate::channels::RouterChannelTx;
 use crate::event_router::RouterEvent;
 
-#[derive(Copy, Clone, Format, PartialEq)]
+#[derive(Copy, Clone, Format, Debug, PartialEq)]
 pub enum KeyPadEvent {
     None,
     Pressed,
@@ -20,7 +30,7 @@ pub enum KeyPadEvent {
 // 4 5 6 B
 // 7 8 9 C
 // * 0 # D
-#[derive(Copy, Clone, Format)]
+#[derive(Copy, Clone, Format, Debug)]
 pub enum KeyPadButton {
     A,
     B,
@@ -140,7 +150,7 @@ pub async fn button_array_task(cols: [Input<'static>; 4], mut rows: [OutputOpenD
             if *e == KeyPadEvent::Released {
                 match tx.try_send(RouterEvent::ButtonArray((KeyPadButton::at(l), KeyPadEvent::Released))) {
                     Ok(_) => {}
-                    Err(e) => error!("Message dropped. Channel full. {}", e),
+                    Err(e) => error!("Message dropped. Channel full. {:?}", e),
                 };
             }
         }
@@ -195,7 +205,7 @@ pub async fn button_row_task(row: [Input<'static>; 4], tx: RouterChannelTx) {
             if *e == KeyPadEvent::Released {
                 match tx.try_send(RouterEvent::ButtonArray((KeyPadButton::at(l), KeyPadEvent::Released))) {
                     Ok(_) => {}
-                    Err(e) => error!("Message dropped. Channel full. {}", e),
+                    Err(e) => error!("Message dropped. Channel full. {:?}", e),
                 };
             }
         }

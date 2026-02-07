@@ -1,5 +1,5 @@
 //! Types used in the user interface
-
+use cfg_if::cfg_if;
 use core::net::Ipv4Addr;
 
 use crate::{ui::ValueType, DMX_UNIVERSE_SIZE, SMARTLED_PORT_COUNT};
@@ -11,7 +11,15 @@ use micromath::F32Ext;
 use smart_leds::RGB8;
 
 use super::IncDec;
-use defmt::{error, Format};
+
+use defmt::Format;
+cfg_if! {
+    if #[cfg(feature = "usb")] {
+        use log::{error};
+    } else {
+        use defmt::{error};
+    }
+}
 use enum_ordinalize::Ordinalize;
 
 /// Flag to monitor a values selection mode

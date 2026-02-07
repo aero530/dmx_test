@@ -1,5 +1,14 @@
 //! Button interaction
-use defmt::{error, Format};
+
+use cfg_if::cfg_if;
+use defmt::Format;
+cfg_if! {
+    if #[cfg(feature = "usb")] {
+        use log::error;
+    } else {
+        use defmt::error;
+    }
+}
 use embassy_stm32::gpio::Input;
 use embassy_time::Timer;
 
@@ -7,7 +16,7 @@ use crate::channels::RouterChannelTx;
 use crate::event_router::RouterEvent;
 
 /// States to define button actions
-#[derive(Copy, Clone, Format, PartialEq)]
+#[derive(Copy, Clone, Format, PartialEq, Debug)]
 pub enum ButtonEvent {
     /// Null event
     None,
@@ -48,7 +57,7 @@ pub async fn button_task(button: Input<'static>, tx: RouterChannelTx) {
         if event == ButtonEvent::Released {
             match tx.try_send(RouterEvent::Button(ButtonEvent::Released)) {
                 Ok(_) => {}
-                Err(e) => error!("Message dropped. Channel full. {}", e),
+                Err(e) => error!("Message dropped. Channel full. {:?}", e),
             };
         }
 

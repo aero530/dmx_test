@@ -1,5 +1,13 @@
 //! ArtNet poll reply
-use defmt::{info, Format};
+use cfg_if::cfg_if;
+use defmt::Format;
+cfg_if! {
+    if #[cfg(feature = "usb")] {
+        use log::{info};
+    } else {
+        use defmt::{info};
+    }
+}
 
 const OP_POLL_REPLY: u16 = 0x2100;
 

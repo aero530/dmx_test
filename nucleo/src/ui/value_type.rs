@@ -1,8 +1,17 @@
 //! Enum to wrap different value data types
+use cfg_if::cfg_if;
 use crate::ui::{digits_to_u16, split_digits_no_std, ArtNetAddr, EthernetIPMode, IncDec, InputMode, IpAddrMenu, SmartLedColorMode, SmartLedDmxGroupSize, SmartLedPortMode};
 use crate::SMARTLED_PORT_COUNT;
 use bincode::{Decode, Encode};
-use defmt::{error, info, Format};
+use defmt::Format;
+cfg_if! {
+    if #[cfg(feature = "usb")] {
+        use log::{error, info};
+    } else {
+        use defmt::{error, info};
+    }
+}
+
 
 #[allow(unused)]
 /// Enum wrapper for the data in a MenuValue

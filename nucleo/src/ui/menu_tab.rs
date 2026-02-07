@@ -1,11 +1,18 @@
 //! A single page (view) of the user interface.
+use cfg_if::cfg_if;
 use az::SaturatingAs;
 use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb565, prelude::Point, primitives::Rectangle, text::renderer::TextRenderer, Drawable};
 
 use embedded_text::{alignment::HorizontalAlignment, TextBox};
 use u8g2_fonts::U8g2TextStyle;
 
-use defmt::info;
+cfg_if! {
+    if #[cfg(feature = "usb")] {
+        use log::info;
+    } else {
+        use defmt::info;
+    }
+}
 
 use crate::ui::{traits::IncDec, traits::NextPrev, MenuItem, MenuMovement, SelectionMode, ValueType, View, COLOR_DEFAULT_TEXT, COLOR_MENU_TEXT, DEFAULT_FONT};
 

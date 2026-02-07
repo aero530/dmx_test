@@ -1,4 +1,5 @@
 //! Event router to send commands between tasks
+
 use crate::artnet::PortAddress;
 use crate::button::ButtonEvent;
 use crate::button_array::{KeyPadButton, KeyPadEvent};
@@ -9,7 +10,19 @@ use crate::smart_led::SmartLedEvent;
 use crate::ui::{InputMode, IpAddrMenu, MenuData, ModuleSettings, ModuleType, SmartLedPortMode, UiEvent};
 use crate::{DMX_BUFFER, DMX_UNIVERSE_SIZE, LED_COLORS};
 use core::net::Ipv4Addr;
-use defmt::*;
+use defmt::Format;
+
+use cfg_if::cfg_if;
+cfg_if! {
+    if #[cfg(feature = "usb")] {
+        use log::{error, info, warn};
+    } else {
+        use defmt::{error, info, warn};
+    }
+}
+
+
+
 use embassy_time::{with_timeout, Duration};
 use micromath::F32Ext;
 
@@ -27,7 +40,7 @@ pub struct GlobalData {
 }
 
 /// Indicate which channel should be used to return data
-#[derive(Format)]
+#[derive(Format, Debug)]
 pub enum ReturnChannel {
     Main,
     #[allow(unused)]
@@ -35,7 +48,7 @@ pub enum ReturnChannel {
 }
 
 /// Events the router watches for.  These trigger the router to pass along an event to another object.
-#[derive(Format)]
+#[derive(Format, Debug)]
 pub enum RouterEvent {
     #[allow(unused)]
     UsbCommand(u8),
@@ -127,10 +140,6 @@ pub struct Router {
     /// Channel to send data back to the main function (used during boot process)
     pub channel_main: MainChannelTx,
 
-    /// Channel to send global data events
-    #[allow(unused)]
-    pub channel_log: GlobalDataChannelTx,
-
     // Global data store
     pub data: GlobalData,
 }
@@ -147,7 +156,6 @@ impl Router {
         channel_smart_led: SmartLedChannelTx,
         channel_ui: UiChannelTx,
         channel_eeprom: EepromChannelTx,
-        channel_log: GlobalDataChannelTx,
         channel_main: MainChannelTx,
     ) -> Self {
         Self {
@@ -159,7 +167,6 @@ impl Router {
             channel_pwm_i2c,
             channel_smart_led,
             channel_ui,
-            channel_log,
             channel_eeprom,
             channel_main,
             data: GlobalData::default(),
@@ -170,13 +177,13 @@ impl Router {
     pub async fn process_router_event(&mut self, event: RouterEvent) {
         match event {
             RouterEvent::UsbCommand(input) => {
-                info!("USB command {}", input);
+                info!("USB command {:#?}", input);
             }
             RouterEvent::Button(evt) => {
-                info!("Button event {}", evt);
+                info!("Button event {:#?}", evt);
             }
             RouterEvent::ButtonArray((btn, evt)) => {
-                info!("Button array event {} {}", btn, evt);
+                info!("Button array event {:#?} {:#?}", btn, evt);
                 match btn {
                     KeyPadButton::D => {
                         let _ = self.channel_ui.try_send(UiEvent::Down);
@@ -195,7 +202,7 @@ impl Router {
             }
             RouterEvent::WriteSettingsToEeprom(menu_data) => {
                 self.data.menu_settings = menu_data;
-                info!("Store settings in eeprom {}", menu_data);
+                info!("Store settings in eeprom {:#?}", menu_data);
                 let _ = self.channel_eeprom.try_send(EepromEvent::WriteSettings(menu_data));
             }
             RouterEvent::StoreSettings(menu_data) => {
@@ -204,7 +211,7 @@ impl Router {
 
                     // update internal data based on menu_data
 
-                    info!("Update settings on display {}", x);
+                    info!("Update settings on display {:#?}", x);
                     let _ = self.channel_ui.try_send(UiEvent::Load(x));
                     self.channel_dmx_feedback.send(DmxFeedbackEvent::Mode(x.input_mode));
                 }
@@ -229,14 +236,18 @@ impl Router {
             RouterEvent::GetModuleType(ch) => {
                 match ch {
                     ReturnChannel::Main => {
-                        info!("get module type {}", self.data.module_type);
+                        info!("get module type {:#?}", self.data.module_type);
                         let _ = self.channel_main.try_send(MainEvent::ReturnModuleType(self.data.module_type));
                     }
                     ReturnChannel::Ui => {} //self.channel_ui.try_send(MainEvent::ReturnModuleType(self.data.module_type)),
                 }
             }
             RouterEvent::GetMacAddress(ch) => {
-                info!("Router event get mac {:#X}", self.data.mac);
+                match self.data.mac {
+                    Some(mac) => info!("Router event get MAC {:#?}", mac),
+                    None => info!("Router event did not get MAC."),
+                }
+                // info!("Router event get mac {:#X}", self.data.mac);
                 match ch {
                     ReturnChannel::Main => {
                         let _ = self.channel_main.try_send(MainEvent::ReturnMacAddress(self.data.mac));
@@ -316,8 +327,24 @@ impl Router {
 
                                 // Copy data from DMX_BUFFER to LED_COLORS
                                 for vled_index in 0..*num_virtual_leds as usize {
-                                    let dmx_buffer_start = self.data.menu_settings.dmx_address as usize + port_virtual_led_offset + vled_index * smart_led_settings.color_mode.addr_size();
-                                    let dmx_buffer_end = dmx_buffer_start + smart_led_settings.color_mode.addr_size() - 1;
+                                    let mut dmx_buffer_start = self.data.menu_settings.dmx_address as usize + port_virtual_led_offset + vled_index * smart_led_settings.color_mode.addr_size();
+                                    let mut dmx_buffer_end = dmx_buffer_start + smart_led_settings.color_mode.addr_size() - 1;
+
+                                    // Catch out of bounds errors where the calculated start or end are outside the bounds of dmx_buffer
+                                    if dmx_buffer_end >= dmx_buffer.len() {
+                                        warn!("DMX buffer end {} > buffer length {}.", dmx_buffer_end, dmx_buffer.len());
+                                        dmx_buffer_end = dmx_buffer.len() - 1;
+                                    }
+
+                                    if dmx_buffer_start >= dmx_buffer.len() {
+                                        warn!("DMX buffer start {} > buffer length {}.", dmx_buffer_start, dmx_buffer.len());
+                                        dmx_buffer_start = dmx_buffer.len() - 1;
+                                    }
+
+                                    if dmx_buffer_start > dmx_buffer_end {
+                                        warn!("DMX buffer start {} > buffer end {}.", dmx_buffer_start, dmx_buffer_end);
+                                        dmx_buffer_start = dmx_buffer_end;
+                                    }
 
                                     let c = smart_led_settings.color_mode.rgb(&dmx_buffer[dmx_buffer_start..=dmx_buffer_end]); // calculate a color from the dmx data
 

@@ -1,7 +1,17 @@
 //! DMX receiver
 //!
 //! Get DMX data over I2C from RPI
-use defmt::error;
+// use defmt::error;
+use cfg_if::cfg_if;
+
+cfg_if! {
+    if #[cfg(feature = "usb")] {
+        use log::error;
+    } else {
+        use defmt::error;
+    }
+}
+
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_time::Timer;
 use embedded_hal_async::i2c::I2c;
@@ -51,19 +61,19 @@ pub async fn dmx_task(i2c_bus_manager: &'static I2c1Bus, address: u8, tx: DmxCha
                                     // };
                                 }
                                 Err(e) => {
-                                    error!("DMX Error {}", e);
+                                    error!("DMX Error {:?}", e);
                                     Timer::after_millis(250).await;
                                 }
                             };
                         }
                         Err(e) => {
-                            error!("DMX Error {}", e);
+                            error!("DMX Error {:?}", e);
                             Timer::after_millis(250).await;
                         }
                     };
                 }
                 Err(e) => {
-                    error!("DMX Error {}", e);
+                    error!("DMX Error {:?}", e);
                     Timer::after_millis(250).await;
                 }
             };

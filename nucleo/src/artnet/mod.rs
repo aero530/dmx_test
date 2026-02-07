@@ -3,8 +3,15 @@
 //! Get DMX data over ethernet
 
 #![allow(unused)]
+use cfg_if::cfg_if;
 
-use defmt::*;
+cfg_if! {
+    if #[cfg(feature = "usb")] {
+        use log::{error, info, warn, debug};
+    } else {
+        use defmt::{error, info, warn, debug};
+    }
+}
 use embassy_futures::yield_now;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::Stack;
@@ -172,16 +179,16 @@ pub async fn artnet_task(
 
                 match err {
                     tiny_artnet::Error::UnsupportedProtocolVersion(e) => {
-                        error!("ArtNet Unsupported protocol version {}", e)
+                        error!("ArtNet Unsupported protocol version {:?}", e)
                     }
                     tiny_artnet::Error::UnsupportedOpCode(e) => {
-                        error!("ArtNet Unsupported op code {}", e)
+                        error!("ArtNet Unsupported op code {:?}", e)
                     }
                     tiny_artnet::Error::ParseIncomplete(e) => {
-                        error!("ArtNet parse incomplete {}", e)
+                        error!("ArtNet parse incomplete {:?}", e)
                     }
                     tiny_artnet::Error::ParseFault(error_kind) => {
-                        error!("ArtNet parse error {}", error_kind)
+                        error!("ArtNet parse error {:?}", error_kind)
                     }
                     tiny_artnet::Error::ParseFailure => error!("ArtNet parse failure"),
                 }

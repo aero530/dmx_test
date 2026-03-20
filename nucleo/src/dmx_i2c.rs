@@ -48,7 +48,7 @@ pub async fn dmx_task(i2c_bus_manager: &'static I2c1Bus, address: u8, tx: DmxCha
         if input_mode == InputMode::Dmx {
             match i2c_bus_dev.write_read(address, &[0x01], &mut data_buffer[0..199]).await {
                 Ok(()) => {
-                    match i2c_bus_dev.write_read(address, &[0x02], &mut data_buffer[200..299]).await {
+                    match i2c_bus_dev.write_read(address, &[0x02], &mut data_buffer[200..399]).await {
                         Ok(()) => {
                             match i2c_bus_dev.write_read(address, &[0x03], &mut data_buffer[400..513]).await {
                                 Ok(()) => {

@@ -35,7 +35,7 @@ pub const DISPLAY_OFFSET: u16 = 34;
 pub const MENU_ITEMS_PER_TAB: usize = 5;
 
 /// Number of tabs in the UI
-pub const MENU_NUM_TABS: usize = 3;
+pub const MENU_NUM_TABS: usize = 4;
 
 /// Number of ports on the SmartLED output module
 pub const SMARTLED_PORT_COUNT: usize = 4;

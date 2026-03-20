@@ -6,10 +6,7 @@ use embassy_time::{with_timeout, Duration};
 use embedded_hal_1::i2c::I2c as I2CTRAIT;
 
 use crate::{
-    channels::RouterChannelTx,
-    event_router::RouterEvent,
-    ui::{MenuData, ModuleType},
-    EepromChannelRx, I2cSharedDev,
+    EepromChannelRx, I2cSharedDev, channels::RouterChannelTx, event_router::RouterEvent, ui::{BootStatus, MenuData, ModuleType}
 };
 
 use defmt::Format;
@@ -34,6 +31,11 @@ const MODULE_TYPE_MEMLOC: u8 = 0x01;
 /// MAC is 6 bytes long
 const MAC_ADDRESS_MEMLOC: u8 = 0x02;
 
+/// Memory location for boot successful flag
+///
+/// must be a low enough address such that module type data does not interfere with settings at SETTINGS_ADDRESS
+const BOOT_SUCCESSFUL_MEMLOC: u8 = 0x03;
+
 /// Memory location for settings data
 ///
 /// 0x20 = 32 which is the start of the third page of memory
@@ -57,6 +59,11 @@ pub enum EepromEvent {
     ReadMacAddress,
     /// Write MAC address to EEPROM
     WriteMacAddress([u8; 6]),
+    /// Read boot_successful flag from EEPROM
+    ReadBootStatus,
+    /// Write boot_successful flag to EEPROM
+    WriteBootStatus(BootStatus),
+    
 }
 
 /// EEPROM abstraction holding reference to physical chip
@@ -222,6 +229,47 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                         }
                     }
                     let _ = self.tx.try_send(RouterEvent::StoreSettings(Some(menu_settings)));
+                }
+            }
+            EepromEvent::ReadBootStatus => {
+                let data = self.dev.read_byte(BOOT_SUCCESSFUL_MEMLOC);
+
+                match data {
+                    Ok(data) => {
+                        let decoded: BootStatus = bincode::decode_from_slice(&[data], bincode::config::standard()).unwrap_or_default().0;
+                        let _ = self.tx.try_send(RouterEvent::StoreBootStatus(Some(decoded)));
+                    }
+                    Err(e) => {
+                        let _ = self.tx.try_send(RouterEvent::StoreBootStatus(None));
+                        error!("Eeprom - error {:?}", e);
+                        return Err(());
+                    }
+                }
+            }
+            EepromEvent::WriteBootStatus(status) => {
+                let mut slice = [0u8; 1];
+
+                let length = bincode::encode_into_slice(status, &mut slice, bincode::config::standard()).unwrap_or_else(|e| {
+                    match e {
+                        bincode::error::EncodeError::UnexpectedEnd => error!("Error encoding boot status - UnexpectedEnd"),
+                        _ => error!("Error encoding boot status"),
+                    }
+                    0
+                });
+
+                if length > 0 {
+                    #[allow(clippy::let_underscore_future)]
+                    let _ = self.dev.write_byte_wait(BOOT_SUCCESSFUL_MEMLOC, slice[0]); // throw away write due to shared bus issues
+                    match self.dev.write_byte_wait(BOOT_SUCCESSFUL_MEMLOC, slice[0]).await {
+                        Ok(_) => {
+                            let _ = self.tx.try_send(RouterEvent::StoreBootStatus(Some(status)));
+                            info!("Wrote boot successful flag as {:?}", status);
+                        }
+                        Err(e) => {
+                            error!("Eeprom - error {:?}", e);
+                            return Err(());
+                        }
+                    }
                 }
             }
         }

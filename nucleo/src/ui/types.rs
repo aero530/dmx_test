@@ -22,6 +22,14 @@ cfg_if! {
 }
 use enum_ordinalize::Ordinalize;
 
+/// Output module type (defines which kind of module is connected)
+#[derive(Clone, Copy, Default, PartialEq, Format, Debug, Decode, Encode)]
+pub enum BootStatus {
+    #[default]
+    Failed,
+    Success,
+}
+
 /// Flag to monitor a values selection mode
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SelectionMode {
@@ -91,6 +99,7 @@ pub struct MenuData {
     pub artnet_address: ArtNetAddr,
     pub module: ModuleSettings,
     pub ip_addr: IpAddrMenu,
+    pub ethernet_enabled: bool,
 }
 
 impl Default for MenuData {
@@ -102,6 +111,7 @@ impl Default for MenuData {
             artnet_address: ArtNetAddr::default(),
             module: ModuleSettings::default(),
             ip_addr: IpAddrMenu::new(0, 0, 0, 0),
+            ethernet_enabled: false,
         }
     }
 }

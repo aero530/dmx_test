@@ -23,6 +23,7 @@ pub enum ValueType {
     SmartLedColorMode(SmartLedColorMode),
     InputMode(InputMode),
     EthernetIPMode(EthernetIPMode),
+    EthernetEnabled(bool),
     Uint3(u16),
     Ip(IpAddrMenu),
     ArtNetAddr(ArtNetAddr),
@@ -44,6 +45,7 @@ impl ValueType {
             ValueType::Ip(_x) => 1,
             ValueType::ArtNetAddr(_x) => 9,
             ValueType::PortUniverseOffsets(_x) => 1,
+            ValueType::EthernetEnabled(_x) => 1,
         }
     }
 
@@ -130,6 +132,18 @@ impl ValueType {
     }
 
     #[allow(unused)]
+    pub fn extract_ethernet_enabled(&self) -> bool {
+        info!("Extract ethernet enabled mode {}", self);
+        match self {
+            ValueType::EthernetEnabled(x) => *x,
+            _ => {
+                error!("Unable to extract ethernet enabled - setting to default value");
+                false
+            }
+        }
+    }
+
+    #[allow(unused)]
     pub fn extract_ip(&self) -> IpAddrMenu {
         match self {
             ValueType::Ip(x) => *x,
@@ -201,6 +215,7 @@ impl IncDec for ValueType {
                 ValueType::ArtNetAddr(new)
             }
             ValueType::PortUniverseOffsets(x) => ValueType::PortUniverseOffsets(*x),
+            ValueType::EthernetEnabled(x) => ValueType::EthernetEnabled(!x),
         }
     }
 
@@ -252,6 +267,7 @@ impl IncDec for ValueType {
                 ValueType::ArtNetAddr(new)
             }
             ValueType::PortUniverseOffsets(x) => ValueType::PortUniverseOffsets(*x),
+            ValueType::EthernetEnabled(x) => ValueType::EthernetEnabled(!x),
         }
     }
 }
@@ -274,6 +290,7 @@ impl core::fmt::Display for ValueType {
             }
             ValueType::ArtNetAddr(x) => write!(f, "{} {} {}", x.0[0], x.0[1], x.0[2]),
             ValueType::PortUniverseOffsets(x) => write!(f, "{} {} {} {}", x[0], x[1], x[2], x[3]),
+            ValueType::EthernetEnabled(x) => write!(f, "{}", x),
         }
     }
 }

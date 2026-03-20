@@ -7,7 +7,7 @@ use crate::channels::*;
 use crate::eeprom::EepromEvent;
 use crate::pwm_i2c::PwmEvent;
 use crate::smart_led::SmartLedEvent;
-use crate::ui::{InputMode, IpAddrMenu, MenuData, ModuleSettings, ModuleType, SmartLedPortMode, UiEvent};
+use crate::ui::{BootStatus, InputMode, IpAddrMenu, MenuData, ModuleSettings, ModuleType, SmartLedPortMode, UiEvent};
 use crate::{DMX_BUFFER, DMX_UNIVERSE_SIZE, LED_COLORS};
 use core::net::Ipv4Addr;
 use defmt::Format;
@@ -36,7 +36,7 @@ pub struct GlobalData {
     /// Board MAC address - only defined if ETH is enabled
     pub mac: Option<[u8; 6]>,
     /// Monitor boot process
-    pub boot_complete: bool,
+    pub boot_status: Option<BootStatus>,
 }
 
 /// Indicate which channel should be used to return data
@@ -62,8 +62,8 @@ pub enum RouterEvent {
     StoreModuleType(Option<ModuleType>),
     /// Store MAC address in global data
     StoreMacAddress(Option<[u8; 6]>),
-    /// Store boot complete in global data
-    StoreBootComplete(bool),
+    /// Store boot status in global data
+    StoreBootStatus(Option<BootStatus>),
     /// Store IP address in global data
     #[allow(unused)]
     StoreIpAddr(Option<Ipv4Addr>),
@@ -74,6 +74,8 @@ pub enum RouterEvent {
     GetMacAddress(ReturnChannel),
     /// Get settings from global data
     GetSettings(ReturnChannel),
+    /// Get status of previous boot
+    GetBootStatus(ReturnChannel),
 }
 
 /// Data packet address and sequence info either passed through from ArtNet or set to default for DMX packets
@@ -115,6 +117,7 @@ pub enum MainEvent {
     ReturnModuleType(Option<ModuleType>),
     ReturnSettings(MenuData),
     ReturnMacAddress(Option<[u8; 6]>),
+    ReturnBootStatus(Option<BootStatus>),
 }
 
 /// Main communication interface between application tasks
@@ -216,14 +219,14 @@ impl Router {
                     self.channel_dmx_feedback.send(DmxFeedbackEvent::Mode(x.input_mode));
                 }
             }
+            RouterEvent::StoreBootStatus(status) => {
+                self.data.boot_status = status;
+            }
             RouterEvent::StoreModuleType(module_type) => {
                 self.data.module_type = module_type;
             }
             RouterEvent::StoreMacAddress(mac) => {
                 self.data.mac = mac;
-            }
-            RouterEvent::StoreBootComplete(complete) => {
-                self.data.boot_complete = complete;
             }
             RouterEvent::StoreIpAddr(data) => {
                 if let Some(addr) = data {
@@ -233,8 +236,8 @@ impl Router {
                 }
                 let _ = self.channel_ui.try_send(UiEvent::Load(self.data.menu_settings));
             }
-            RouterEvent::GetModuleType(ch) => {
-                match ch {
+            RouterEvent::GetModuleType(return_channel) => {
+                match return_channel {
                     ReturnChannel::Main => {
                         info!("get module type {:#?}", self.data.module_type);
                         let _ = self.channel_main.try_send(MainEvent::ReturnModuleType(self.data.module_type));
@@ -242,20 +245,20 @@ impl Router {
                     ReturnChannel::Ui => {} //self.channel_ui.try_send(MainEvent::ReturnModuleType(self.data.module_type)),
                 }
             }
-            RouterEvent::GetMacAddress(ch) => {
+            RouterEvent::GetMacAddress(return_channel) => {
                 match self.data.mac {
                     Some(mac) => info!("Router event get MAC {:#?}", mac),
                     None => info!("Router event did not get MAC."),
                 }
                 // info!("Router event get mac {:#X}", self.data.mac);
-                match ch {
+                match return_channel {
                     ReturnChannel::Main => {
                         let _ = self.channel_main.try_send(MainEvent::ReturnMacAddress(self.data.mac));
                     }
                     ReturnChannel::Ui => {} //self.channel_ui.try_send(MainEvent::ReturnMacAddress(self.data.mac)),
                 }
             }
-            RouterEvent::GetSettings(ch) => match ch {
+            RouterEvent::GetSettings(return_channel) => match return_channel {
                 ReturnChannel::Main => {
                     let _ = self.channel_main.try_send(MainEvent::ReturnSettings(self.data.menu_settings));
                 }
@@ -263,12 +266,21 @@ impl Router {
                     let _ = self.channel_ui.try_send(UiEvent::Load(self.data.menu_settings));
                 }
             },
+            RouterEvent::GetBootStatus(return_channel) => {
+                 match return_channel {
+                    ReturnChannel::Main => {
+                        info!("get boot status {:#?}", self.data.boot_status);
+                        let _ = self.channel_main.try_send(MainEvent::ReturnBootStatus(self.data.boot_status));
+                    }
+                    ReturnChannel::Ui => {} //self.channel_ui.try_send(MainEvent::ReturnModuleType(self.data.module_type)),
+                }
+            },
         }
     }
 
     /// Update LED color in memory and apply to physical LEDs
     pub async fn process_dmx_event(&mut self, event: DmxEvent) {
-        if self.data.boot_complete {
+        if self.data.boot_status == Some(BootStatus::Success) {
             // Check to make sure the incoming ArtNet packet address info matches current settings (ie make sure this packet was for us)
             let _packet_addr = match event {
                 DmxEvent::DmxPacket(d) => d,
@@ -295,6 +307,7 @@ impl Router {
                     let _ = self.channel_pwm_i2c.try_send(PwmEvent::Value([dmx_buffer[1], dmx_buffer[2], dmx_buffer[3]]));
                 }
                 ModuleSettings::SmartLed(smart_led_settings) => {
+                    
                     let dmx_group_size = smart_led_settings.dmx_group_size.0;
                     // Lock global dmx data buffer
                     let dmx_buffer = DMX_BUFFER.lock().await;

@@ -10,7 +10,7 @@ bench = false
 
 [features]
 # default = []
-default = ["clock_stlink", "ethernet", "usb"]
+default = ["clock_stlink", "ethernet"]
 # default = ["ethernet", "clock_stlink"]
 # default = ["ethernet", "clock_25MHz_osc"]
 ethernet = []

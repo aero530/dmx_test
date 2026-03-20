@@ -8,6 +8,18 @@
 #![no_std]
 #![no_main]
 
+
+
+
+// add enable_ethernet setting on the menu
+// add boot_successful flag bit in the eeprom.
+// on boot check boot_successful flag. if not set then clear enable_ethernet flag.  if set then boot normally.
+// clear boot_successful flag at the start of each boot sequence.  set boot_successful flag at the end of a successful boot sequence.
+// during boot only try to enable ethernet if 'enable ethernet' setting is set in the eeprom.
+// after boot sequence set boot_successful flag in eeprom.
+
+
+
 use cfg_if::cfg_if;
 // use defmt::*;
 
@@ -120,6 +132,7 @@ use smart_led::smart_led_task;
 
 mod ui;
 use ui::ui_task_spi;
+use ui::BootStatus;
 
 mod eeprom;
 use eeprom::eeprom_i2c_task;
@@ -305,11 +318,8 @@ async fn main(spawner: Spawner) {
     let i2c_led_dev_1 = I2cDevice::new(i2c_led_bus_manager);
     spawner.spawn(eeprom_i2c_task(i2c_led_dev_1, EEPROM_ADDRESS, CHANNEL_EEPROM.receiver(), CHANNEL.sender())).unwrap();
 
-    // let i2c_led_dev_2 = I2cDevice::new(i2c_led_bus_manager);
-    // spawner.spawn(pwm_i2c_task(i2c_led_dev_2, PWM_ADDRESS, CHANNEL_PWM.receiver())).unwrap();
-
     // info!("Try store module type");
-    // let a = CHANNEL_EEPROM.try_send(EepromEvent::StoreModuleType(ModuleType::SmartLed));
+    // let a = CHANNEL_EEPROM.try_send(EepromEvent::WriteModuleType(ModuleType::SmartLed));
 
     // -----------------------------------
     // Configure I2C for display
@@ -354,7 +364,7 @@ async fn main(spawner: Spawner) {
     // -----------------------------------
     let button = Input::new(p.PC13, Pull::Up);
     Timer::after_millis(10).await;
-    let factor_reset = button.is_low();
+    let factory_reset = button.is_low();
     spawner.spawn(button_task(button, CHANNEL.sender())).unwrap();
 
     // -----------------------------------
@@ -514,7 +524,7 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(event_router(router)).unwrap();
 
-    if factor_reset {
+    if factory_reset {
         info!("");
         info!("");
         info!("Resetting to factory defaults");
@@ -528,6 +538,10 @@ async fn main(spawner: Spawner) {
         Timer::after_millis(500).await;
     }
 
+    info!("Try to read previous boot status");
+    let _ = CHANNEL_EEPROM.send(EepromEvent::ReadBootStatus).await;
+    Timer::after_millis(50).await;
+
     info!("Try to read module type settings");
     let _ = CHANNEL_EEPROM.send(EepromEvent::ReadModuleType).await;
     Timer::after_millis(50).await;
@@ -539,6 +553,30 @@ async fn main(spawner: Spawner) {
     info!("Try to read settings");
     let _ = CHANNEL_EEPROM.send(EepromEvent::ReadSettings).await;
     Timer::after_millis(50).await;
+
+    info!("Try to get boot status");
+    let _ = CHANNEL.try_send(RouterEvent::GetBootStatus(ReturnChannel::Main));
+    let boot_status = if let Ok(new_message) = with_timeout(Duration::from_millis(250), CHANNEL_MAIN.receiver().receive()).await {
+        match new_message {
+            MainEvent::ReturnBootStatus(x) => {
+                if let Some(m) = x {
+                    m
+                } else {
+                    BootStatus::Failed
+                }
+            }
+            _ => BootStatus::Failed,
+        }
+    } else {
+        error!("Unable to get boot status.");
+        BootStatus::Failed
+    };
+    info!("Boot Status {:?}", boot_status);
+
+    info!("Try to reset boot status on eeprom to failed.");
+    let _ = CHANNEL_EEPROM.send(EepromEvent::WriteBootStatus(ui::BootStatus::Failed)).await;
+    Timer::after_millis(50).await;
+
 
     info!("Try to get module type");
     let _ = CHANNEL.try_send(RouterEvent::GetModuleType(ReturnChannel::Main));
@@ -561,7 +599,7 @@ async fn main(spawner: Spawner) {
 
     info!("Try to get settings");
     let _ = CHANNEL.try_send(RouterEvent::GetSettings(ReturnChannel::Main));
-    let boot_settings = if let Ok(new_message) = with_timeout(Duration::from_millis(250), CHANNEL_MAIN.receiver().receive()).await {
+    let settings_from_eeprom = if let Ok(new_message) = with_timeout(Duration::from_millis(250), CHANNEL_MAIN.receiver().receive()).await {
         match new_message {
             MainEvent::ReturnSettings(x) => x,
             _ => MenuData::default(),
@@ -570,104 +608,117 @@ async fn main(spawner: Spawner) {
         error!("Unable to get settings.");
         MenuData::default()
     };
-    info!("Boot Settings {:?}", boot_settings);
+    info!("Settings from EEPROM {:?}", settings_from_eeprom);
 
+
+    if boot_status == BootStatus::Failed {
+        info!("Previous boot was not successful.  Disable ethernet to prevent potential lockout.");
+        
+        let _ = CHANNEL_EEPROM.send(EepromEvent::WriteSettings(MenuData {ethernet_enabled: false, ..settings_from_eeprom})).await;
+        Timer::after_millis(50).await;
+    }
+
+    
     cfg_if! {
         if #[cfg(feature = "ethernet")] {
-            info!("Try to get mac address");
-            let _ = CHANNEL.try_send(RouterEvent::GetMacAddress(ReturnChannel::Main));
-            let (mac_address, read_mac_success) = if let Ok(new_message) = with_timeout(Duration::from_millis(250), CHANNEL_MAIN.receiver().receive()).await {
-                match new_message {
-                    MainEvent::ReturnMacAddress(x) => {
-                        if let Some(m) = x {
-                            (m, true)
-                        } else {
-                            ([0, 0, 0, 0, 0, 0], false)
-                        }
-                    },
-                    _ => ([0, 0, 0, 0, 0, 0], false),
+            if settings_from_eeprom.ethernet_enabled {
+                info!("Try to get mac address");
+                let _ = CHANNEL.try_send(RouterEvent::GetMacAddress(ReturnChannel::Main));
+                let (mac_address, read_mac_success) = if let Ok(new_message) = with_timeout(Duration::from_millis(250), CHANNEL_MAIN.receiver().receive()).await {
+                    match new_message {
+                        MainEvent::ReturnMacAddress(x) => {
+                            if let Some(m) = x {
+                                (m, true)
+                            } else {
+                                ([0, 0, 0, 0, 0, 0], false)
+                            }
+                        },
+                        _ => ([0, 0, 0, 0, 0, 0], false),
+                    }
+                } else {
+                    error!("Unable to get mac address.");
+                    ([0, 0, 0, 0, 0, 0], false)
+                };
+
+                info!("MAC Address currently: {:?}", mac_address);
+
+                let mut mac_addr = mac_address;
+                let mut rng = Rng::new(p.RNG, Irqs);
+
+                if mac_address == [0, 0, 0, 0, 0, 0] {
+                    // generate random mac address
+                    rng.fill_bytes(&mut mac_addr);
+
+                    // force the least significant bit of addr0 to be 0 so the mac is unicast.
+                    mac_addr[0] = (mac_addr[0] >> 1) << 1;
+                    info!("New calculated MAC Address: {:?}", mac_addr);
+
+                    // store new mac address but only if we successfully read all zeros.  otherwise we assume i2c error and don't overwrite the mac
+                    if read_mac_success {
+                        let _ = CHANNEL_EEPROM.send(EepromEvent::WriteMacAddress(mac_addr)).await;
+                        Timer::after_millis(100).await;
+                    }
+
                 }
-            } else {
-                error!("Unable to get mac address.");
-                ([0, 0, 0, 0, 0, 0], false)
-            };
 
-            info!("MAC Address currently: {:?}", mac_address);
+                let oem: [u8; 2] = ARTNET_OEM.to_be_bytes();
+                let static_ip = [2, mac_addr[3] + oem[0] + oem[1], mac_addr[4], mac_addr[5]];
 
-            let mut mac_addr = mac_address;
-            let mut rng = Rng::new(p.RNG, Irqs);
+                info!("Calcuated IP: {:?}", static_ip);
 
-            if mac_address == [0, 0, 0, 0, 0, 0] {
-                // generate random mac address
-                rng.fill_bytes(&mut mac_addr);
+                // Generate random seed.
+                // let mut rng = Rng::new(p.RNG, Irqs);
+                let mut seed = [0; 8];
 
-                // force the least significant bit of addr0 to be 0 so the mac is unicast.
-                mac_addr[0] = (mac_addr[0] >> 1) << 1;
-                info!("New calculated MAC Address: {:?}", mac_addr);
+                rng.fill_bytes(&mut seed);
 
-                // store new mac address but only if we successfully read all zeros.  otherwise we assume i2c error and don't overwrite the mac
-                if read_mac_success {
-                    let _ = CHANNEL_EEPROM.send(EepromEvent::WriteMacAddress(mac_addr)).await;
-                    Timer::after_millis(100).await;
-                }
+                let seed = u64::from_le_bytes(seed);
 
+                static PACKETS: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
+                let l = PACKETS.init(PacketQueue::<4, 4>::new());
+
+                let ethernet_device = Ethernet::new(
+                    l,
+                    p.ETH,
+                    Irqs,
+                    p.PA1,
+                    p.PA2,
+                    p.PC1,
+                    p.PA7,
+                    p.PC4,
+                    p.PC5,
+                    p.PG13,
+                    p.PB15,
+                    p.PG11,
+                    GenericPhy::new_auto(),
+                    mac_addr,
+                );
+
+                // Choose between dhcp or static ip
+                let config = match settings_from_eeprom.ethernet_ip_mode {
+                    EthernetIPMode::Dhcp => embassy_net::Config::dhcpv4(Default::default()),
+                    EthernetIPMode::Static => embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
+                        address: Ipv4Cidr::new(Ipv4Address::new(static_ip[0],static_ip[1],static_ip[2],static_ip[3]), 24),
+                        dns_servers: Default::default(),
+                        gateway: Some(Ipv4Address::new(192,168,86,1)),
+                    })
+                };
+
+                // Init network stack
+                static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+                let (stack, runner) = embassy_net::new(ethernet_device, config, RESOURCES.init(StackResources::new()), seed);
+
+                // Launch network task
+                spawner.spawn(net_task(runner)).unwrap_or_else(|_| error!("Unable to spawn net task."));
+
+                spawner
+                    .spawn(artnet_task(stack, CHANNEL_DMX.sender(), CHANNEL.sender(), CHANNEL_DMX_FEEDBACK.receiver().unwrap()))
+                    .unwrap_or_else(|_| error!("Unable to spawn artnet task."));
             }
-
-            let oem: [u8; 2] = ARTNET_OEM.to_be_bytes();
-            let static_ip = [2, mac_addr[3] + oem[0] + oem[1], mac_addr[4], mac_addr[5]];
-
-            info!("Calcuated IP: {:?}", static_ip);
-
-            // Generate random seed.
-            // let mut rng = Rng::new(p.RNG, Irqs);
-            let mut seed = [0; 8];
-
-            rng.fill_bytes(&mut seed);
-            let seed = u64::from_le_bytes(seed);
-
-
-            static PACKETS: StaticCell<PacketQueue<4, 4>> = StaticCell::new();
-            let l = PACKETS.init(PacketQueue::<4, 4>::new());
-
-            let ethernet_device = Ethernet::new(
-                l,
-                p.ETH,
-                Irqs,
-                p.PA1,
-                p.PA2,
-                p.PC1,
-                p.PA7,
-                p.PC4,
-                p.PC5,
-                p.PG13,
-                p.PB15,
-                p.PG11,
-                GenericPhy::new_auto(),
-                mac_addr,
-            );
-
-            // Choose between dhcp or static ip
-            let config = match boot_settings.ethernet_ip_mode {
-                EthernetIPMode::Dhcp => embassy_net::Config::dhcpv4(Default::default()),
-                EthernetIPMode::Static => embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
-                    address: Ipv4Cidr::new(Ipv4Address::new(static_ip[0],static_ip[1],static_ip[2],static_ip[3]), 24),
-                    dns_servers: Default::default(),
-                    gateway: Some(Ipv4Address::new(192,168,86,1)),
-                })
-            };
-
-            // Init network stack
-            static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-            let (stack, runner) = embassy_net::new(ethernet_device, config, RESOURCES.init(StackResources::new()), seed);
-
-            // Launch network task
-            spawner.spawn(net_task(runner)).unwrap_or_else(|_| error!("Unable to spawn net task."));
-
-            spawner
-                .spawn(artnet_task(stack, CHANNEL_DMX.sender(), CHANNEL.sender(), CHANNEL_DMX_FEEDBACK.receiver().unwrap()))
-                .unwrap_or_else(|_| error!("Unable to spawn artnet task."));
         }
     }
 
-    let _ = CHANNEL.try_send(RouterEvent::StoreBootComplete(true));
+    let _ = CHANNEL_EEPROM.send(EepromEvent::WriteBootStatus(ui::BootStatus::Success)).await;
+    Timer::after_millis(50).await;
+    // let _ = CHANNEL.try_send(RouterEvent::StoreBootComplete(true));
 }

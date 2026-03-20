@@ -142,6 +142,13 @@ impl From<MenuData> for MenuTabData {
             ],
             tab1,
             tab2,
+            [
+                MenuItemInputs::new("Enable Ethernet (reboot req)", ValueType::EthernetEnabled(source.ethernet_enabled), true, true),
+                MenuItemInputs::new("", ValueType::None, false, false),
+                MenuItemInputs::new("", ValueType::None, false, false),
+                MenuItemInputs::new("", ValueType::None, false, false),
+                MenuItemInputs::new("", ValueType::None, false, false),
+            ],
         ])
     }
 }
@@ -179,6 +186,7 @@ impl MenuTabData {
             dmx_address: self.0[0][0].value.extract_uint3(),
             input_mode: self.0[0][1].value.extract_input_mode(),
             ethernet_ip_mode: self.0[0][2].value.extract_ethernet_ip_mode(),
+            ethernet_enabled: self.0[3][0].value.extract_ethernet_enabled(),
             ip_addr: self.0[0][3].value.extract_ip(),
             artnet_address: self.0[0][4].value.extract_artnet(),
             module: module_settings,
@@ -212,7 +220,7 @@ pub struct Ui<'a> {
     /// Currently installed module type
     module_type: ModuleType,
     /// Menus displayed in the UI
-    menus: [MenuTab<'a>; 3],
+    menus: [MenuTab<'a>; 4],
 }
 
 impl<'a> Ui<'a> {
@@ -229,7 +237,7 @@ impl<'a> Ui<'a> {
             menu_data: md,
             menu_tab_data,
             module_type,
-            menus: [MenuTab::default(), MenuTab::default(), MenuTab::default()],
+            menus: [MenuTab::default(), MenuTab::default(), MenuTab::default(), MenuTab::default()],
         }
     }
 
@@ -282,17 +290,27 @@ impl<'a> Ui<'a> {
             MenuItem::new(mtd.0[2][4], Point::zero(), text_style.clone()),
         ];
 
+        let menu3_items = [
+            MenuItem::new(mtd.0[3][0], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[3][1], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[3][2], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[3][3], Point::zero(), text_style.clone()),
+            MenuItem::new(mtd.0[3][4], Point::zero(), text_style.clone()),
+        ];
+
         // Create menu tabs
         let mut menu0 = MenuTab::new("Main Menu", menu0_items);
         let mut menu1 = MenuTab::new("LED Settings 1", menu1_items);
         let mut menu2 = MenuTab::new("LED Settings 2", menu2_items);
+        let mut menu3 = MenuTab::new("System", menu3_items);
 
         menu0.arrange();
         menu1.arrange();
         menu2.arrange();
+        menu3.arrange();
 
         // Create menu & draw initial tab
-        let menu_structure = [menu0, menu1, menu2];
+        let menu_structure = [menu0, menu1, menu2, menu3];
         self.menus = menu_structure;
 
         self.menus[self.current_tab].update();
@@ -355,6 +373,10 @@ impl<'a> Ui<'a> {
                         for (item_index, item) in self.menu_tab_data.0[2].iter().enumerate() {
                             self.menus[2].set(item_index, item.value);
                         }
+
+                        for (item_index, item) in self.menu_tab_data.0[3].iter().enumerate() {
+                            self.menus[3].set(item_index, item.value);
+                        }
                     }
                 };
 
@@ -376,6 +398,9 @@ impl<'a> Ui<'a> {
             }
             2 => {
                 self.menu_tab_data.0[2][item_index].value = value;
+            }
+            3 => {
+                self.menu_tab_data.0[3][item_index].value = value;
             }
             _ => {}
         }

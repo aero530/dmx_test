@@ -84,13 +84,19 @@ pub async fn artnet_task(
         if let Some(input_data) = rx.try_changed() {
             // info!("ArtNet - update mode to {}", input_data);
             match input_data {
-                DmxFeedbackEvent::Mode(new_mode) => {
+                DmxFeedbackEvent::Mode(new_mode, _universe) => {
                     input_mode = new_mode;
                 }
             }
         }
 
-        let (len, from_addr) = socket.recv_from(&mut buf).await.unwrap();
+        let (len, from_addr) = match socket.recv_from(&mut buf).await {
+            Ok(x) => x,
+            Err(e) => {
+                error!("ArtNet socket receive error {:?}", e);
+                continue;
+            }
+        };
         // trace!("Ethernet {:?}", buf);
 
         match tiny_artnet::from_slice(&buf[..len]) {
@@ -103,14 +109,18 @@ pub async fn artnet_task(
                 //     &dmx.data[0..10],
                 // );
 
-                let universe = dmx.port_address.universe as usize;
-                let start = DMX_UNIVERSE_SIZE * universe;
-                let end = DMX_UNIVERSE_SIZE + DMX_UNIVERSE_SIZE * universe;
-                let mut dmx_buffer = DMX_BUFFER.lock().await;
-                dmx_buffer[start..end].copy_from_slice(dmx.data);
-                // info!("{}", dmx_buffer[start..end]);
+                // Only store data when ArtNet is the active input, otherwise stray
+                // network packets overwrite the wired-DMX / USB data between I2C polls.
+                if matches!(input_mode, InputMode::ArtNet | InputMode::ArtNetToDmx) {
+                    let universe = dmx.port_address.universe as usize;
+                    let start = DMX_UNIVERSE_SIZE * universe;
+                    // The spec allows packets carrying fewer than 512 channels
+                    let len = dmx.data.len().min(DMX_UNIVERSE_SIZE);
+                    let mut dmx_buffer = DMX_BUFFER.lock().await;
+                    dmx_buffer[start..start + len].copy_from_slice(&dmx.data[..len]);
+                    drop(dmx_buffer);
+                    // info!("{}", dmx_buffer[start..end]);
 
-                if input_mode == InputMode::ArtNet {
                     // if dmx.port_address.universe == 2 {
                     let _ = tx.try_send(DmxEvent::ArtNetPacket(PacketAddress::new(dmx.port_address, dmx.sequence)));
                     // }

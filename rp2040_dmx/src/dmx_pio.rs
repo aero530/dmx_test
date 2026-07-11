@@ -1,43 +1,59 @@
-//! PIO DMX
+//! PIO-backed DMX-512 receiver and transmitter.
+//!
+//! Ports of the Pico-DMX `DmxInput` and `DmxOutput` PIO programs
+//! (jostlowe/Pico-DMX, BSD-3-Clause) to embassy-rp.
+//!
+//! * RX: the state machine hunts for a valid BREAK (>= 88us of continuous
+//!   low), waits for the Mark-After-Break, then shifts in one byte per DMX
+//!   slot. Each byte is pushed to the RX FIFO and drained into a buffer by
+//!   DMA.
+//! * TX: the state machine asserts a 176us BREAK and a 16us MAB, then
+//!   shifts out one byte per DMX slot (8N2) fed from the TX FIFO by DMA.
 
-use fixed::traits::ToFixed;
-use embassy_rp::clocks::clk_sys_freq;
-use embassy_rp::gpio::Level;
 use embassy_rp::Peri;
+use embassy_rp::clocks::clk_sys_freq;
+use embassy_rp::dma::{AnyChannel, Channel};
+use embassy_rp::gpio::{Level, Pull};
 use embassy_rp::pio::program::pio_asm;
-use embassy_rp::pio::{Common, Config, Direction, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine};
-// use embassy_rp::dma::{AnyChannel, Channel, Transfer};
+use embassy_rp::pio::{
+    Common, Config, Direction, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection,
+    StateMachine,
+};
+use embassy_time::Timer;
+use fixed::traits::ToFixed;
 
-use super::DMX_SIZE;
+/// One DMX packet as stored in the receive buffer: start code + 512 channels.
+pub const DMX_FRAME_SIZE: usize = 513;
 
-/// This struct represents a DMX Rx program loaded into pio instruction memory.
+/// The state machine must run at exactly 1MHz for the program's bit timing.
+const DMX_SM_FREQ: u32 = 1_000_000;
+
+/// This struct represents a DMX RX program loaded into pio instruction memory.
 pub struct PioDmxRxProgram<'d, PIO: Instance> {
     prg: LoadedProgram<'d, PIO>,
 }
 
 impl<'d, PIO: Instance> PioDmxRxProgram<'d, PIO> {
-    /// Load the DMX rx program into the given pio
+    /// Load the DMX RX program into the given pio instruction memory.
     pub fn new(common: &mut Common<'d, PIO>) -> Self {
-        // The program assumes a PIO clock frequency of exactly 1MHz
         let prg = pio_asm!(
-                // ".program DmxInput",
-                ".define dmx_bit 4",                     // As DMX has a baudrate of 250.000kBaud, a single bit is 4us
-                "break_reset:",
-                "    set x, 29",                         // Setup a counter to count the iterations on break_loop
-                "break_loop:",                           // Break loop lasts for 8us. The entire break must be minimum 30*3us = 90us
-                "    jmp pin break_reset",               // Go back to start if pin goes high during the break
-                "    jmp x-- break_loop   [1]",          // Decrease the counter and go back to break loop if x>0 so that the break is not done
-                "    wait 1 pin 0",                      // Stall until line goes high for the Mark-After-Break (MAB) 
-                ".wrap_target",
-                "    wait 0 pin 0",                      // Stall until start bit is asserted
-                "    set x, 7             [dmx_bit]",    // Preload bit counter, then delay until halfway through
-                "bitloop:",
-                "    in pins, 1",                        // Shift data bit into ISR
-                "    jmp x-- bitloop      [dmx_bit-2]",  // Loop 8 times, each loop iteration is 4us
-                "    wait 1 pin 0",                      // Wait for pin to go high for stop bits
-                "    in NULL, 24",                       // Push 24 more bits into the ISR so that our one byte is at the position where the DMA expects it.  8 data bits + 24 dummy bits = 32bit word of FIFO
-                "    push",                              // Should probably do error checking on the stop bits some time in the future....
-                ".wrap",                                 // Return to wrap_target
+            ".define dmx_bit 4",               // At 250kbaud a single DMX bit is 4us
+            "break_reset:",
+            "    set x, 29",                   // Counter for break_loop below
+            "break_loop:",                     // One iteration is 3us; 30 * 3us = 90us > the 88us minimum BREAK
+            "    jmp pin break_reset",         // Restart the hunt if the line goes high during the BREAK
+            "    jmp x-- break_loop   [1]",
+            "    wait 1 pin 0",                // Stall until the line goes high for the Mark-After-Break (MAB)
+            ".wrap_target",
+            "    wait 0 pin 0",                // Stall until the start bit is asserted
+            "    set x, 7             [dmx_bit]", // Preload bit counter, delay until halfway through the first bit
+            "bitloop:",
+            "    in pins, 1",                  // Shift data bit into ISR
+            "    jmp x-- bitloop      [dmx_bit-2]", // Loop 8 times, one iteration per 4us bit
+            "    wait 1 pin 0",                // Wait for the line to go high for the stop bits
+            "    in NULL, 24",                 // Right-justify the byte at ISR[7:0] where the 8-bit DMA read expects it
+            "    push",
+            ".wrap",
         );
 
         let prg = common.load_program(&prg.program);
@@ -45,111 +61,183 @@ impl<'d, PIO: Instance> PioDmxRxProgram<'d, PIO> {
     }
 }
 
-/// PIO backed DMX reciever
+/// PIO-backed DMX-512 receiver.
 pub struct PioDmxRx<'d, PIO: Instance, const SM: usize> {
     sm: StateMachine<'d, PIO, SM>,
-    // dma: Peri<'d, AnyChannel>,
+    dma: Peri<'d, AnyChannel>,
+    origin: u8,
 }
 
 impl<'d, PIO: Instance, const SM: usize> PioDmxRx<'d, PIO, SM> {
-    /// Configure a pio state machine to use the loaded rx program.
+    /// Configure a pio state machine to use the loaded DMX RX program.
     pub fn new(
-        // dma: Peri<'d, impl Channel>,
         common: &mut Common<'d, PIO>,
         mut sm: StateMachine<'d, PIO, SM>,
+        dma: Peri<'d, impl Channel>,
         rx_pin: Peri<'d, impl PioPin>,
         program: &PioDmxRxProgram<'d, PIO>,
     ) -> Self {
         let mut cfg = Config::default();
-        
-        // Attempt to load the DMX PIO assembly program into the PIO program memory
         cfg.use_program(&program.prg, &[]);
 
-        // Set this pin's GPIO function (connect PIO to the pad)
-        // pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, false);
-        // pio_gpio_init(pio, pin);
-        // gpio_pull_up(pin);
-        let rx_pin = common.make_pio_pin(rx_pin);
-        sm.set_pins(Level::High, &[&rx_pin]);
+        let mut rx_pin = common.make_pio_pin(rx_pin);
+        rx_pin.set_pull(Pull::Up); // DMX line idles high
         sm.set_pin_dirs(Direction::In, &[&rx_pin]);
+        cfg.set_in_pins(&[&rx_pin]); // for WAIT, IN
+        cfg.set_jmp_pin(&rx_pin); // for JMP
 
-        // sm_config_set_in_pins(&sm_conf, pin); // for WAIT, IN
-        // sm_config_set_jmp_pin(&sm_conf, pin); // for JMP
-        cfg.set_in_pins(&[&rx_pin]);
-        cfg.set_jmp_pin(&rx_pin);
-        
-
-        // Setup the side-set pins for the PIO state machine
-        // Shift to right, autopush disabled
-        // sm_config_set_in_shift(&sm_conf, true, false, 8);
+        // DMX sends each slot LSB-first; shift right and push each byte manually.
         cfg.shift_in.auto_fill = false;
         cfg.shift_in.direction = ShiftDirection::Right;
-        cfg.shift_in.threshold = 8;
+        cfg.shift_in.threshold = 32;
 
-        // Deeper FIFO as we're not doing any TX
-        // sm_config_set_fifo_join(&sm_conf, PIO_FIFO_JOIN_RX);
+        // Deeper RX FIFO, we never transmit.
         cfg.fifo_join = FifoJoin::RxOnly;
 
-        // Setup the clock divider to run the state machine at exactly 1MHz
-        // uint clk_div = clock_get_hz(clk_sys) / DMX_SM_FREQ;
-        // sm_config_set_clkdiv(&sm_conf, clk_div);
-        cfg.clock_divider = (clk_sys_freq() / 1_000_000 ).to_fixed();
+        cfg.clock_divider = (clk_sys_freq() / DMX_SM_FREQ).to_fixed();
 
-        // Load our configuration, jump to the start of the program and run the State Machine
-        // pio_sm_init(pio, sm, prgm_offsets[pio_ind], &sm_conf);
         sm.set_config(&cfg);
-        sm.set_enable(true);
 
-        Self { 
-            sm, 
-            // dma: dma.into()
+        // The state machine stays disabled until the first `read()` arms it.
+        Self {
+            sm,
+            dma: dma.into(),
+            origin: program.prg.origin,
         }
-        
     }
 
-    /// Wait for a single u8
-    pub async fn read_u8(&mut self) -> u8 {
-        self.sm.rx().wait_pull().await as u8
+    /// Receive one complete DMX packet into `buf`.
+    ///
+    /// `buf[0]` receives the start code (0x00 for standard dimmer data) and
+    /// `buf[1..=512]` channels 1 through 512. The state machine is restarted
+    /// at the BREAK detector before the transfer, so the data is always
+    /// aligned to the start of a packet. Cancelling the returned future
+    /// (e.g. racing it against a timeout) aborts the in-flight DMA transfer
+    /// and leaves the receiver in a safe state.
+    ///
+    /// Note: this only completes once all 513 slots of a full-size universe
+    /// have been received, matching the Arduino sketch's configuration of
+    /// `NUM_CHANNELS 513`.
+    pub async fn read(&mut self, buf: &mut [u8; DMX_FRAME_SIZE]) {
+        // Re-arm: reset the state machine to the BREAK detector so the byte
+        // stream is aligned to a packet boundary, and drop anything stale
+        // still sitting in the FIFO. This mirrors what the Pico-DMX C
+        // library does in its DMA completion interrupt.
+        self.sm.set_enable(false);
+        self.sm.clear_fifos();
+        self.sm.restart();
+        unsafe { self.sm.exec_jmp(self.origin) };
+        self.sm.set_enable(true);
+
+        // Each RX FIFO word holds one DMX slot in its low byte; drain one
+        // packet's worth with 8-bit DMA reads.
+        self.sm.rx().dma_pull(self.dma.reborrow(), buf, false).await;
     }
-    
-    /// Return an in-prograss dma transfer future. Awaiting it will guarentee a complete transfer.
-    pub async fn read<'b>(&'b mut self, buff: &'b mut [u8; DMX_SIZE]) {
-        // wait for start byte
-        // push data to buffer [512]
-        
-        let mut i = 0;
+}
 
-        loop {
-            let b = self.read_u8().await;
-            
-            match b {
-                0x00 => {
-                    buff.fill(0x00);
-                },
-                byte => {
-                    buff[i] = byte;
-                    i += 1;
+/// This struct represents a DMX TX program loaded into pio instruction memory.
+pub struct PioDmxTxProgram<'d, PIO: Instance> {
+    prg: LoadedProgram<'d, PIO>,
+}
 
-                    if i >= DMX_SIZE {
-                        // buff.fill(0x00);
-                        // i = 0;
-                        break
-                    }
-                }
-            }
+impl<'d, PIO: Instance> PioDmxTxProgram<'d, PIO> {
+    /// Load the DMX TX program into the given pio instruction memory.
+    pub fn new(common: &mut Common<'d, PIO>) -> Self {
+        let prg = pio_asm!(
+            ".side_set 1 opt",
+            // Assert break condition
+            "    set x, 21          side 0",    // Preload bit counter, assert break condition for 176us
+            "breakloop:",                       // This loop will run 22 times
+            "    jmp x-- breakloop  [7]",       // Each loop iteration is 8 cycles
+            // Assert start condition
+            "    nop                side 1 [7]", // Assert MAB. 8 cycles nop and 8 cycles stop-bits = 16us
+            // Send data frame
+            ".wrap_target",
+            "    pull               side 1 [7]", // Assert 2 stop bits, or stall with line in idle state
+            "    set x, 7           side 0 [3]", // Preload bit counter, assert start bit for 4 clocks
+            "bitloop:",                          // This loop will run 8 times (8n1 UART)
+            "    out pins, 1",                   // Shift 1 bit from OSR to the first OUT pin
+            "    jmp x-- bitloop    [2]",        // Each loop iteration is 4 cycles
+            ".wrap",
+        );
+
+        let prg = common.load_program(&prg.program);
+        Self { prg }
+    }
+}
+
+/// PIO-backed DMX-512 transmitter.
+pub struct PioDmxTx<'d, PIO: Instance, const SM: usize> {
+    sm: StateMachine<'d, PIO, SM>,
+    dma: Peri<'d, AnyChannel>,
+    origin: u8,
+}
+
+impl<'d, PIO: Instance, const SM: usize> PioDmxTx<'d, PIO, SM> {
+    /// Configure a pio state machine to use the loaded DMX TX program.
+    pub fn new(
+        common: &mut Common<'d, PIO>,
+        mut sm: StateMachine<'d, PIO, SM>,
+        dma: Peri<'d, impl Channel>,
+        tx_pin: Peri<'d, impl PioPin>,
+        program: &PioDmxTxProgram<'d, PIO>,
+    ) -> Self {
+        let mut cfg = Config::default();
+        let tx_pin = common.make_pio_pin(tx_pin);
+        // The BREAK/MAB/start/stop bits are driven by the side-set on the same pin
+        cfg.use_program(&program.prg, &[&tx_pin]);
+        cfg.set_out_pins(&[&tx_pin]);
+        sm.set_pins(Level::High, &[&tx_pin]); // DMX line idles high
+        sm.set_pin_dirs(Direction::Out, &[&tx_pin]);
+
+        // DMX sends each slot LSB-first; each pull takes one byte from the FIFO.
+        cfg.shift_out.auto_fill = false;
+        cfg.shift_out.direction = ShiftDirection::Right;
+        cfg.shift_out.threshold = 32;
+
+        // Deeper TX FIFO, we never receive on this state machine.
+        cfg.fifo_join = FifoJoin::TxOnly;
+
+        cfg.clock_divider = (clk_sys_freq() / DMX_SM_FREQ).to_fixed();
+
+        sm.set_config(&cfg);
+
+        // The state machine stays disabled until the first `write()` arms it.
+        Self {
+            sm,
+            dma: dma.into(),
+            origin: program.prg.origin,
         }
-
-        // self.sm.rx().dma_pull(self.dma.reborrow(), buff, false)
     }
 
-    // pub async fn read_async(&mut self) {
-    //     self.sm.set_enable(false);
-    //     self.sm.clear_fifos();
-    //     self.sm.restart();
-    //     let dma_future = self.sm.read_async(&buffer);
-    //     // unsafe { self.sm.exec_jmp(0) };
-    //     // self.sm.clear_fifos();
-    //     // let d = self.sm.rx().wait_pull().await as u8;
-    //     // let a = self.sm.tx().dma_push(self.dma_ch.reborrow(), &[d], false).await;
-    // }
+    /// Transmit one complete DMX packet: BREAK, MAB, then all 513 slots
+    /// (`frame[0]` = start code). Returns once the final stop bits are on
+    /// the wire, so back-to-back calls produce a continuous ~43 packet/s
+    /// DMX stream. Cancelling the returned future aborts the in-flight DMA
+    /// transfer; the state machine drains what it already has and idles high.
+    pub async fn write(&mut self, frame: &[u8; DMX_FRAME_SIZE]) {
+        // Re-arm: reset the state machine to the BREAK generator, dropping
+        // anything stale in the FIFO. This mirrors what the Pico-DMX C
+        // library does at the start of DmxOutput::write().
+        self.sm.set_enable(false);
+        self.sm.clear_fifos();
+        self.sm.restart();
+        unsafe { self.sm.exec_jmp(self.origin) };
+        let _ = self.sm.tx().stalled(); // reading clears the stale TXSTALL flag
+        self.sm.set_enable(true);
+
+        // The DMA writes one byte per 32-bit FIFO word (byte lanes are
+        // replicated on the bus; `out pins, 1` shifts the low 8 bits).
+        self.sm.tx().dma_push(self.dma.reborrow(), frame, false).await;
+
+        // DMA completion only means the FIFO was filled. Wait until the
+        // state machine has drained it and stalled on `pull` with the line
+        // idle (equivalent of the C library's DmxOutput::busy()).
+        while !(self.sm.tx().empty() && self.sm.tx().stalled()) {
+            Timer::after_micros(100).await;
+        }
+        // The stalled `pull` is what asserts the last byte's stop bits; give
+        // them their full 8us before the caller can start the next BREAK.
+        Timer::after_micros(10).await;
+    }
 }

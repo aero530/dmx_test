@@ -69,7 +69,8 @@ pub fn from_slice<'a>(s: &'a [u8]) -> Result<Art<'a>, Error> {
 
     trace!("RX op code {:#X}", op_code);
 
-    if protocol_version > 14 {
+    // The spec requires accepting any protocol revision >= 14
+    if protocol_version < 14 {
         return Err(Error::UnsupportedProtocolVersion(protocol_version));
     }
 
@@ -135,7 +136,7 @@ fn parse_port_address(s: &[u8]) -> IResult<&[u8], PortAddress> {
 impl PortAddress {
     /// Combines the Net, SubNet and Universe into a single usize index. Note this is not the same as the little endian u16 sent over the wire.
     pub fn as_index(&self) -> usize {
-        (self.net as usize >> 14) + (self.sub_net as usize >> 7) + (self.universe as usize)
+        ((self.net as usize) << 8) | ((self.sub_net as usize) << 4) | (self.universe as usize)
     }
     pub fn new(net: u8, sub_net: u8, universe: u8) -> Self {
         Self { net, sub_net, universe }
@@ -175,7 +176,8 @@ fn parse_poll<'a>(s: &'a [u8]) -> Result<Poll, Error> {
         let (s, target_port_top): (&'a [u8], u16) = be_u16(s)?;
         let (_s, target_port_bottom): (&'a [u8], u16) = be_u16(s)?;
 
-        target_port_top..=target_port_bottom
+        // Top is transmitted first but a RangeInclusive must run low..=high
+        target_port_bottom..=target_port_top
     } else {
         0..=u16::MAX
     };
@@ -198,6 +200,10 @@ fn parse_command<'a>(s: &'a [u8]) -> Result<Command<'a>, Error> {
     let (s, esta_manufacturer_code) = parse_esta_manufacturer_code(s)?;
     let (s, length): (&'a [u8], u16) = le_u16(s)?;
 
+    // Never trust the wire-supplied length; a truncated packet would panic here otherwise
+    if s.len() < length as usize {
+        return Err(Error::ParseIncomplete(Some(length as usize - s.len())));
+    }
     let data = &s[..length as usize];
 
     Ok(Command { esta_manufacturer_code, data })
@@ -244,6 +250,10 @@ fn parse_dmx<'a>(s: &'a [u8]) -> Result<Dmx<'a>, Error> {
 
     let (s, length): (&'a [u8], u16) = be_u16(s)?;
 
+    // Never trust the wire-supplied length; a truncated packet would panic here otherwise
+    if s.len() < length as usize {
+        return Err(Error::ParseIncomplete(Some(length as usize - s.len())));
+    }
     let data = &s[..length as usize];
 
     Ok(Dmx {

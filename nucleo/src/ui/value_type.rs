@@ -181,7 +181,9 @@ impl IncDec for ValueType {
                 let i = (v.len() - 1) - (index - b_index * 3);
                 v[i] = v[i].increment(i);
                 let j = digits_to_u16(v);
-                let out = if j > 999 { new.0[b_index] } else { j };
+                // Group size must be at least 1 (a group of 0 LEDs is meaningless
+                // and causes a divide-by-zero when computing virtual LEDs)
+                let out = if j > 999 || j == 0 { new.0[b_index] } else { j };
 
                 new.0[b_index] = out;
                 ValueType::SmartLedDmxGroupSize(new)
@@ -209,7 +211,9 @@ impl IncDec for ValueType {
                 let i = (v.len() - 1) - (index - b_index * 3);
                 v[i] = v[i].increment(i);
                 let j = digits_to_u16(v);
-                let out = if j > u8::MAX.into() { new.0[b_index] } else { j as u8 };
+                // On the wire Net is 7 bits and Sub-Net/Universe are 4 bits each
+                let max: u16 = [127, 15, 15][b_index];
+                let out = if j > max { new.0[b_index] } else { j as u8 };
 
                 new.0[b_index] = out;
                 ValueType::ArtNetAddr(new)
@@ -235,7 +239,9 @@ impl IncDec for ValueType {
                 let i = (v.len() - 1) - (index - b_index * 3);
                 v[i] = v[i].decrement(i);
                 let j = digits_to_u16(v);
-                let out = if j > 999 { new.0[b_index] } else { j };
+                // Group size must be at least 1 (a group of 0 LEDs is meaningless
+                // and causes a divide-by-zero when computing virtual LEDs)
+                let out = if j > 999 || j == 0 { new.0[b_index] } else { j };
                 new.0[b_index] = out;
                 ValueType::SmartLedDmxGroupSize(new)
             }
@@ -262,7 +268,9 @@ impl IncDec for ValueType {
                 let i = (v.len() - 1) - (index - b_index * 3);
                 v[i] = v[i].decrement(i);
                 let j = digits_to_u16(v);
-                let out = if j > u8::MAX.into() { new.0[b_index] } else { j as u8 };
+                // On the wire Net is 7 bits and Sub-Net/Universe are 4 bits each
+                let max: u16 = [127, 15, 15][b_index];
+                let out = if j > max { new.0[b_index] } else { j as u8 };
                 new.0[b_index] = out;
                 ValueType::ArtNetAddr(new)
             }

@@ -124,8 +124,9 @@ where
             return Err(Error::TooMuchData);
         }
 
-        let page_boundary = memory_address | (PAGE_SIZE - 1);
-        if memory_address + data_len as u8 > page_boundary + 1 {
+        // Compute in usize so addresses on the last page (0xF0..=0xFF) don't overflow u8
+        let page_boundary = memory_address as usize | (PAGE_SIZE as usize - 1);
+        if memory_address as usize + data_len > page_boundary + 1 {
             // This would actually be supported by the EEPROM but
             // the data in the page would be overwritten
             return Err(Error::PageBoundary);
@@ -135,7 +136,10 @@ where
         payload[0] = memory_address;
         payload[(ADDR_BYTES as usize)..(ADDR_BYTES as usize + data_len)].copy_from_slice(data);
 
-        self.i2c.write(self.address, &payload).map_err(|e| Error::I2C(e))
+        // Only send the address byte plus `data_len` bytes. Sending the whole
+        // fixed-size payload would write PAGE_SIZE bytes to the EEPROM, which
+        // wraps around within the page and corrupts bytes outside `data`.
+        self.i2c.write(self.address, &payload[..ADDR_BYTES as usize + data_len]).map_err(|e| Error::I2C(e))
     }
 
     /// Write a page of data and wait for the EEPROM to finish.

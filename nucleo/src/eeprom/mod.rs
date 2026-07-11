@@ -33,8 +33,9 @@ const MAC_ADDRESS_MEMLOC: u8 = 0x02;
 
 /// Memory location for boot successful flag
 ///
-/// must be a low enough address such that module type data does not interfere with settings at SETTINGS_ADDRESS
-const BOOT_SUCCESSFUL_MEMLOC: u8 = 0x03;
+/// must not overlap the 6-byte MAC address at 0x02..=0x07 and must be a low
+/// enough address such that it does not interfere with settings at SETTINGS_MEMLOC
+const BOOT_SUCCESSFUL_MEMLOC: u8 = 0x10;
 
 /// Memory location for settings data
 ///
@@ -42,7 +43,11 @@ const BOOT_SUCCESSFUL_MEMLOC: u8 = 0x03;
 const SETTINGS_MEMLOC: u8 = 0x20;
 
 /// Number of bytes to reserve for storing menu settings
-const SETTINGS_SIZE: usize = 32;
+///
+/// bincode's varint encoding needs 3 bytes for every u16 >= 251, so a
+/// worst-case MenuData (large dmx address, LED counts and group sizes)
+/// encodes to ~40 bytes. 64 keeps headroom within the 256-byte EEPROM.
+const SETTINGS_SIZE: usize = 64;
 
 #[allow(unused)]
 #[derive(Clone, Copy, Format, Debug)]
@@ -123,8 +128,7 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                 });
 
                 if length > 0 {
-                    #[allow(clippy::let_underscore_future)]
-                    let _ = self.dev.write_byte_wait(MODULE_TYPE_MEMLOC, slice[0]); // throw away write due to shared bus issues
+                    let _ = self.dev.write_byte_wait(MODULE_TYPE_MEMLOC, slice[0]).await; // throw away write due to shared bus issues
                     match self.dev.write_byte_wait(MODULE_TYPE_MEMLOC, slice[0]).await {
                         Ok(_) => {
                             let _ = self.tx.try_send(RouterEvent::StoreModuleType(Some(module)));
@@ -162,8 +166,7 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                 //
                 // This problem appears to have something to do with using the shared bus...like the bus isn't properly cleared on other
                 // read / write attempts.
-                #[allow(clippy::let_underscore_future)]
-                let _ = self.dev.write_byte_wait(MAC_ADDRESS_MEMLOC, mac[0]); //.await;
+                let _ = self.dev.write_byte_wait(MAC_ADDRESS_MEMLOC, mac[0]).await;
                 match self.dev.write_page_wait(MAC_ADDRESS_MEMLOC, &mac).await {
                     Ok(_) => {
                         let _ = self.tx.try_send(RouterEvent::StoreMacAddress(Some(mac)));
@@ -214,8 +217,7 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                     //
                     // This problem appears to have something to do with using the shared bus...like the bus isn't properly cleared on other
                     // read / write attempts.
-                    #[allow(clippy::let_underscore_future)]
-                    let _ = self.dev.write_byte_wait(SETTINGS_MEMLOC, slice[0]); //.await;
+                    let _ = self.dev.write_byte_wait(SETTINGS_MEMLOC, slice[0]).await;
 
                     for (num, chunk) in chunks {
                         let mem_addr = SETTINGS_MEMLOC + (num as u8) * PAGE_SIZE;
@@ -258,8 +260,7 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                 });
 
                 if length > 0 {
-                    #[allow(clippy::let_underscore_future)]
-                    let _ = self.dev.write_byte_wait(BOOT_SUCCESSFUL_MEMLOC, slice[0]); // throw away write due to shared bus issues
+                    let _ = self.dev.write_byte_wait(BOOT_SUCCESSFUL_MEMLOC, slice[0]).await; // throw away write due to shared bus issues
                     match self.dev.write_byte_wait(BOOT_SUCCESSFUL_MEMLOC, slice[0]).await {
                         Ok(_) => {
                             let _ = self.tx.try_send(RouterEvent::StoreBootStatus(Some(status)));

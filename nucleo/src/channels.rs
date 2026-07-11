@@ -20,9 +20,10 @@ pub type DmxChannelRx = Receiver<'static, ThreadModeRawMutex, DmxEvent, 1>;
 pub type DmxChannelTx = Sender<'static, ThreadModeRawMutex, DmxEvent, 1>;
 pub static CHANNEL_DMX: DmxChannel = Channel::new();
 
-pub type DmxFeedbackChannel = Watch<ThreadModeRawMutex, DmxFeedbackEvent, 2>;
-pub type DmxFeedbackChannelRx = WatchReceiver<'static, ThreadModeRawMutex, DmxFeedbackEvent, 2>;
-pub type DmxFeedbackChannelTx = WatchSender<'static, ThreadModeRawMutex, DmxFeedbackEvent, 2>;
+// 3 receivers: dmx_task (I2C bridge), artnet_task, enttec_usb_task
+pub type DmxFeedbackChannel = Watch<ThreadModeRawMutex, DmxFeedbackEvent, 3>;
+pub type DmxFeedbackChannelRx = WatchReceiver<'static, ThreadModeRawMutex, DmxFeedbackEvent, 3>;
+pub type DmxFeedbackChannelTx = WatchSender<'static, ThreadModeRawMutex, DmxFeedbackEvent, 3>;
 pub static CHANNEL_DMX_FEEDBACK: DmxFeedbackChannel = Watch::new();
 
 pub type PwmChannel = Channel<ThreadModeRawMutex, PwmEvent, 1>;

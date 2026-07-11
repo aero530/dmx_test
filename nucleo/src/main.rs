@@ -109,6 +109,11 @@ cfg_if! {
     if #[cfg(feature = "usb")] {
         use embassy_stm32::usb::Driver;
         use usb_io::usb_task;
+    } else {
+        // The Enttec widget emulation owns USB when it isn't used for logging
+        mod enttec_usb;
+        use embassy_stm32::usb::Driver;
+        use enttec_usb::enttec_usb_task;
     }
 }
 
@@ -138,7 +143,6 @@ mod eeprom;
 use eeprom::eeprom_i2c_task;
 
 bind_interrupts!(struct Irqs {
-    #[cfg(feature = "usb")]
     USB_DRD_FS => usb::InterruptHandler<peripherals::USB>;
     // USART6 => usart::InterruptHandler<peripherals::USART6>;
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
@@ -234,11 +238,7 @@ async fn main(spawner: Spawner) {
     // config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
 
 
-    cfg_if! {
-        if #[cfg(feature = "clock_stlink")] {
-            config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
-        }
-    }
+    config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB (logger or Enttec CDC)
 
 
     config.rcc.csi = true; // enable CSI clock
@@ -278,12 +278,7 @@ async fn main(spawner: Spawner) {
     config.rcc.mux.i2c1sel = mux::I2csel::PLL3_R;
     config.rcc.mux.i2c2sel = mux::I2csel::PLL3_R;
     config.rcc.mux.i2c4sel = mux::I2c34sel::PLL3_R;
-    cfg_if! {
-        if #[cfg(feature = "clock_stlink")] {
-            config.rcc.mux.usbsel = mux::Usbsel::HSI48;
-        }
-    }
-    // config.rcc.mux.usbsel = mux::Usbsel::HSI48;
+    config.rcc.mux.usbsel = mux::Usbsel::HSI48;
     // config.rcc.mux.persel = mux::Persel::HSI;
     config.rcc.mux.rngsel = mux::Rngsel::HSI48;
 
@@ -400,13 +395,15 @@ async fn main(spawner: Spawner) {
 
     cfg_if! {
        if #[cfg(feature = "usb")] {
-            // Create the driver, from the HAL.
-            let driver = {
-                let d = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
-                d
-            };
-
+            // USB serial logger
+            let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
             spawner.spawn(usb_task(driver)).unwrap();
+        } else {
+            // Enttec DMX USB Pro widget emulation (USB>DMX mode + DMX-to-PC forwarding)
+            let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
+            spawner
+                .spawn(enttec_usb_task(driver, CHANNEL_DMX.sender(), CHANNEL_DMX_FEEDBACK.receiver().unwrap()))
+                .unwrap();
         }
     }
 
@@ -599,7 +596,7 @@ async fn main(spawner: Spawner) {
 
     info!("Try to get settings");
     let _ = CHANNEL.try_send(RouterEvent::GetSettings(ReturnChannel::Main));
-    let settings_from_eeprom = if let Ok(new_message) = with_timeout(Duration::from_millis(250), CHANNEL_MAIN.receiver().receive()).await {
+    let mut settings_from_eeprom = if let Ok(new_message) = with_timeout(Duration::from_millis(250), CHANNEL_MAIN.receiver().receive()).await {
         match new_message {
             MainEvent::ReturnSettings(x) => x,
             _ => MenuData::default(),
@@ -613,8 +610,11 @@ async fn main(spawner: Spawner) {
 
     if boot_status == BootStatus::Failed {
         info!("Previous boot was not successful.  Disable ethernet to prevent potential lockout.");
-        
-        let _ = CHANNEL_EEPROM.send(EepromEvent::WriteSettings(MenuData {ethernet_enabled: false, ..settings_from_eeprom})).await;
+
+        // Update the local copy too so ethernet stays disabled for *this* boot,
+        // not just the next one.
+        settings_from_eeprom.ethernet_enabled = false;
+        let _ = CHANNEL_EEPROM.send(EepromEvent::WriteSettings(settings_from_eeprom)).await;
         Timer::after_millis(50).await;
     }
 
@@ -661,8 +661,10 @@ async fn main(spawner: Spawner) {
 
                 }
 
+                // Art-Net primary IP rule: 2.(MAC[3]+OemHi+OemLo mod 256).MAC[4].MAC[5]
+                // wrapping_add gives the mod-256 sum without overflow panics
                 let oem: [u8; 2] = ARTNET_OEM.to_be_bytes();
-                let static_ip = [2, mac_addr[3] + oem[0] + oem[1], mac_addr[4], mac_addr[5]];
+                let static_ip = [2, mac_addr[3].wrapping_add(oem[0]).wrapping_add(oem[1]), mac_addr[4], mac_addr[5]];
 
                 info!("Calcuated IP: {:?}", static_ip);
 

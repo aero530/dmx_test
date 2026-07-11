@@ -40,7 +40,7 @@ use crate::ui::traits::NextPrev;
 
 use crate::ui::ValueType;
 
-use crate::{DISPLAY_HEIGHT, DISPLAY_OFFSET, DISPLAY_WIDTH, MENU_ITEMS_PER_TAB, MENU_NUM_TABS};
+use crate::{DISPLAY_HEIGHT, DISPLAY_OFFSET, DISPLAY_WIDTH, DMX_UNIVERSE_SIZE, MENU_ITEMS_PER_TAB, MENU_NUM_TABS};
 
 mod menu_item;
 use menu_item::{MenuItem, MenuItemInputs};
@@ -159,7 +159,7 @@ impl MenuTabData {
     fn to_menu_data(self, module_type: ModuleType) -> MenuData {
         // info!("Convert menu tab data to menu data.");
         let module_settings = match module_type {
-            ModuleType::Pwm => ModuleSettings::Pwm(PwmSettings { freq: todo!() }),
+            ModuleType::Pwm => ModuleSettings::Pwm(PwmSettings::default()),
             ModuleType::SmartLed => {
                 let dmx_group_size = self.0[1][1].value.extract_dmx_group_size();
                 let color_mode = self.0[1][2].value.extract_led_color_mode();
@@ -178,12 +178,16 @@ impl MenuTabData {
                 })
             }
             ModuleType::Unknown => {
-                todo!()
+                // A todo!() here would panic the UI task the first time settings
+                // are committed with an undetected module; fall back to defaults.
+                error!("Unknown module type - storing default module settings");
+                ModuleSettings::default()
             }
         };
 
         MenuData {
-            dmx_address: self.0[0][0].value.extract_uint3(),
+            // Valid DMX start addresses are 1..=512; the per-digit editor allows 0..=999
+            dmx_address: self.0[0][0].value.extract_uint3().clamp(1, DMX_UNIVERSE_SIZE as u16),
             input_mode: self.0[0][1].value.extract_input_mode(),
             ethernet_ip_mode: self.0[0][2].value.extract_ethernet_ip_mode(),
             ethernet_enabled: self.0[3][0].value.extract_ethernet_enabled(),

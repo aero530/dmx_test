@@ -200,21 +200,37 @@ impl IncDec for u8 {
     }
 }
 
-/// Input mode
+/// Operating mode: where DMX data comes from and where it goes.
+///
+/// The first two modes receive data to drive the local LED outputs; the
+/// `*ToDmx` modes additionally (ArtNet) or exclusively (USB) turn the wired
+/// DMX port around and transmit through the RP2040 bridge.
+///
+/// New variants must be appended so bincode-encoded EEPROM settings from
+/// older firmware keep decoding to the same modes.
 #[derive(Default, Clone, Copy, PartialEq, Eq, Ordinalize, Format, Debug, Decode, Encode)]
 pub enum InputMode {
     #[default]
+    /// Wired DMX in (via the RP2040 bridge) -> LEDs
     Dmx,
+    /// Art-Net in -> LEDs
     ArtNet,
+    /// Art-Net in -> LEDs + wired DMX out (Art-Net node)
+    ArtNetToDmx,
+    /// Enttec-protocol USB in -> LEDs + wired DMX out
+    UsbToDmx,
 }
 
 impl InputMode {
     #[allow(unused)]
     pub fn dmx_addr_limit(&self) -> usize {
-        match self {
-            InputMode::Dmx => DMX_UNIVERSE_SIZE,
-            InputMode::ArtNet => DMX_UNIVERSE_SIZE, // ArtNet still uses a 512 byte universe
-        }
+        // Every mode uses a 512 byte universe
+        DMX_UNIVERSE_SIZE
+    }
+
+    /// The wired DMX port transmits in this mode (RS-485 driver enabled on the bridge)
+    pub fn is_dmx_output(&self) -> bool {
+        matches!(self, InputMode::ArtNetToDmx | InputMode::UsbToDmx)
     }
 }
 impl IncDec for InputMode {
@@ -225,7 +241,7 @@ impl IncDec for InputMode {
 
     fn decrement(&self, _index: usize) -> Self {
         let prev = self.ordinal().saturating_sub(1);
-        Self::from_ordinal(prev).unwrap_or(InputMode::ArtNet)
+        Self::from_ordinal(prev).unwrap_or(InputMode::UsbToDmx)
     }
 }
 
@@ -234,6 +250,8 @@ impl core::fmt::Display for InputMode {
         match self {
             InputMode::Dmx => write!(f, "DMX"),
             InputMode::ArtNet => write!(f, "ArtNet"),
+            InputMode::ArtNetToDmx => write!(f, "ArtNet>DMX"),
+            InputMode::UsbToDmx => write!(f, "USB>DMX"),
         }
     }
 }

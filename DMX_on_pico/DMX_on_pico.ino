@@ -70,7 +70,7 @@ void setup1() {
 
   Wire1.setSDA(6);  //GPIO6 = pin 9
   Wire1.setSCL(7);  //GPIO7 = pin 10
-  Wire1.setClock(4000000);
+  Wire1.setClock(400000);  // 400kHz fast mode (was 4000000, not a valid I2C clock; ignored in slave mode anyway)
   Wire1.begin(0x33);
   Wire1.onReceive(receiveEvent);
   Wire1.onRequest(req);

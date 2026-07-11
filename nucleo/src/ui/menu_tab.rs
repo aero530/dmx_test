@@ -103,13 +103,17 @@ impl<'a> NextPrev for MenuTab<'a> {
             // change value of item
             self.items[self.item_index].value = self.items[self.item_index].value.increment(self.items[self.item_index].value.value_index);
             MenuMovement::UpdateValue((self.item_index, self.items[self.item_index].value.value_index, self.items[self.item_index].value.value))
-        } else if self.item_index == self.num_selectable_items - 1 && self.items[self.item_index].value.value_index == self.items[self.item_index].size() - 1 {
-            // go to next tab
+        } else if self.num_selectable_items == 0
+            || (self.item_index == self.num_selectable_items - 1 && self.items[self.item_index].value.value_index >= self.items[self.item_index].size().saturating_sub(1))
+        {
+            // go to next tab (immediately if this tab has nothing selectable)
             info!("Go to next tab");
             MenuMovement::NextTab
-        } else if self.items[self.item_index].value.value_index == self.items[self.item_index].value.size() - 1 {
-            // loop around to first item
+        } else if self.items[self.item_index].value.value_index >= self.items[self.item_index].value.size().saturating_sub(1) {
+            // move to the first sub-value of the next item; each item keeps its own
+            // value_index so it must be reset or the stale cursor position is reused
             self.item_index = self.item_index.saturating_add(1);
+            self.items[self.item_index].value.value_index = 0;
             info!("Next: selected is now {}", self.item_index);
             MenuMovement::FirstItem
         } else {
@@ -123,11 +127,14 @@ impl<'a> NextPrev for MenuTab<'a> {
             // change value of item
             self.items[self.item_index].value = self.items[self.item_index].value.decrement(self.items[self.item_index].value.value_index);
             MenuMovement::UpdateValue((self.item_index, self.items[self.item_index].value.value_index, self.items[self.item_index].value.value))
-        } else if self.item_index == 0 && self.items[self.item_index].value.value_index == 0 {
+        } else if self.num_selectable_items == 0 || (self.item_index == 0 && self.items[self.item_index].value.value_index == 0) {
             info!("Go to previous tab");
             MenuMovement::PreviousTab
         } else if self.items[self.item_index].value.value_index == 0 {
+            // move to the last sub-value of the previous item; each item keeps its own
+            // value_index so it must be reset or the stale cursor position is reused
             self.item_index = self.item_index.saturating_sub(1);
+            self.items[self.item_index].value.value_index = self.items[self.item_index].value.size().saturating_sub(1);
             info!("Previous: selected is now {}", self.item_index);
             MenuMovement::LastItem
         } else {

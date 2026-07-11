@@ -104,10 +104,11 @@ pub enum DmxEvent {
     ArtNetPacket(PacketAddress),
 }
 
-/// Send data back to DMX task or ArtNet task
+/// Send data back to the DMX / ArtNet / USB tasks
 #[derive(Copy, Clone, Debug, Format)]
 pub enum DmxFeedbackEvent {
-    Mode(InputMode),
+    /// Current operating mode and configured Art-Net universe
+    Mode(InputMode, u8),
 }
 
 /// Send data back to the main task
@@ -216,7 +217,7 @@ impl Router {
 
                     info!("Update settings on display {:#?}", x);
                     let _ = self.channel_ui.try_send(UiEvent::Load(x));
-                    self.channel_dmx_feedback.send(DmxFeedbackEvent::Mode(x.input_mode));
+                    self.channel_dmx_feedback.send(DmxFeedbackEvent::Mode(x.input_mode, x.artnet_address.0[2]));
                 }
             }
             RouterEvent::StoreBootStatus(status) => {
@@ -322,8 +323,9 @@ impl Router {
 
                             // Byte offset to place virtual leds at the right buffer location for each port
                             let mut port_virtual_led_offset = match self.data.menu_settings.input_mode {
-                                InputMode::Dmx => 0,
-                                InputMode::ArtNet => (self.data.menu_settings.artnet_address.0[2] as usize) * DMX_UNIVERSE_SIZE,
+                                // DMX-style layouts store their single universe at offset 0
+                                InputMode::Dmx | InputMode::UsbToDmx => 0,
+                                InputMode::ArtNet | InputMode::ArtNetToDmx => (self.data.menu_settings.artnet_address.0[2] as usize) * DMX_UNIVERSE_SIZE,
                             };
 
                             for (port_index, num_virtual_leds) in smart_led_settings.virtual_leds_per_port().iter().enumerate() {
@@ -364,26 +366,59 @@ impl Router {
                                     // Loop through each group and assign to individual LEDs
                                     for i in 0..dmx_group_size[port_index] {
                                         let place = i as usize + dmx_group_size[port_index] as usize * vled_index;
+                                        // The last virtual LED group can extend past the color buffer
+                                        // when the group size does not evenly divide the LED count
+                                        if place >= colors[port_index].len() {
+                                            break;
+                                        }
                                         colors[port_index][place] = c;
                                     }
                                 }
                                 // port_u_offset += port_universe_count;
                                 port_virtual_led_offset += match self.data.menu_settings.input_mode {
-                                    InputMode::Dmx => *num_virtual_leds as usize * smart_led_settings.color_mode.addr_size(), // offset by the number of virtual LEDs in the current port
-                                    InputMode::ArtNet => (*num_virtual_leds as f32 * smart_led_settings.color_mode.addr_size() as f32 / DMX_UNIVERSE_SIZE as f32).ceil() as usize * DMX_UNIVERSE_SIZE // Offset by the number of universes this port uses times the dmx size per universe
+                                    InputMode::Dmx | InputMode::UsbToDmx => *num_virtual_leds as usize * smart_led_settings.color_mode.addr_size(), // offset by the number of virtual LEDs in the current port
+                                    InputMode::ArtNet | InputMode::ArtNetToDmx => (*num_virtual_leds as f32 * smart_led_settings.color_mode.addr_size() as f32 / DMX_UNIVERSE_SIZE as f32).ceil() as usize * DMX_UNIVERSE_SIZE // Offset by the number of universes this port uses times the dmx size per universe
                                 };
                             }
                         }
                         SmartLedPortMode::Mirror => {
+                            // Offset into the flat multi-universe buffer; always 0 for DMX,
+                            // set by the configured ArtNet universe for ArtNet (same as Individual mode)
+                            let universe_offset = match self.data.menu_settings.input_mode {
+                                InputMode::Dmx | InputMode::UsbToDmx => 0,
+                                InputMode::ArtNet | InputMode::ArtNetToDmx => (self.data.menu_settings.artnet_address.0[2] as usize) * DMX_UNIVERSE_SIZE,
+                            };
+
                             for vled_index in 0..smart_led_settings.virtual_leds_per_port()[0] as usize {
-                                let dmx_buffer_start = self.data.menu_settings.dmx_address as usize + vled_index * smart_led_settings.color_mode.addr_size();
-                                let dmx_buffer_end = dmx_buffer_start + smart_led_settings.color_mode.addr_size() - 1;
+                                let mut dmx_buffer_start = self.data.menu_settings.dmx_address as usize + universe_offset + vled_index * smart_led_settings.color_mode.addr_size();
+                                let mut dmx_buffer_end = dmx_buffer_start + smart_led_settings.color_mode.addr_size() - 1;
+
+                                // Catch out of bounds errors where the calculated start or end are outside the bounds of dmx_buffer
+                                if dmx_buffer_end >= dmx_buffer.len() {
+                                    warn!("DMX buffer end {} > buffer length {}.", dmx_buffer_end, dmx_buffer.len());
+                                    dmx_buffer_end = dmx_buffer.len() - 1;
+                                }
+
+                                if dmx_buffer_start >= dmx_buffer.len() {
+                                    warn!("DMX buffer start {} > buffer length {}.", dmx_buffer_start, dmx_buffer.len());
+                                    dmx_buffer_start = dmx_buffer.len() - 1;
+                                }
+
+                                if dmx_buffer_start > dmx_buffer_end {
+                                    warn!("DMX buffer start {} > buffer end {}.", dmx_buffer_start, dmx_buffer_end);
+                                    dmx_buffer_start = dmx_buffer_end;
+                                }
+
                                 let c = smart_led_settings.color_mode.rgb(&dmx_buffer[dmx_buffer_start..=dmx_buffer_end]); // calculate a color from the dmx data
 
                                 for i in 0..dmx_group_size[0] {
                                     let place = i as usize + dmx_group_size[0] as usize * vled_index;
                                     for (port_index, _) in smart_led_settings.virtual_leds_per_port().iter().enumerate() {
-                                        colors[port_index][place] = c;
+                                        // The last virtual LED group can extend past the color buffer
+                                        // when the group size does not evenly divide the LED count
+                                        if place < colors[port_index].len() {
+                                            colors[port_index][place] = c;
+                                        }
                                     }
                                 }
                             }

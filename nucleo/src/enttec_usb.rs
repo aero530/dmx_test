@@ -18,12 +18,21 @@
 //!
 //! Message framing: 0x7E, label, length LSB, length MSB, payload, 0xE7.
 //!
-//! This task owns the USB peripheral; it is only built when the `usb`
-//! logging feature (which also claims USB) is disabled.
+//! This task owns the USB peripheral and builds a composite device: the
+//! Enttec widget is always the first CDC-ACM interface, and with the `usb`
+//! logging feature enabled a second CDC-ACM interface carries the `log`
+//! output, so logging and DMX-over-USB work at the same time. The host sees
+//! two serial ports; the Enttec one enumerates first.
 
-use defmt::{info, warn};
+use cfg_if::cfg_if;
+cfg_if! {
+    if #[cfg(feature = "usb")] {
+        use log::{info, warn};
+    } else {
+        use defmt::{info, warn};
+    }
+}
 
-use embassy_futures::join::join;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::peripherals;
 use embassy_stm32::usb::Driver;
@@ -237,9 +246,18 @@ pub async fn enttec_usb_task(driver: Driver<'static, peripherals::USB>, tx: DmxC
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
     let mut state = State::new();
+    // Declared alongside the other USB state so it outlives everything
+    // sharing the builder's lifetime.
+    #[cfg(feature = "usb")]
+    let mut logger_state = State::new();
 
     let mut builder = embassy_usb::Builder::new(driver, config, &mut config_descriptor, &mut bos_descriptor, &mut [], &mut control_buf);
     let mut class = CdcAcmClass::new(&mut builder, &mut state, 64);
+
+    // Second CDC-ACM interface carrying the `log` output.
+    #[cfg(feature = "usb")]
+    let logger_class = CdcAcmClass::new(&mut builder, &mut logger_state, 64);
+
     let mut usb = builder.build();
 
     let protocol = async {
@@ -310,5 +328,12 @@ pub async fn enttec_usb_task(driver: Driver<'static, peripherals::USB>, tx: DmxC
         }
     };
 
-    join(usb.run(), protocol).await;
+    cfg_if! {
+        if #[cfg(feature = "usb")] {
+            let logger = embassy_usb_logger::with_class!(1024, log::LevelFilter::Info, logger_class);
+            embassy_futures::join::join3(usb.run(), protocol, logger).await;
+        } else {
+            embassy_futures::join::join(usb.run(), protocol).await;
+        }
+    }
 }

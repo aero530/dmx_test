@@ -104,18 +104,11 @@ use button::button_task;
 mod button_array;
 use button_array::button_row_task;
 
-mod usb_io;
-cfg_if! {
-    if #[cfg(feature = "usb")] {
-        use embassy_stm32::usb::Driver;
-        use usb_io::usb_task;
-    } else {
-        // The Enttec widget emulation owns USB when it isn't used for logging
-        mod enttec_usb;
-        use embassy_stm32::usb::Driver;
-        use enttec_usb::enttec_usb_task;
-    }
-}
+// USB composite device: Enttec DMX widget, plus a CDC logger interface
+// when the `usb` logging feature is enabled.
+mod enttec_usb;
+use embassy_stm32::usb::Driver;
+use enttec_usb::enttec_usb_task;
 
 mod event_router;
 use event_router::{event_router, Router};
@@ -393,19 +386,12 @@ async fn main(spawner: Spawner) {
     // USB
     // -----------------------------------
 
-    cfg_if! {
-       if #[cfg(feature = "usb")] {
-            // USB serial logger
-            let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
-            spawner.spawn(usb_task(driver)).unwrap();
-        } else {
-            // Enttec DMX USB Pro widget emulation (USB>DMX mode + DMX-to-PC forwarding)
-            let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
-            spawner
-                .spawn(enttec_usb_task(driver, CHANNEL_DMX.sender(), CHANNEL_DMX_FEEDBACK.receiver().unwrap()))
-                .unwrap();
-        }
-    }
+    // Composite USB device: Enttec DMX USB Pro widget emulation (USB>DMX mode
+    // + DMX-to-PC forwarding), plus a CDC logger interface with the `usb` feature.
+    let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
+    spawner
+        .spawn(enttec_usb_task(driver, CHANNEL_DMX.sender(), CHANNEL_DMX_FEEDBACK.receiver().unwrap()))
+        .unwrap();
 
     // // -----------------------------------
     // // Setup USART for RS485 / DMX

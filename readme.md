@@ -66,12 +66,13 @@ Tasks (spawned from `main`):
 - **`artnet_task`** (`artnet/`) — in the ArtNet modes, receives ArtDmx/ArtPoll/
   ArtSync/ArtCommand on UDP 6454 via a vendored `tiny_artnet` parser, stores universe
   data into `DMX_BUFFER`, answers ArtPoll with an ArtPollReply.
-- **`enttec_usb_task`** (`enttec_usb.rs`) — USB CDC device emulating an Enttec DMX
-  USB Pro widget (default builds; the `usb` logging feature claims USB instead). PC
-  lighting software can send DMX (label 6) which drives the LEDs and, in `USB>DMX`
-  mode, the wired DMX output; received DMX/Art-Net frames are forwarded to the PC as
-  label 5 packets on change; widget parameter/serial queries (labels 3/4/8/10) are
-  answered.
+- **`enttec_usb_task`** (`enttec_usb.rs`) — composite USB device. The first CDC-ACM
+  interface emulates an Enttec DMX USB Pro widget: PC lighting software can send DMX
+  (label 6) which drives the LEDs and, in `USB>DMX` mode, the wired DMX output;
+  received DMX/Art-Net frames are forwarded to the PC as label 5 packets on change;
+  widget parameter/serial queries (labels 3/4/8/10) are answered. With the `usb`
+  logging feature a second CDC-ACM interface carries the `log` output, so the host
+  sees two serial ports (Enttec first, logger second).
 - **`event_router`** (`event_router.rs`) — central hub. Routes settings/EEPROM/UI/
   button events, and on each DMX/ArtNet packet maps `DMX_BUFFER` → `LED_COLORS`
   according to the settings (start address, group size, RGB/RGBW, Individual/Mirror
@@ -103,7 +104,8 @@ cargo run --release        # flashes + streams defmt logs via probe-rs (ST-Link)
 ```
 
 Features (see `nucleo/Cargo.toml`): default = `clock_stlink, ethernet`. `usb` switches
-logging from defmt/RTT to USB serial.
+logging from defmt/RTT to USB serial, adding a second CDC interface to the composite
+USB device alongside the Enttec widget.
 
 ## rp2040_dmx firmware (DMX ↔ I2C bridge)
 

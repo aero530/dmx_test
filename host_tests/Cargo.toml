@@ -1,0 +1,25 @@
+[package]
+name = "host_tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Host-runnable unit tests for the pure-logic parts of the nucleo firmware"
+
+[features]
+# The firmware sources use cfg_if to select `log` macros (host-friendly)
+# instead of `defmt` macros when the `usb` feature is enabled. Keep it always
+# on here so the included sources never invoke defmt logging on the host.
+default = ["usb"]
+usb = []
+
+[dependencies]
+# Versions must match nucleo/Cargo.toml so the included sources compile identically
+bincode = { version = "2.0.1", default-features = false, features = ["derive"] }
+cfg-if = "1"
+# unstable-test mocks the logger symbols so `derive(Format)` links on the host
+defmt = { version = "1", features = ["unstable-test"] }
+enum-ordinalize = "4.3.0"
+heapless = { version = "0.9", default-features = false }
+log = "0.4"
+micromath = "2"
+smart-leds = "0.4"

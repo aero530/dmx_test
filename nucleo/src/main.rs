@@ -116,6 +116,7 @@ use button_array::button_row_task;
 // USB composite device: Enttec DMX widget + console line protocol, plus a
 // CDC logger interface when the `usb` logging feature is enabled.
 mod console_usb;
+mod enttec_protocol;
 mod usb_device;
 use embassy_stm32::usb::Driver;
 use usb_device::usb_device_task;

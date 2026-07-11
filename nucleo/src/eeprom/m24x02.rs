@@ -1,3 +1,8 @@
+//! Driver for the ST M24C02 2-Kbit (256 x 8) I2C EEPROM.
+//!
+//! Byte and page writes with acknowledge polling (the device is busy and
+//! NAKs its address during the internal write cycle, so [`M24x02::wait`]
+//! polls until it responds again).
 use embassy_time::Timer;
 use embedded_hal_1::i2c::I2c;
 

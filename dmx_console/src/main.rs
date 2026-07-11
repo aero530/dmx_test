@@ -83,32 +83,23 @@ impl App {
 
     /// Apply one line received from the device.
     fn handle_line(&mut self, line: &str) {
-        let line = line.trim();
-        if line == "ok" {
-            return;
-        }
-        if let Some(err) = line.strip_prefix("err ") {
-            self.status = format!("device error: {err}");
-            return;
-        }
-        if let Some(rest) = line.strip_prefix("dmx ") {
-            // "dmx <start> v v v ..."
-            let mut parts = rest.split_whitespace();
-            if let Some(start) = parts.next().and_then(|s| s.parse::<usize>().ok()) {
-                for (i, value) in parts.enumerate() {
-                    if let (Ok(v), Some(slot)) = (value.parse::<u8>(), self.dmx.get_mut(start - 1 + i)) {
+        match parse_device_line(line) {
+            DeviceLine::Ok | DeviceLine::Other => {}
+            DeviceLine::Err(err) => self.status = format!("device error: {err}"),
+            DeviceLine::Dmx { start, values } => {
+                for (i, v) in values.into_iter().enumerate() {
+                    if let Some(slot) = self.dmx.get_mut(start - 1 + i) {
                         *slot = v;
                     }
                 }
             }
-            return;
-        }
-        if let Some((key, value)) = line.split_once('=') {
-            match self.settings.iter_mut().find(|(k, _)| k == key) {
-                Some(entry) => entry.1 = value.to_string(),
-                None => self.settings.push((key.to_string(), value.to_string())),
+            DeviceLine::KeyValue(key, value) => {
+                match self.settings.iter_mut().find(|(k, _)| *k == key) {
+                    Some(entry) => entry.1 = value,
+                    None => self.settings.push((key, value)),
+                }
+                self.status = String::from("connected");
             }
-            self.status = String::from("connected");
         }
     }
 
@@ -273,6 +264,46 @@ impl App {
     }
 }
 
+/// One line received from the device, decoded (see the protocol summary in
+/// `nucleo/src/console_usb.rs`).
+#[derive(Debug, PartialEq)]
+enum DeviceLine {
+    /// Command completed: `ok`
+    Ok,
+    /// Command failed: `err <reason>`
+    Err(String),
+    /// Channel data: `dmx <start> <v> <v> ...` (start is 1-based)
+    Dmx { start: usize, values: Vec<u8> },
+    /// Settings entry: `key=value`
+    KeyValue(String, String),
+    /// Anything unrecognized (ignored)
+    Other,
+}
+
+/// Decode one line of the device's console protocol.
+fn parse_device_line(line: &str) -> DeviceLine {
+    let line = line.trim();
+    if line == "ok" {
+        return DeviceLine::Ok;
+    }
+    if let Some(err) = line.strip_prefix("err ") {
+        return DeviceLine::Err(err.to_string());
+    }
+    if let Some(rest) = line.strip_prefix("dmx ") {
+        let mut parts = rest.split_whitespace();
+        // Channel numbers are 1-based; reject 0 so `start - 1` can't underflow
+        if let Some(start) = parts.next().and_then(|s| s.parse::<usize>().ok()).filter(|&s| s >= 1) {
+            let values = parts.filter_map(|v| v.parse::<u8>().ok()).collect();
+            return DeviceLine::Dmx { start, values };
+        }
+        return DeviceLine::Other;
+    }
+    if let Some((key, value)) = line.split_once('=') {
+        return DeviceLine::KeyValue(key.to_string(), value.to_string());
+    }
+    DeviceLine::Other
+}
+
 /// Reader thread: collect bytes from the serial port and emit whole lines.
 fn spawn_reader(mut port: Box<dyn serialport::SerialPort>, tx: mpsc::Sender<String>) {
     std::thread::spawn(move || {
@@ -359,5 +390,55 @@ fn run(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> 
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_ok_and_err_lines() {
+        assert_eq!(parse_device_line("ok"), DeviceLine::Ok);
+        assert_eq!(parse_device_line("ok\r"), DeviceLine::Ok);
+        assert_eq!(parse_device_line("err value out of range"), DeviceLine::Err("value out of range".into()));
+    }
+
+    #[test]
+    fn parses_settings_lines() {
+        assert_eq!(
+            parse_device_line("dmx_address=001"),
+            DeviceLine::KeyValue("dmx_address".into(), "001".into())
+        );
+        assert_eq!(
+            parse_device_line("input_mode=ArtNet>DMX"),
+            DeviceLine::KeyValue("input_mode".into(), "ArtNet>DMX".into())
+        );
+    }
+
+    #[test]
+    fn parses_dmx_lines() {
+        assert_eq!(
+            parse_device_line("dmx 17 0 255 128"),
+            DeviceLine::Dmx { start: 17, values: vec![0, 255, 128] }
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_dmx_lines() {
+        // Channel 0 would underflow the 1-based -> 0-based conversion
+        assert_eq!(parse_device_line("dmx 0 1 2"), DeviceLine::Other);
+        assert_eq!(parse_device_line("dmx nope"), DeviceLine::Other);
+        // Out-of-range byte values are skipped, valid ones kept
+        assert_eq!(
+            parse_device_line("dmx 1 300 5"),
+            DeviceLine::Dmx { start: 1, values: vec![5] }
+        );
+    }
+
+    #[test]
+    fn ignores_unknown_lines() {
+        assert_eq!(parse_device_line(""), DeviceLine::Other);
+        assert_eq!(parse_device_line("hello world"), DeviceLine::Other);
     }
 }

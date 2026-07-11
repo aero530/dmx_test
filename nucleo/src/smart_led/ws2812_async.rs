@@ -1,3 +1,7 @@
+//! WS2812 ("NeoPixel") driver that encodes the 800 kHz one-wire protocol
+//! onto an SPI MOSI line: each WS2812 bit becomes 4 SPI bits (see
+//! `PATTERNS`, sent at 3 MHz), letting the SPI peripheral + DMA generate
+//! the waveform with no CPU bit-banging.
 use core::marker::PhantomData;
 
 use crate::SMARTLED_NUM_LEDS_MAX;

@@ -41,6 +41,7 @@ See [BUGS.md](BUGS.md) for the full findings of the 2026-07 code review and
 | `pico_stepper/` | — | Currently a duplicate of `DMX_on_pico.ino` (misnamed; no stepper code) |
 | `rp2040/` | — | Empty placeholder crate (does not build) |
 | `dmx_console/` | host PC | Ratatui console: edit settings + live DMX monitor over the USB console port |
+| `host_tests/` | host PC | Unit tests that run the firmware's pure logic on the PC |
 | `reference/` | — | DMX / app-note PDFs |
 
 All three Rust crates share one cargo workspace; **build from inside each crate's
@@ -187,4 +188,24 @@ cargo run --release -- COM5    # connect (the console is the 2nd device port)
 Two views (Tab to switch): **Settings** — every firmware setting, Enter to edit and
 apply (persisted to EEPROM); **DMX Monitor** — live view of all 512 channels,
 refreshed 4×/s. The same field metadata drives the TFT menu, the console protocol,
-and this app, so they can't drift apart.
+and this app, so they can't drift apart. Protocol reference:
+[dmx_console/README.md](dmx_console/README.md).
+
+## Testing
+
+The firmware itself targets bare-metal ARM, so its hardware-independent logic is
+tested on the host instead: the `host_tests` crate includes the real firmware
+source files by path (`ui/types.rs`, `ui/fields.rs`, `enttec_protocol.rs`) and
+exercises them with normal `cargo test`:
+
+```
+cd host_tests && cargo test     # settings model, field metadata/editing, Enttec framing
+cd dmx_console && cargo test    # console protocol line parser
+```
+
+Covered: settings-range enforcement and per-digit editing, EEPROM encode size
+(regression test for the silently-dropped-saves bug), enum cycling, the virtual-LED
+and universe-offset math the router relies on, Enttec message framing including
+malformed/oversized input recovery, and console line parsing. Hardware-facing code
+(PIO, SPI, I2C, USB transport) is verified on the bench — see the checklists in
+[BUGS.md](BUGS.md).

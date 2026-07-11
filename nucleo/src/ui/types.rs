@@ -2,7 +2,7 @@
 use cfg_if::cfg_if;
 use core::net::Ipv4Addr;
 
-use crate::{ui::ValueType, DMX_UNIVERSE_SIZE, SMARTLED_PORT_COUNT};
+use crate::{DMX_UNIVERSE_SIZE, SMARTLED_PORT_COUNT};
 use bincode::{Decode, Encode};
 // use embassy_net::IpAddress;
 use heapless::Vec;
@@ -10,7 +10,11 @@ use micromath::F32Ext;
 
 use smart_leds::RGB8;
 
-use super::IncDec;
+/// Values that can be incremented or decremented
+pub trait IncDec {
+    fn increment(&self, index: usize) -> Self;
+    fn decrement(&self, index: usize) -> Self;
+}
 
 use defmt::Format;
 cfg_if! {
@@ -30,17 +34,6 @@ pub enum BootStatus {
     Success,
 }
 
-/// Flag to monitor a values selection mode
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum SelectionMode {
-    /// Not selected
-    Normal,
-    /// Highlighted but not editing
-    Selected,
-    /// Currently editing the value
-    Editing,
-}
-
 /// Output module type (defines which kind of module is connected)
 #[derive(Clone, Copy, Default, PartialEq, Format, Debug, Decode, Encode)]
 pub enum ModuleType {
@@ -48,26 +41,6 @@ pub enum ModuleType {
     Unknown,
     SmartLed,
     Pwm,
-}
-
-/// Action to take based on user interaction and current menu state.
-pub enum MenuMovement {
-    /// Go to next tab
-    NextTab,
-    /// Go to previous tab
-    PreviousTab,
-    /// Go to next item on the tab
-    NextItem,
-    /// Go to previous item on the tab
-    PreviousItem,
-    /// Go to the first item on the tab
-    FirstItem,
-    /// Go to the last item on the tab
-    LastItem,
-    /// Update the item value
-    UpdateValue((usize, usize, ValueType)),
-    /// Take no action
-    None,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Format, Debug, Decode, Encode)]
@@ -393,28 +366,6 @@ pub struct SmartLedDmxGroupSize(pub [u16; 4]);
 impl Default for SmartLedDmxGroupSize {
     fn default() -> Self {
         Self([1, 1, 1, 1])
-    }
-}
-
-/// Digit
-#[derive(Default, Clone, Copy, PartialEq, Eq, Format)]
-pub struct Udigit(pub u8);
-
-impl IncDec for Udigit {
-    fn increment(&self, _index: usize) -> Self {
-        if *self == Udigit(9) {
-            Udigit(0)
-        } else {
-            Udigit(self.0 + 1)
-        }
-    }
-
-    fn decrement(&self, _index: usize) -> Self {
-        if *self == Udigit(0) {
-            Udigit(9)
-        } else {
-            Udigit(self.0 - 1)
-        }
     }
 }
 

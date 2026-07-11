@@ -8,8 +8,17 @@
 #![no_std]
 #![no_main]
 
+extern crate alloc;
 
+// Heap allocator backing the Ratatui UI (cell buffers, framebuffer, strings)
+use embedded_alloc::LlffHeap as Heap;
 
+#[global_allocator]
+static HEAP: Heap = Heap::empty();
+
+/// Heap size: the mousefood framebuffer alone is 320*172*2 = ~108KB, plus
+/// Ratatui's two cell buffers and transient strings.
+const HEAP_SIZE: usize = 160 * 1024;
 
 // add enable_ethernet setting on the menu
 // add boot_successful flag bit in the eeprom.
@@ -104,11 +113,12 @@ use button::button_task;
 mod button_array;
 use button_array::button_row_task;
 
-// USB composite device: Enttec DMX widget, plus a CDC logger interface
-// when the `usb` logging feature is enabled.
-mod enttec_usb;
+// USB composite device: Enttec DMX widget + console line protocol, plus a
+// CDC logger interface when the `usb` logging feature is enabled.
+mod console_usb;
+mod usb_device;
 use embassy_stm32::usb::Driver;
-use enttec_usb::enttec_usb_task;
+use usb_device::usb_device_task;
 
 mod event_router;
 use event_router::{event_router, Router};
@@ -154,6 +164,13 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
+    // Initialize the heap before anything can allocate
+    {
+        use core::mem::MaybeUninit;
+        static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
+        unsafe { HEAP.init(core::ptr::addr_of_mut!(HEAP_MEM) as usize, HEAP_SIZE) }
+    }
+
     let mut config = Config::default();
 
     cfg_if! {
@@ -387,10 +404,17 @@ async fn main(spawner: Spawner) {
     // -----------------------------------
 
     // Composite USB device: Enttec DMX USB Pro widget emulation (USB>DMX mode
-    // + DMX-to-PC forwarding), plus a CDC logger interface with the `usb` feature.
+    // + DMX-to-PC forwarding) and the console line protocol, plus a CDC
+    // logger interface with the `usb` feature.
     let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
     spawner
-        .spawn(enttec_usb_task(driver, CHANNEL_DMX.sender(), CHANNEL_DMX_FEEDBACK.receiver().unwrap()))
+        .spawn(usb_device_task(
+            driver,
+            CHANNEL_DMX.sender(),
+            CHANNEL_DMX_FEEDBACK.receiver().unwrap(),
+            CHANNEL.sender(),
+            CHANNEL_LOG.receiver().unwrap(),
+        ))
         .unwrap();
 
     // // -----------------------------------

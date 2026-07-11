@@ -1,7 +1,14 @@
 # UI Redesign Proposals
 
-The menu UI works, but the 2026-07 review showed the current design is where most of
-the firmware's bugs live (BUGS.md N13–N16, N21). This document describes why, then
+> **Status (2026-07-11): Proposal A and companion D are implemented.**
+> The field-metadata table lives in `nucleo/src/ui/fields.rs`, the Ratatui app in
+> `nucleo/src/ui/mod.rs` (via mousefood 0.5 / ratatui-core 0.1), the console line
+> protocol in `nucleo/src/console_usb.rs` (interface 2 of the composite USB
+> device), and the host app in `dmx_console/`. The sections below are kept as the
+> design rationale.
+
+The menu UI worked, but the 2026-07 review showed the old design is where most of
+the firmware's bugs lived (BUGS.md N13–N16, N21). This document describes why, then
 lays out three redesign options plus one companion idea, with a recommendation.
 
 ## Current architecture (and why it breeds bugs)

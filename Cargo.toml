@@ -2,6 +2,9 @@
 resolver = "3"
 # members = [ "nucleo","rp2040"]
 members = [ "nucleo","rp2040","rp2040_dmx"]
+# dmx_console is a host-side (PC) tool with its own dependency tree;
+# keeping it out of the embedded workspace keeps Cargo.lock clean.
+exclude = ["dmx_console"]
 
 # Build profiles must be defined here: cargo silently ignores [profile.*]
 # sections in workspace member manifests (nucleo, rp2040_dmx, ...).

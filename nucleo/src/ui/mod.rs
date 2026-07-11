@@ -1,8 +1,25 @@
-//! User interface
+//! User interface — Ratatui on the ST7789 TFT via the mousefood
+//! embedded-graphics backend.
 //!
-//! The user interface is made up of multiple MenuTabs. Each MenuTab contains rows of MenuItems.
-//! A MenuItem has a name and value. The type of the value defined how the data is displayed and
-//! interacted with in the menu system (ie if it is an enum dropdown, number select, etc).
+//! The menu is a set of tabbed pages of settings fields. All field behavior
+//! (labels, ranges, rendering, editing) lives in the [`fields`] metadata
+//! table; this module only holds the cursor/edit state machine and the
+//! Ratatui rendering.
+//!
+//! Interaction model (4 buttons):
+//! * Navigating: Up/Down move the selection (crossing a page edge moves to
+//!   the previous/next tab), Select starts editing the highlighted field,
+//!   Esc jumps to the next tab.
+//! * Editing: the field is edited on a scratch copy of the settings.
+//!   Up/Down change the highlighted digit (numeric fields) or cycle the
+//!   value (enums). Select advances to the next digit and, after the last
+//!   one, commits: the edited field is merged into the live settings and
+//!   written to the EEPROM. Esc cancels the edit, discarding the change.
+//!
+//! `UiEvent::Load` (settings read back from the EEPROM, DHCP address
+//! updates, ...) refreshes the live settings at any time; an in-progress
+//! edit keeps its scratch copy, and committing merges only the edited field
+//! so a concurrent update can't be clobbered.
 use cfg_if::cfg_if;
 use defmt::Format;
 cfg_if! {
@@ -12,191 +29,48 @@ cfg_if! {
         use defmt::{error, info};
     }
 }
+
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
+
 use embassy_stm32::gpio::{Output, OutputOpenDrain};
 use embassy_stm32::mode::Async;
 use embassy_stm32::spi::Spi;
 use embassy_time::Delay;
 
-use embedded_graphics::{
-    draw_target::DrawTarget,
-    pixelcolor::Rgb565,
-    prelude::{Point, RgbColor},
-    Drawable,
-};
+use embedded_graphics::mono_font::ascii::{FONT_9X15, FONT_9X15_BOLD};
+use embedded_graphics::pixelcolor::Rgb565;
 use embedded_hal_bus::spi::ExclusiveDevice;
 
 use mipidsi::interface::SpiInterface;
-use mipidsi::options::{Orientation, Rotation};
-use mipidsi::{models::ST7789, options::ColorInversion, Builder};
-use u8g2_fonts::U8g2TextStyle;
+use mipidsi::options::{ColorInversion, Orientation, Rotation};
+use mipidsi::{models::ST7789, Builder};
 
-use embassy_time::{with_timeout, Duration};
+use mousefood::{EmbeddedBackend, EmbeddedBackendConfig};
+use ratatui_core::layout::{Constraint, Layout};
+use ratatui_core::style::{Color, Modifier, Style};
+use ratatui_core::terminal::{Frame, Terminal};
+use ratatui_core::text::{Line, Span};
+use ratatui_widgets::paragraph::Paragraph;
+use ratatui_widgets::tabs::Tabs;
 
 use static_cell::StaticCell;
 
 use crate::channels::{RouterChannelTx, UiChannelRx};
 use crate::event_router::RouterEvent;
-use crate::ui::traits::NextPrev;
-
-use crate::ui::ValueType;
-
-use crate::{DISPLAY_HEIGHT, DISPLAY_OFFSET, DISPLAY_WIDTH, DMX_UNIVERSE_SIZE, MENU_ITEMS_PER_TAB, MENU_NUM_TABS};
-
-mod menu_item;
-use menu_item::{MenuItem, MenuItemInputs};
-
-mod menu_tab;
-use menu_tab::MenuTab;
-
-mod traits;
-pub use traits::{IncDec, View};
+use crate::{DISPLAY_HEIGHT, DISPLAY_OFFSET, DISPLAY_WIDTH};
 
 mod types;
 pub use types::*;
 
-mod menu_value;
-pub use menu_value::MenuValue;
-
-mod theme_defaults;
-
-use theme_defaults::*;
-
-mod value_type;
-use value_type::*;
+mod fields;
+pub use fields::{all_fields, FieldId, Page, PAGES};
 
 type SpiDisplay = mipidsi::Display<SpiInterface<'static, ExclusiveDevice<Spi<'static, Async>, Output<'static>, embedded_hal_bus::spi::NoDelay>, Output<'static>>, ST7789, Output<'static>>;
 
 /// Buffer to write data to SPI based display
 static SPI_DISP_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
-
-pub fn split_digits_no_std(mut n: u16, pad_size: usize) -> heapless::Vec<Udigit, 5> {
-    let mut digits = heapless::Vec::new(); // Max 5 digits
-
-    while n > 0 {
-        let digit = Udigit((n % 10) as u8);
-        let _ = digits.push(digit);
-        n /= 10;
-    }
-
-    while digits.len() < pad_size {
-        let _ = digits.push(Udigit(0));
-    }
-    digits
-}
-
-pub fn digits_to_u16(n: heapless::Vec<Udigit, 5>) -> u16 {
-    let mut out = 0_u16;
-    n.iter().enumerate().for_each(|(index, val)| out += val.0 as u16 * 10_u16.pow((index as u16).into()));
-    out
-}
-
-/// Menu data structured for use with UI tabs
-#[derive(Clone, Copy, PartialEq, Eq, Format)]
-pub struct MenuTabData([[MenuItemInputs; MENU_ITEMS_PER_TAB]; MENU_NUM_TABS]);
-
-impl From<MenuData> for MenuTabData {
-    fn from(source: MenuData) -> Self {
-        // info!("Convert menu data to menu tab data.");
-        let (tab1, tab2) = match source.module {
-            ModuleSettings::Pwm(_pwm_settings) => (
-                [
-                    MenuItemInputs::new("", ValueType::None, false, false),
-                    MenuItemInputs::new("", ValueType::None, false, false),
-                    MenuItemInputs::new("", ValueType::None, false, false),
-                    MenuItemInputs::new("", ValueType::None, false, false),
-                    MenuItemInputs::new("", ValueType::None, false, false),
-                ],
-                [
-                    MenuItemInputs::new("", ValueType::None, false, false),
-                    MenuItemInputs::new("", ValueType::None, false, false),
-                    MenuItemInputs::new("", ValueType::None, false, false),
-                    MenuItemInputs::new("", ValueType::None, false, false),
-                    MenuItemInputs::new("", ValueType::None, false, false),
-                ],
-            ),
-            ModuleSettings::SmartLed(smart_led_settings) => (
-                [
-                    MenuItemInputs::new("Port Mode", ValueType::SmartLedPortMode(smart_led_settings.port_mode), true, false),
-                    MenuItemInputs::new("LED Group Size", ValueType::SmartLedDmxGroupSize(smart_led_settings.dmx_group_size), true, true),
-                    MenuItemInputs::new("Color Mode", ValueType::SmartLedColorMode(smart_led_settings.color_mode), true, false),
-                    MenuItemInputs::new("", ValueType::None, false, false),
-                    MenuItemInputs::new("", ValueType::None, false, false),
-                ],
-                [
-                    MenuItemInputs::new("LEDs on Port 1", ValueType::Uint3(smart_led_settings.leds_per_port[0]), true, false),
-                    MenuItemInputs::new("LEDs on Port 2", ValueType::Uint3(smart_led_settings.leds_per_port[1]), true, false),
-                    MenuItemInputs::new("LEDs on Port 3", ValueType::Uint3(smart_led_settings.leds_per_port[2]), true, false),
-                    MenuItemInputs::new("LEDs on Port 4", ValueType::Uint3(smart_led_settings.leds_per_port[3]), true, false),
-                    MenuItemInputs::new("Univrs Offset", ValueType::PortUniverseOffsets(smart_led_settings.universe_offset()), false, false),
-                ],
-            ),
-        };
-
-        MenuTabData([
-            [
-                MenuItemInputs::new("DMX", ValueType::Uint3(source.dmx_address), true, false),
-                MenuItemInputs::new("Input Mode", ValueType::InputMode(source.input_mode), true, false),
-                MenuItemInputs::new("Ethernet IP", ValueType::EthernetIPMode(source.ethernet_ip_mode), true, false),
-                MenuItemInputs::new("IP", ValueType::Ip(source.ip_addr), true, false),
-                MenuItemInputs::new("ArtNet", ValueType::ArtNetAddr(source.artnet_address), true, false),
-            ],
-            tab1,
-            tab2,
-            [
-                MenuItemInputs::new("Enable Ethernet (reboot req)", ValueType::EthernetEnabled(source.ethernet_enabled), true, true),
-                MenuItemInputs::new("", ValueType::None, false, false),
-                MenuItemInputs::new("", ValueType::None, false, false),
-                MenuItemInputs::new("", ValueType::None, false, false),
-                MenuItemInputs::new("", ValueType::None, false, false),
-            ],
-        ])
-    }
-}
-
-impl MenuTabData {
-    /// Convert MenuTabData to MenuData
-    #[allow(unused)]
-    fn to_menu_data(self, module_type: ModuleType) -> MenuData {
-        // info!("Convert menu tab data to menu data.");
-        let module_settings = match module_type {
-            ModuleType::Pwm => ModuleSettings::Pwm(PwmSettings::default()),
-            ModuleType::SmartLed => {
-                let dmx_group_size = self.0[1][1].value.extract_dmx_group_size();
-                let color_mode = self.0[1][2].value.extract_led_color_mode();
-                let leds_per_port = [
-                    self.0[2][0].value.extract_uint3(),
-                    self.0[2][1].value.extract_uint3(),
-                    self.0[2][2].value.extract_uint3(),
-                    self.0[2][3].value.extract_uint3(),
-                ];
-
-                ModuleSettings::SmartLed(SmartLedSettings {
-                    port_mode: self.0[1][0].value.extract_port_mode(),
-                    dmx_group_size,
-                    color_mode,
-                    leds_per_port,
-                })
-            }
-            ModuleType::Unknown => {
-                // A todo!() here would panic the UI task the first time settings
-                // are committed with an undetected module; fall back to defaults.
-                error!("Unknown module type - storing default module settings");
-                ModuleSettings::default()
-            }
-        };
-
-        MenuData {
-            // Valid DMX start addresses are 1..=512; the per-digit editor allows 0..=999
-            dmx_address: self.0[0][0].value.extract_uint3().clamp(1, DMX_UNIVERSE_SIZE as u16),
-            input_mode: self.0[0][1].value.extract_input_mode(),
-            ethernet_ip_mode: self.0[0][2].value.extract_ethernet_ip_mode(),
-            ethernet_enabled: self.0[3][0].value.extract_ethernet_enabled(),
-            ip_addr: self.0[0][3].value.extract_ip(),
-            artnet_address: self.0[0][4].value.extract_artnet(),
-            module: module_settings,
-        }
-    }
-}
 
 /// Action to be processed by the UI (often user interaction)
 #[derive(Format)]
@@ -208,206 +82,191 @@ pub enum UiEvent {
     Load(MenuData),
 }
 
-/// Interface to UI that maintains reference to hardware display and manages menu data
-#[allow(unused)]
-pub struct Ui<'a> {
-    /// Hardware display
-    disp: SpiDisplay,
-    rx: UiChannelRx,
+const LABEL_WIDTH: usize = 18;
+
+/// UI state machine: current settings, cursor and edit transaction.
+pub struct UiApp {
+    /// Live settings, kept in sync with the router / EEPROM
+    settings: MenuData,
+    /// Scratch copy edited in place while `editing`
+    draft: MenuData,
+    editing: bool,
+    tab: usize,
+    row: usize,
+    /// Digit sub-cursor for numeric fields (0 = most significant)
+    digit: u8,
     tx: RouterChannelTx,
-    /// Current tab shown in the UI
-    current_tab: usize,
-    /// Menu data structured for use with UI tabs
-    menu_tab_data: MenuTabData,
-    /// Menu data formatted for EEPROM storage
-    menu_data: MenuData,
-    /// Currently installed module type
-    module_type: ModuleType,
-    /// Menus displayed in the UI
-    menus: [MenuTab<'a>; 4],
 }
 
-impl<'a> Ui<'a> {
-    pub fn new(disp: SpiDisplay, rx: UiChannelRx, tx: RouterChannelTx) -> Self {
-        let md = MenuData::default(); // should be coming from the inputs to new fn
-        let menu_tab_data = md.into();
-        let module_type = ModuleType::SmartLed;
-
+impl UiApp {
+    pub fn new(tx: RouterChannelTx) -> Self {
+        let settings = MenuData::default();
         Self {
-            disp,
-            rx,
+            settings,
+            draft: settings,
+            editing: false,
+            tab: 0,
+            row: 0,
+            digit: 0,
             tx,
-            current_tab: 0,
-            menu_data: md,
-            menu_tab_data,
-            module_type,
-            menus: [MenuTab::default(), MenuTab::default(), MenuTab::default(), MenuTab::default()],
         }
     }
 
-    /// Go to next tab
-    fn next_tab(&mut self) {
-        if self.current_tab == self.menus.len() - 1 {
-            self.current_tab = 0;
+    fn page(&self) -> &'static Page {
+        &PAGES[self.tab]
+    }
+
+    fn field(&self) -> FieldId {
+        self.page().fields[self.row]
+    }
+
+    pub fn handle(&mut self, event: UiEvent) {
+        match event {
+            UiEvent::Load(data) => {
+                // Refresh the live settings. A running edit keeps its draft;
+                // commit merges only the edited field (see FieldId::transfer).
+                self.settings = data;
+            }
+            UiEvent::Up => {
+                if self.editing {
+                    self.field().adjust(&mut self.draft, self.digit, true);
+                } else {
+                    self.move_up();
+                }
+            }
+            UiEvent::Down => {
+                if self.editing {
+                    self.field().adjust(&mut self.draft, self.digit, false);
+                } else {
+                    self.move_down();
+                }
+            }
+            UiEvent::Select => {
+                if self.editing {
+                    let digits = self.field().digits();
+                    if digits == 0 || self.digit + 1 >= digits {
+                        self.commit();
+                    } else {
+                        self.digit += 1;
+                    }
+                } else if self.field().editable() {
+                    self.draft = self.settings;
+                    self.digit = 0;
+                    self.editing = true;
+                }
+            }
+            UiEvent::Esc => {
+                if self.editing {
+                    self.editing = false; // cancel, draft is discarded
+                } else {
+                    self.tab = (self.tab + 1) % PAGES.len();
+                    self.row = 0;
+                }
+            }
+        }
+    }
+
+    fn move_up(&mut self) {
+        if self.row > 0 {
+            self.row -= 1;
         } else {
-            self.current_tab = self.current_tab.saturating_add(1);
+            self.tab = self.tab.checked_sub(1).unwrap_or(PAGES.len() - 1);
+            self.row = self.page().fields.len() - 1;
         }
     }
 
-    /// Go to previous tab
-    fn previous_tab(&mut self) {
-        if self.current_tab == 0 {
-            self.current_tab = self.menus.len() - 1;
+    fn move_down(&mut self) {
+        if self.row + 1 < self.page().fields.len() {
+            self.row += 1;
         } else {
-            self.current_tab = self.current_tab.saturating_sub(1)
+            self.tab = (self.tab + 1) % PAGES.len();
+            self.row = 0;
         }
     }
 
-    /// Main function to manage the UI
-    pub async fn run(&mut self) {
-        // Create a Rectangle from the display's dimensions
-        let text_style = U8g2TextStyle::new(DEFAULT_FONT, COLOR_DEFAULT_TEXT);
+    /// Merge the edited field into the live settings and persist everything.
+    fn commit(&mut self) {
+        self.field().transfer(&self.draft, &mut self.settings);
+        self.editing = false;
+        info!("UI commit settings");
+        match self.tx.try_send(RouterEvent::WriteSettingsToEeprom(self.settings)) {
+            Ok(_) => {}
+            Err(_) => error!("UI commit dropped - router channel full"),
+        }
+    }
 
-        let mtd: MenuTabData = self.menu_data.into();
-        // Create menu items
-        let menu0_items = [
-            MenuItem::new(mtd.0[0][0], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.0[0][1], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.0[0][2], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.0[0][3], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.0[0][4], Point::zero(), text_style.clone()),
-        ];
+    /// Render the whole UI into a Ratatui frame.
+    pub fn render(&self, frame: &mut Frame) {
+        let [tab_area, body_area, footer_area] =
+            Layout::vertical([Constraint::Length(1), Constraint::Fill(1), Constraint::Length(1)]).areas(frame.area());
 
-        let menu1_items = [
-            MenuItem::new(mtd.0[1][0], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.0[1][1], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.0[1][2], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.0[1][3], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.0[1][4], Point::zero(), text_style.clone()),
-        ];
+        let tabs = Tabs::new(PAGES.iter().map(|p| p.title))
+            .select(self.tab)
+            .style(Style::new().fg(Color::Gray))
+            .highlight_style(Style::new().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD));
+        frame.render_widget(tabs, tab_area);
 
-        let menu2_items = [
-            MenuItem::new(mtd.0[2][0], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.0[2][1], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.0[2][2], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.0[2][3], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.0[2][4], Point::zero(), text_style.clone()),
-        ];
+        let data = if self.editing { &self.draft } else { &self.settings };
+        let mut lines: Vec<Line> = Vec::new();
+        for (row, field) in self.page().fields.iter().enumerate() {
+            lines.push(self.render_row(row, *field, data));
+        }
+        frame.render_widget(Paragraph::new(lines), body_area);
 
-        let menu3_items = [
-            MenuItem::new(mtd.0[3][0], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.0[3][1], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.0[3][2], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.0[3][3], Point::zero(), text_style.clone()),
-            MenuItem::new(mtd.0[3][4], Point::zero(), text_style.clone()),
-        ];
+        let hint = if self.editing {
+            " \u{2191}\u{2193} change  SEL next/save  ESC cancel"
+        } else {
+            " \u{2191}\u{2193} move  SEL edit  ESC tab"
+        };
+        frame.render_widget(
+            Paragraph::new(hint).style(Style::new().fg(Color::Black).bg(Color::Gray)),
+            footer_area,
+        );
+    }
 
-        // Create menu tabs
-        let mut menu0 = MenuTab::new("Main Menu", menu0_items);
-        let mut menu1 = MenuTab::new("LED Settings 1", menu1_items);
-        let mut menu2 = MenuTab::new("LED Settings 2", menu2_items);
-        let mut menu3 = MenuTab::new("System", menu3_items);
+    fn render_row(&self, row: usize, field: FieldId, data: &MenuData) -> Line<'static> {
+        let selected = row == self.row;
+        let label = format!(" {:<width$}", field.label(), width = LABEL_WIDTH);
+        let value = field.display(data);
 
-        menu0.arrange();
-        menu1.arrange();
-        menu2.arrange();
-        menu3.arrange();
+        let label_style = if !field.editable() {
+            Style::new().fg(Color::DarkGray)
+        } else if selected && !self.editing {
+            Style::new().fg(Color::Black).bg(Color::Cyan)
+        } else {
+            Style::new().fg(Color::Gray)
+        };
 
-        // Create menu & draw initial tab
-        let menu_structure = [menu0, menu1, menu2, menu3];
-        self.menus = menu_structure;
+        let mut spans: Vec<Span> = Vec::new();
+        spans.push(Span::styled(label, label_style));
 
-        self.menus[self.current_tab].update();
-        let _ = self.menus[self.current_tab].draw(&mut self.disp);
-
-        loop {
-            // Process message to UI
-            if let Ok(new_message) = with_timeout(Duration::from_millis(200), self.rx.receive()).await {
-                match new_message {
-                    UiEvent::Up => {
-                        match self.menus[self.current_tab].next() {
-                            MenuMovement::NextTab => self.next_tab(),
-                            MenuMovement::UpdateValue((item_index, _value_index, value)) => {
-                                self.update_menu_tab_data(item_index, value);
-                                self.menus[self.current_tab].set(item_index, value);
-                            }
-                            _ => {}
-                        };
-                    }
-                    UiEvent::Down => {
-                        match self.menus[self.current_tab].previous() {
-                            MenuMovement::PreviousTab => self.previous_tab(),
-                            MenuMovement::UpdateValue((item_index, _value_index, value)) => {
-                                self.update_menu_tab_data(item_index, value);
-                                self.menus[self.current_tab].set(item_index, value);
-                            }
-                            _ => {}
-                        };
-                    }
-                    UiEvent::Esc => {
-                        if !self.menus[self.current_tab].editing() {
-                            self.next_tab();
-                        }
-                    }
-                    UiEvent::Select => {
-                        if self.menus[self.current_tab].editing() {
-                            self.menus[self.current_tab].set_editing(false);
-                            self.menu_data = self.menu_tab_data.to_menu_data(self.module_type);
-                            info!("UI Event Select - menu data {:?}", self.menu_data);
-                            match self.tx.try_send(RouterEvent::WriteSettingsToEeprom(self.menu_data)) {
-                                Ok(_) => {}
-                                Err(e) => error!("Message dropped. Channel full. {:?}", e),
-                            };
-                        } else {
-                            self.menus[self.current_tab].set_editing(true);
-                        }
-                    }
-                    UiEvent::Load(menu_data) => {
-                        self.menu_data = menu_data;
-                        self.menu_tab_data = self.menu_data.into();
-
-                        for (item_index, item) in self.menu_tab_data.0[0].iter().enumerate() {
-                            self.menus[0].set(item_index, item.value);
-                        }
-
-                        for (item_index, item) in self.menu_tab_data.0[1].iter().enumerate() {
-                            self.menus[1].set(item_index, item.value);
-                        }
-
-                        for (item_index, item) in self.menu_tab_data.0[2].iter().enumerate() {
-                            self.menus[2].set(item_index, item.value);
-                        }
-
-                        for (item_index, item) in self.menu_tab_data.0[3].iter().enumerate() {
-                            self.menus[3].set(item_index, item.value);
-                        }
-                    }
-                };
-
-                self.menus[self.current_tab].update();
-
-                let _ = self.disp.clear(Rgb565::BLACK);
-                let _ = self.menus[self.current_tab].draw(&mut self.disp);
+        if selected && self.editing {
+            let edit_style = Style::new().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD);
+            if field.digits() > 0 {
+                // Highlight only the digit under the cursor
+                let i = self.digit as usize;
+                let mut chars = value.chars();
+                let before: String = chars.by_ref().take(i).collect();
+                let digit: String = chars.by_ref().take(1).collect();
+                let after: String = chars.collect();
+                spans.push(Span::styled(before, Style::new().fg(Color::Yellow)));
+                spans.push(Span::styled(digit, edit_style));
+                spans.push(Span::styled(after, Style::new().fg(Color::Yellow)));
+            } else {
+                spans.push(Span::styled(value, edit_style));
+            }
+        } else {
+            let value_style = if !field.editable() {
+                Style::new().fg(Color::DarkGray)
+            } else if selected {
+                Style::new().fg(Color::White).add_modifier(Modifier::BOLD)
+            } else {
+                Style::new().fg(Color::White)
             };
+            spans.push(Span::styled(value, value_style));
         }
-    }
 
-    fn update_menu_tab_data(&mut self, item_index: usize, value: ValueType) {
-        match self.current_tab {
-            0 => {
-                self.menu_tab_data.0[0][item_index].value = value;
-            }
-            1 => {
-                self.menu_tab_data.0[1][item_index].value = value;
-            }
-            2 => {
-                self.menu_tab_data.0[2][item_index].value = value;
-            }
-            3 => {
-                self.menu_tab_data.0[3][item_index].value = value;
-            }
-            _ => {}
-        }
+        Line::from(spans)
     }
 }
 
@@ -416,7 +275,6 @@ impl<'a> Ui<'a> {
 pub async fn ui_task_spi(bus: Spi<'static, Async>, cs: Output<'static>, dc: Output<'static>, reset: Output<'static>, mut backlight: OutputOpenDrain<'static>, rx: UiChannelRx, tx: RouterChannelTx) {
     let spi_device = ExclusiveDevice::new_no_delay(bus, cs).unwrap();
 
-    // let mut buffer = [0_u8; 512];
     let buffer = SPI_DISP_BUFFER.init([0_u8; 512]);
 
     // Define the display interface with no chip select
@@ -434,12 +292,32 @@ pub async fn ui_task_spi(bus: Spi<'static, Async>, cs: Output<'static>, dc: Outp
         .init(&mut delay)
         .unwrap();
 
-    // Make the display all black
-    let _ = display.clear(Rgb565::BLACK);
-
     // Turn on backlight
     backlight.set_high();
 
-    let mut ui = Ui::new(display, rx, tx);
-    ui.run().await
+    // Ratatui terminal rendering through mousefood onto the TFT.
+    // FONT_9X15 on the 320x172 logical display gives a 35x11 character grid.
+    let config: EmbeddedBackendConfig<SpiDisplay, Rgb565> = EmbeddedBackendConfig {
+        font_regular: FONT_9X15,
+        font_bold: Some(FONT_9X15_BOLD),
+        ..Default::default()
+    };
+    let backend = EmbeddedBackend::new(&mut display, config);
+    let mut terminal = match Terminal::new(backend) {
+        Ok(t) => t,
+        Err(_) => {
+            error!("UI: failed to create terminal");
+            return;
+        }
+    };
+
+    let mut app = UiApp::new(tx);
+
+    loop {
+        if terminal.draw(|frame| app.render(frame)).is_err() {
+            error!("UI: draw error");
+        }
+        let event = rx.receive().await;
+        app.handle(event);
+    }
 }

@@ -31,12 +31,6 @@ pub const DISPLAY_HEIGHT: u16 = 320;
 /// (240 buffer size - 172 lcd size) / 2 = 34
 pub const DISPLAY_OFFSET: u16 = 34;
 
-/// Number of menu items (rows) each tab in the UI can display
-pub const MENU_ITEMS_PER_TAB: usize = 5;
-
-/// Number of tabs in the UI
-pub const MENU_NUM_TABS: usize = 4;
-
 /// Number of ports on the SmartLED output module
 pub const SMARTLED_PORT_COUNT: usize = 4;
 

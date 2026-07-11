@@ -61,7 +61,6 @@ pub static CHANNEL_USB: UsbChannel = Channel::new();
 
 pub type GlobalDataChannel = Watch<CriticalSectionRawMutex, GlobalData, 2>;
 pub type GlobalDataChannelRx = WatchReceiver<'static, CriticalSectionRawMutex, GlobalData, 2>;
-pub type GlobalDataChannelTx = WatchSender<'static, CriticalSectionRawMutex, GlobalData, 2>;
 pub static CHANNEL_LOG: GlobalDataChannel = Watch::new();
 
 pub type EepromChannel = Channel<ThreadModeRawMutex, EepromEvent, 1>;

@@ -18,11 +18,11 @@
 //!
 //! Message framing: 0x7E, label, length LSB, length MSB, payload, 0xE7.
 //!
-//! This task owns the USB peripheral and builds a composite device: the
-//! Enttec widget is always the first CDC-ACM interface, and with the `usb`
-//! logging feature enabled a second CDC-ACM interface carries the `log`
-//! output, so logging and DMX-over-USB work at the same time. The host sees
-//! two serial ports; the Enttec one enumerates first.
+//! This task owns the USB peripheral and builds a composite device:
+//! interface 1 is always the Enttec widget, interface 2 is always the
+//! console line protocol (see `console_usb.rs`), and with the `usb` logging
+//! feature enabled a third CDC-ACM interface carries the `log` output. The
+//! host sees the serial ports in that order.
 
 use cfg_if::cfg_if;
 cfg_if! {
@@ -41,7 +41,7 @@ use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 
 use crate::artnet::PortAddress;
-use crate::channels::{DmxChannelTx, DmxFeedbackChannelRx};
+use crate::channels::{DmxChannelTx, DmxFeedbackChannelRx, GlobalDataChannelRx, RouterChannelTx};
 use crate::event_router::{DmxEvent, DmxFeedbackEvent, PacketAddress};
 use crate::ui::InputMode;
 use crate::{DMX_BUFFER, DMX_BUFF_SIZE, DMX_UNIVERSE_SIZE};
@@ -233,28 +233,38 @@ async fn handle_message(
     Ok(())
 }
 
-/// USB CDC task emulating an Enttec DMX USB Pro widget.
+/// Composite USB device task: Enttec widget + console (+ logger).
 #[embassy_executor::task]
-pub async fn enttec_usb_task(driver: Driver<'static, peripherals::USB>, tx: DmxChannelTx, mut rx: DmxFeedbackChannelRx) {
+pub async fn usb_device_task(
+    driver: Driver<'static, peripherals::USB>,
+    tx: DmxChannelTx,
+    mut rx: DmxFeedbackChannelRx,
+    router_tx: RouterChannelTx,
+    global_rx: GlobalDataChannelRx,
+) {
     let mut config = embassy_usb::Config::new(0xc0de, 0xdcaf);
     config.manufacturer = Some("EQUUS");
     config.product = Some("DMX USB Pro compatible");
     config.serial_number = Some("00000001");
     config.max_packet_size_0 = 64;
 
-    let mut config_descriptor = [0; 256];
+    let mut config_descriptor = [0; 320];
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
     let mut state = State::new();
-    // Declared alongside the other USB state so it outlives everything
+    // Declared alongside the other USB state so they outlive everything
     // sharing the builder's lifetime.
+    let mut console_state = State::new();
     #[cfg(feature = "usb")]
     let mut logger_state = State::new();
 
     let mut builder = embassy_usb::Builder::new(driver, config, &mut config_descriptor, &mut bos_descriptor, &mut [], &mut control_buf);
     let mut class = CdcAcmClass::new(&mut builder, &mut state, 64);
 
-    // Second CDC-ACM interface carrying the `log` output.
+    // Second CDC-ACM interface: console line protocol.
+    let mut console_class = CdcAcmClass::new(&mut builder, &mut console_state, 64);
+
+    // Third CDC-ACM interface carrying the `log` output.
     #[cfg(feature = "usb")]
     let logger_class = CdcAcmClass::new(&mut builder, &mut logger_state, 64);
 
@@ -328,12 +338,14 @@ pub async fn enttec_usb_task(driver: Driver<'static, peripherals::USB>, tx: DmxC
         }
     };
 
+    let console = crate::console_usb::run(&mut console_class, router_tx, global_rx);
+
     cfg_if! {
         if #[cfg(feature = "usb")] {
             let logger = embassy_usb_logger::with_class!(1024, log::LevelFilter::Info, logger_class);
-            embassy_futures::join::join3(usb.run(), protocol, logger).await;
+            embassy_futures::join::join4(usb.run(), protocol, console, logger).await;
         } else {
-            embassy_futures::join::join(usb.run(), protocol).await;
+            embassy_futures::join::join3(usb.run(), protocol, console).await;
         }
     }
 }

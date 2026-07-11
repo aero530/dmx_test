@@ -219,15 +219,19 @@ impl Router {
                     let _ = self.channel_ui.try_send(UiEvent::Load(x));
                     self.channel_dmx_feedback.send(DmxFeedbackEvent::Mode(x.input_mode, x.artnet_address.0[2]));
                 }
+                CHANNEL_LOG.sender().send(self.data);
             }
             RouterEvent::StoreBootStatus(status) => {
                 self.data.boot_status = status;
+                CHANNEL_LOG.sender().send(self.data);
             }
             RouterEvent::StoreModuleType(module_type) => {
                 self.data.module_type = module_type;
+                CHANNEL_LOG.sender().send(self.data);
             }
             RouterEvent::StoreMacAddress(mac) => {
                 self.data.mac = mac;
+                CHANNEL_LOG.sender().send(self.data);
             }
             RouterEvent::StoreIpAddr(data) => {
                 if let Some(addr) = data {
@@ -236,6 +240,7 @@ impl Router {
                     self.data.menu_settings.ip_addr = IpAddrMenu::default();
                 }
                 let _ = self.channel_ui.try_send(UiEvent::Load(self.data.menu_settings));
+                CHANNEL_LOG.sender().send(self.data);
             }
             RouterEvent::GetModuleType(return_channel) => {
                 match return_channel {

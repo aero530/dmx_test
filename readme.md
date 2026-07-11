@@ -40,6 +40,7 @@ See [BUGS.md](BUGS.md) for the full findings of the 2026-07 code review and
 | `DMX_on_pico/` | RP2040 (Arduino) | Original Arduino sketch that `rp2040_dmx` reimplements |
 | `pico_stepper/` | — | Currently a duplicate of `DMX_on_pico.ino` (misnamed; no stepper code) |
 | `rp2040/` | — | Empty placeholder crate (does not build) |
+| `dmx_console/` | host PC | Ratatui console: edit settings + live DMX monitor over the USB console port |
 | `reference/` | — | DMX / app-note PDFs |
 
 All three Rust crates share one cargo workspace; **build from inside each crate's
@@ -66,21 +67,26 @@ Tasks (spawned from `main`):
 - **`artnet_task`** (`artnet/`) — in the ArtNet modes, receives ArtDmx/ArtPoll/
   ArtSync/ArtCommand on UDP 6454 via a vendored `tiny_artnet` parser, stores universe
   data into `DMX_BUFFER`, answers ArtPoll with an ArtPollReply.
-- **`enttec_usb_task`** (`enttec_usb.rs`) — composite USB device. The first CDC-ACM
-  interface emulates an Enttec DMX USB Pro widget: PC lighting software can send DMX
-  (label 6) which drives the LEDs and, in `USB>DMX` mode, the wired DMX output;
-  received DMX/Art-Net frames are forwarded to the PC as label 5 packets on change;
-  widget parameter/serial queries (labels 3/4/8/10) are answered. With the `usb`
-  logging feature a second CDC-ACM interface carries the `log` output, so the host
-  sees two serial ports (Enttec first, logger second).
+- **`usb_device_task`** (`usb_device.rs`) — composite USB device. Interface 1
+  emulates an Enttec DMX USB Pro widget: PC lighting software can send DMX (label 6)
+  which drives the LEDs and, in `USB>DMX` mode, the wired DMX output; received
+  DMX/Art-Net frames are forwarded to the PC as label 5 packets on change; widget
+  parameter/serial queries (labels 3/4/8/10) are answered. Interface 2 is a console
+  line protocol (`console_usb.rs`: `get`/`set`/`dmx`/`info`) used by the
+  `dmx_console` host app. With the `usb` logging feature a third interface carries
+  the `log` output. Port order on the host: Enttec, console, logger.
 - **`event_router`** (`event_router.rs`) — central hub. Routes settings/EEPROM/UI/
   button events, and on each DMX/ArtNet packet maps `DMX_BUFFER` → `LED_COLORS`
   according to the settings (start address, group size, RGB/RGBW, Individual/Mirror
   port mode, Art-Net universe offsets), then pings the LED task.
 - **`smart_led_task`** (`smart_led/`) — renders `LED_COLORS` to 4 WS2812 ports by
   encoding each bit as 4 SPI bits (DMA).
-- **`ui_task_spi`** (`ui/`) — ST7789 172×320 TFT (SPI, mipidsi + embedded-graphics),
-  4-tab menu; 4 buttons navigate/edit (see `ui/` and [UI_PROPOSALS.md](UI_PROPOSALS.md)).
+- **`ui_task_spi`** (`ui/`) — Ratatui UI on the ST7789 172×320 TFT, rendered
+  through the `mousefood` embedded-graphics backend (35×11 character grid,
+  heap-backed framebuffer). All settings are described once in the `ui/fields.rs`
+  metadata table (labels, ranges, digit editing, console keys); the app state
+  machine in `ui/mod.rs` handles cursor movement and copy-on-edit transactions
+  (Select commits to EEPROM, Esc cancels).
 - **`eeprom_i2c_task`** (`eeprom/`) — M24C02 (256 B) on the shared module I2C bus.
   Layout: 0x01 module type, 0x02–0x07 MAC, 0x10 boot-success flag, 0x20–0x5F settings
   (bincode-encoded `MenuData`).
@@ -152,15 +158,33 @@ picotool uf2 convert -t elf ../target/thumbv6m-none-eabi/release/rp2040_dmx rp20
 | WS2812 status pixel | GPIO23 |
 | Onboard LED | GPIO25 |
 
-## UI menu (current)
+## UI menu
 
-- **Main Menu** — DMX start address, input mode (DMX / ArtNet / ArtNet>DMX /
-  USB>DMX), IP mode (DHCP/static), IP (read-only), Art-Net net/sub-net/universe
-- **LED Settings 1** — port mode (Individual/Mirror), LED group size per port,
-  color mode (RGB/RGBW)
-- **LED Settings 2** — LEDs per port (×4), computed universe offsets (read-only)
+Four tabs rendered by Ratatui on the TFT:
+
+- **Main** — DMX start address, mode (DMX / ArtNet / ArtNet>DMX / USB>DMX),
+  IP mode (DHCP/static), IP (read-only), Art-Net net/sub-net/universe
+- **LED 1** — port mode (Individual/Mirror), color mode (RGB/RGBW), LED group
+  size per port (×4)
+- **LED 2** — LEDs per port (×4), computed universe offsets (read-only)
 - **System** — Ethernet enable (takes effect after reboot)
 
-Buttons: Up/Down move the cursor (per digit for numeric fields) or, in edit mode,
-change the highlighted digit; Select toggles edit mode and commits to EEPROM; Esc
-changes tab.
+Buttons: while navigating, Up/Down move the selection (crossing a page edge changes
+tab), Select starts editing, Esc jumps to the next tab. While editing, Up/Down
+change the highlighted digit (or cycle an enum), Select moves to the next digit and
+commits after the last one (written to EEPROM), Esc cancels the edit.
+
+## Host console (dmx_console)
+
+A desktop Ratatui app that connects to the device's USB console port:
+
+```
+cd dmx_console
+cargo run --release            # lists serial ports (device ports are marked)
+cargo run --release -- COM5    # connect (the console is the 2nd device port)
+```
+
+Two views (Tab to switch): **Settings** — every firmware setting, Enter to edit and
+apply (persisted to EEPROM); **DMX Monitor** — live view of all 512 channels,
+refreshed 4×/s. The same field metadata drives the TFT menu, the console protocol,
+and this app, so they can't drift apart.

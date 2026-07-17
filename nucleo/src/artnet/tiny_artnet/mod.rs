@@ -138,6 +138,15 @@ impl PortAddress {
     pub fn as_index(&self) -> usize {
         ((self.net as usize) << 8) | ((self.sub_net as usize) << 4) | (self.universe as usize)
     }
+
+    /// The Art-Net "SubUni" byte: Sub-Net in the high nibble, Universe in the
+    /// low nibble — the Port-Address within its Net (0..=255). Used to index
+    /// the flat one-net DMX buffer; nibbles are masked so the result can
+    /// never exceed 255.
+    pub fn sub_uni(&self) -> usize {
+        (((self.sub_net & 0x0F) as usize) << 4) | ((self.universe & 0x0F) as usize)
+    }
+
     pub fn new(net: u8, sub_net: u8, universe: u8) -> Self {
         Self { net, sub_net, universe }
     }

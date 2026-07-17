@@ -14,13 +14,15 @@ use ws2812_async::{Grb, Ws2812};
 
 #[allow(unused)]
 pub enum SmartLedEvent {
-    UpdateLEDs,
+    /// Push `LED_COLORS` to the strips; the payload is the configured LED
+    /// count per port so only that many LEDs are encoded and transmitted.
+    UpdateLEDs([u16; crate::SMARTLED_PORT_COUNT]),
 }
 
 impl Format for SmartLedEvent {
     fn format(&self, f: defmt::Formatter) {
         match self {
-            SmartLedEvent::UpdateLEDs => defmt::write!(f, "Update LEDs: ()..."),
+            SmartLedEvent::UpdateLEDs(counts) => defmt::write!(f, "Update LEDs: {:?}", counts),
         }
     }
 }
@@ -48,7 +50,10 @@ impl<'a> SmartLed<'a> {
     }
 
     pub async fn enable(&mut self) {
-        self.send_to_leds().await.ok();
+        // Blank the full strip length on every port: the configured LED
+        // counts are not known yet, and a longer physical strip should not
+        // keep stale colors from before the reboot.
+        self.send_to_leds([crate::SMARTLED_NUM_LEDS_MAX as u16; crate::SMARTLED_PORT_COUNT]).await.ok();
     }
 
     pub async fn show(&mut self) {
@@ -60,18 +65,27 @@ impl<'a> SmartLed<'a> {
 
     async fn process_event(&mut self, event: SmartLedEvent) {
         match event {
-            SmartLedEvent::UpdateLEDs => {
-                self.send_to_leds().await.ok();
+            SmartLedEvent::UpdateLEDs(counts) => {
+                self.send_to_leds(counts).await.ok();
             }
         }
     }
 
-    async fn send_to_leds(&mut self) -> Result<(), &'static str> {
+    async fn send_to_leds(&mut self, counts: [u16; crate::SMARTLED_PORT_COUNT]) -> Result<(), &'static str> {
         // Get lock on LED colors data
         let colors = LED_COLORS.lock().await;
 
-        // Write color data to the four ports
-        let results = embassy_futures::join::join_array([self.ws_1.write(colors[0]), self.ws_2.write(colors[1]), self.ws_3.write(colors[2]), self.ws_4.write(colors[3])]).await;
+        // Write color data to the four ports. Only the configured number of
+        // LEDs is encoded and transmitted (a full 1024-LED frame takes ~33ms
+        // at 3MHz SPI; short strings update much faster this way).
+        let n = |i: usize| (counts[i] as usize).min(colors[i].len());
+        let results = embassy_futures::join::join_array([
+            self.ws_1.write(colors[0][..n(0)].iter().copied()),
+            self.ws_2.write(colors[1][..n(1)].iter().copied()),
+            self.ws_3.write(colors[2][..n(2)].iter().copied()),
+            self.ws_4.write(colors[3][..n(3)].iter().copied()),
+        ])
+        .await;
 
         let a = results.iter().filter(|&&r| r.is_err()).count();
 

@@ -220,4 +220,291 @@ found in it, all resolved by the rewrite:
 `rp2040/src/main.rs` is a placeholder (`panic!("no code")`) without an entry attribute
 or panic handler — it does not build. Left as-is since it's clearly a stub; note that
 `cargo build --workspace` from the root will fail on it, so build per-crate as the
-readme instructs.
+readme instructs. *(2026-07-17: removed from the workspace members list, see R13 below.)*
+
+---
+
+# 2026-07 follow-up review — findings and fixes
+
+Full-repo follow-up review performed 2026-07-16 on the `dev` branch (HEAD
+`3da4070`), covering all four crates (`nucleo`, `rp2040_dmx`, `dmx_console`,
+`host_tests`), the Arduino sketches, and all documentation. Every fix from the
+2026-07-11 review above (N1–N17) was re-verified as present. Findings R1–R13
+below were fixed 2026-07-17 (except R7, deferred to a bench session).
+
+**State of the tree at review time (before these fixes):**
+
+| Check | Result |
+|---|---|
+| `nucleo` / `rp2040_dmx` `cargo build --release` | clean |
+| `host_tests` + `dmx_console` `cargo test` | 34/34 pass |
+| `cargo clippy` (both firmware crates) | 4 style nits (nucleo), 0 (rp2040_dmx) |
+| Docs vs. code (readme, crate READMEs, this file, UI_PROPOSALS.md) | accurate |
+
+Logic verified by hand during the review: the PIO RX/TX programs against
+Pico-DMX timing (mid-bit sampling; 176 µs BREAK / 16 µs MAB / 4 µs bits /
+2 stop bits), the ArtPollReply wire layout (exactly 239 bytes, spec field
+order), the Enttec parser's resync behavior on oversize/corrupt framing, and
+the router's virtual-LED / universe-offset math. No reachable panic, overflow,
+or out-of-bounds path was found on any input surface (Art-Net UDP, Enttec USB,
+console lines, I2C blocks) — all are length-checked and bounds-guarded.
+
+**State after the fixes:** both firmware crates build clean in release,
+`cargo clippy` is warning-free on both, and all 35 host tests pass
+(host_tests 30 + dmx_console 5).
+
+### R1. FIXED — DMX bridge I2C bus dropped from ~4 MHz to 400 kHz
+[main.rs](nucleo/src/main.rs): I2C1 was configured at `Hertz(4_000_000)`, and
+embassy-stm32 0.4.0's `Timings::new` — traced with the configured 100 MHz
+PLL3_R kernel clock — computes PRESC=1, SCLH=7, SCLL=15 with **no clamping or
+assertion**, so the STM32 really drove SCL at ~4 MHz: 4× the I2C Fm+ maximum
+(1 MHz) and 4× the RP2040 slave's rating. (The 2026-07-11 review caught the
+same constant in the Arduino sketch and called it harmless because a slave
+doesn't drive SCL — this was the master, where it isn't.) Now 400 kHz fast
+mode; the three 201-byte block transfers take ~14 ms, well inside the 30 ms
+poll cycle. **Bench check:** confirm clean block reads in DMX mode at the new
+speed.
+
+### R2. FIXED — `pico_stepper/` deleted
+It was a stale copy of `DMX_on_pico.ino` (no stepper code) still carrying the
+invalid `Wire1.setClock(4000000)`. Removed entirely; `DMX_on_pico/` remains
+the reference sketch.
+
+### R3. FIXED — rp2040_dmx: I2C `listen()` no longer raced against frame delivery
+[rp2040_dmx/src/main.rs](rp2040_dmx/src/main.rs): `i2c_task` used
+`select(FRAMES.receive(), dev.listen(&mut buf))`; embassy-rp 0.9.0's
+`listen()` keeps its byte-count progress in a local variable, so cancelling
+it mid-transaction (a frame arrives ~43×/s in input mode, against roughly
+45% bus duty from the STM32's polling) could garble that transaction —
+one corrupted poll, which the STM32 logs as `DMX Error` and retries after
+250 ms. The failure was partially self-healing (the command byte survives in
+the reused `buf`; multi-byte block writes only occur in output mode, when
+`FRAMES` is silent), so the exposure was mode transitions and input-mode
+traffic. Now the frame channel is drained with `try_receive()` between
+transactions and `listen()` is awaited uncancelled. `listen()` completes on
+every master transaction (~100/s while polling), so the served frame stays
+≤ ~30 ms stale.
+
+### R4. FIXED — LED output no longer silently dead when the EEPROM misbehaves
+Two changes:
+1. [main.rs](nucleo/src/main.rs): the final `WriteBootStatus(Success)` is now
+   retried up to 3× with confirmation via the router; if it still fails, the
+   local boot result is treated as authoritative
+   (`StoreBootStatus(Some(Success))` is sent directly) so a healthy system
+   with a flaky EEPROM still produces output. The unwritten flag means the
+   *next* boot reads Failed and disables ethernet — the documented lockout
+   behavior, unchanged.
+2. [event_router.rs](nucleo/src/event_router.rs): when DMX data is dropped
+   because boot never reached `Success` (e.g. no module EEPROM), that is now
+   logged at `error!` level once per boot instead of silently ignored.
+The "no module EEPROM = no output module" design itself is now documented in
+[nucleo/README.md](nucleo/README.md).
+
+### R5. FIXED — ArtPollReply advertises the real device, not the vendored example
+[artnet/mod.rs](nucleo/src/artnet/mod.rs): now reports
+`short_name: "DMX LED Interface"`, `long_name: "DMX/Art-Net LED Interface"`,
+`oem: ARTNET_OEM`, and the configured Port-Address
+(`net_switch`/`sub_switch`/`swout[0]` from settings). To make the address
+available, `DmxFeedbackEvent::Mode` now carries the full `ArtNetAddr`
+(net, sub-net, universe) instead of just the universe byte; the dmx_i2c and
+usb_device receivers were updated accordingly. This also closes the
+`oem: 0` half of N20. [poll_reply.rs](nucleo/src/artnet/tiny_artnet/poll_reply.rs)
+`put_str` also now guarantees NUL termination (see R11).
+
+### R6. FIXED — buffer indexed by sub-net:universe, filtered on Net (option b)
+Implemented 2026-07-17 per the analysis at the end of this section.
+
+### R7. DEFERRED — EEPROM `refresh_bus` writes to invalid I2C address 0xFE
+[m24x02.rs](nucleo/src/eeprom/m24x02.rs): left as-is per review disposition —
+it is an error-recovery path that needs hardware on the bench to retest. When
+hardware is available: drop the bogus 0xFE write (keep the ACK-poll `wait()`),
+and if a true bus-clear is needed, implement it as 9 manual SCL clocks.
+
+### R8. FIXED — event router is event-driven
+[event_router.rs](nucleo/src/event_router.rs): the task loop polled both
+channels with 5 ms `with_timeout`s (up to ~10 ms added latency per event,
+constant wakeups). Now a single `embassy_futures::select` over the two
+receivers.
+
+### R9. FIXED — WS2812 output transmits only the configured LED count
+`SmartLedEvent::UpdateLEDs` now carries `leds_per_port` from the router, and
+[ws2812_async.rs](nucleo/src/smart_led/ws2812_async.rs) transmits only the
+encoded prefix of the pattern buffer (plus the latch gap). Previously every
+update pushed all 1024 LEDs per port (~33 ms at 3 MHz SPI) regardless of
+configuration; short strings now update much faster. The startup blank in
+`enable()` still writes the full 1024 so a longer physical strip can't keep
+stale colors across a reboot.
+
+### R10. FIXED — console `set` merges one field instead of writing the whole struct
+New `RouterEvent::WriteFieldToEeprom(FieldId, MenuData)`: the router merges
+only the named field into its authoritative settings via `FieldId::transfer`
+(the same semantics as a TFT commit) and persists. Previously
+[console_usb.rs](nucleo/src/console_usb.rs) rebuilt the whole `MenuData` from
+the last broadcast, so a console `set` racing a TFT edit could clobber it.
+
+### R11. FIXED — ArtPollReply strings always NUL-terminated
+[poll_reply.rs](nucleo/src/artnet/tiny_artnet/poll_reply.rs): `put_str` now
+truncates to N−1 bytes so the final byte of the field is always 0x00, as the
+Art-Net spec requires. Was latent (names were short); matters now that R5
+sets real names.
+
+### R12. FIXED — UI channel deepened so `Load` events aren't dropped
+[channels.rs](nucleo/src/channels.rs): `CHANNEL_UI` depth 1 → 4. A `Load`
+(e.g. a DHCP address update) arriving while the UI task was mid-draw was
+silently dropped and the TFT showed stale settings until the next keypress.
+
+### R13. FIXED — housekeeping (all except the Enttec label-5 note)
+- `panic-reset` removed from [nucleo/Cargo.toml](nucleo/Cargo.toml) (never
+  linked; would conflict with `panic-probe` if it were).
+- `rp2040` stub moved from workspace `members` to `exclude` in
+  [Cargo.toml](Cargo.toml). Note discovered while verifying:
+  `cargo build --workspace` is *still* not supported even without the stub —
+  workspace builds feature-unify `critical-section`, and nucleo (single-core,
+  `restore-state-bool`) conflicts with rp2040_dmx (multicore,
+  `restore-state-u8`). This is almost certainly how the hand-edited registry
+  copy of `critical-section` (B1) came to exist. Per-crate builds remain the
+  workflow; the root manifest now documents why.
+- Stale RCC comments on the fallback (CSI) clock path in
+  [main.rs](nucleo/src/main.rs) corrected (4 MHz CSI math, not 8 MHz HSI).
+- All 4 clippy warnings fixed (two indexed loops over `packet`, one
+  collapsible match, one manual `% == 0`). Both crates are clippy-clean.
+- The Enttec label-5 forwarding starvation note was intentionally **not**
+  changed. For the record: in [usb_device.rs](nucleo/src/usb_device.rs) the
+  `select` always wins on `read_packet`, so a host that streams label-6
+  packets faster than one per 30 ms *while the device is in a receive mode*
+  would starve the received-DMX (label 5) forwarding. Only matters with a
+  misbehaving host — in USB>DMX mode (the mode where hosts actually stream)
+  forwarding is skipped anyway.
+
+## R6 — Art-Net universe addressing analysis (decision needed)
+
+Reviewed against the Art-Net 4 specification (Protocol Release V1.4, document
+revision 1.4dp, downloaded 2026-07-17 from art-net.org.uk). The relevant spec
+facts:
+
+- **Port-Address is a 15-bit number**: bit 15 = 0, bits 14–8 = **Net**
+  (128 nets), bits 7–4 = **Sub-Net**, bits 3–0 = **Universe**. "A group of 16
+  consecutive universes is referred to as a sub-net."
+- **One ArtPollReply encodes 1–4 ports that share a single Net+Sub-Net**
+  (`NetSwitch`/`SubSwitch` are per-reply; only the `SwOut` universe nibble
+  varies per port). Classic nodes are therefore "limited to universes from a
+  consecutive block of 16."
+- **Art-Net 4's BindIndex scheme** is the spec's way past that block: a device
+  sends multiple ArtPollReplys with different `BindIndex`, letting every DMX
+  port advertise a fully independent Port-Address ("support over 1000 DMX
+  ports").
+
+How the firmware behaves today: the router accepts ArtDmx whose Net and
+Sub-Net equal the configured address, and the buffer is indexed by the 4-bit
+Universe nibble only. So regardless of `DMX_UNIVERSE_COUNT = 256`, **only the
+16 universes of the configured sub-net are addressable** — the other 240
+universe slots (120 KB of the 128 KB buffer) can never be written.
+
+The catch is that legal LED settings can *span more than those 16 universes*:
+`universe_offset()` gives each port a consecutive block, and the worst case
+(4 ports × 999 LEDs × RGBW, group 1 → 8 universes per port) needs 32. A
+controller transmitting the next consecutive Port-Address crosses the sub-net
+boundary (universe 15 → sub-net+1, universe 0); the firmware's sub-net filter
+rejects those packets, and worse, the nibble-only buffer indexing would alias
+them onto low universes (they are stored before the router filters — the N9
+residual gap). Such configurations silently can't work today.
+
+**Answer to "should the UI be updated or is `DMX_UNIVERSE_COUNT = 16` the real
+solution?": neither alone — it depends on whether >16-universe configurations
+are in scope.** The options:
+
+- **(a) Small node (16-universe block is enough).** Set
+  `DMX_UNIVERSE_COUNT = 16` (frees 120 KB of SRAM — the UI already clamps
+  universe to 0–15 so no UI change is *required* for correctness), and add a
+  validation/warning when `universe_offset() + configured universe` would
+  exceed 15 (UI and console), so impossible configurations are visible
+  instead of silently dark. This matches the classic node model the firmware
+  already implements and what the single ArtPollReply advertises.
+- **(b) Recommended — index by Sub-Net:Universe (8 bits), filter on Net only.**
+  Change the artnet task to store packets at
+  `((sub_net << 4) | universe) * 512` and the router to filter only on Net;
+  derive the dmx_i2c output-mode offset the same way. The existing 256 × 512
+  buffer is then *exactly* the right size (a full net = 256 universes), spans
+  crossing a sub-net boundary work the way controllers actually transmit
+  them, and no UI change is needed. This is a ~4-line addressing change plus
+  a controller bench test.
+- **(c) Full Art-Net 4 BindIndex node.** Advertise each port in its own
+  ArtPollReply with independent Port-Addresses. The "proper" modern gateway
+  model, but a larger redesign than the current feature set needs.
+
+Recommendation was **(b)** — it converts the currently-wasted 120 KB into
+exactly the coverage multi-universe ports need, requires no UI change, and
+leaves (c) as a future enhancement.
+
+**Implemented (b) on 2026-07-17.** The changes:
+
+- `PortAddress::sub_uni()` ([tiny_artnet/mod.rs](nucleo/src/artnet/tiny_artnet/mod.rs))
+  and `ArtNetAddr::sub_uni()` ([ui/types.rs](nucleo/src/ui/types.rs)) return the
+  Port-Address "SubUni" byte (sub-net high nibble : universe low nibble,
+  0..=255). Both mask the nibbles to 4 bits so corrupt stored settings can
+  never index past the buffer.
+- [artnet/mod.rs](nucleo/src/artnet/mod.rs): incoming ArtDmx is stored at
+  `sub_uni * 512` instead of `universe * 512`, so consecutive Port-Addresses
+  map to consecutive buffer slots across sub-net boundaries.
+- [event_router.rs](nucleo/src/event_router.rs): packets are filtered on
+  **Net only** (the sub-net equality check is gone), and rendering reads from
+  the configured `sub_uni` base in both Individual and Mirror modes. The
+  existing bounds clamps still guard spans that would run past the end of the
+  net.
+- [dmx_i2c.rs](nucleo/src/dmx_i2c.rs) (ArtNet>DMX output) and
+  [usb_device.rs](nucleo/src/usb_device.rs) (label-5 forwarding) read the
+  universe from the same `sub_uni` base.
+- Buffer documentation updated ([statics.rs](nucleo/src/statics.rs),
+  [constants.rs](nucleo/src/constants.rs)); `sub_uni` indexing is covered by a
+  new host test (`artnet_addr_sub_uni_indexes_one_full_net`).
+
+The full 256 × 512 B buffer is now exactly one addressable net. **Bench
+check:** verify with a real controller that a multi-universe configuration
+spanning a sub-net boundary (e.g. base universe 14 with a 4-universe port)
+renders correctly, and that DMX/USB modes are unaffected.
+
+## Status of items from the 2026-07-11 review (as of the follow-up)
+
+- **N18 — DMX vs Art-Net one-channel addressing offset.** Confirmed still
+  present and now the biggest functional decision outstanding: wired DMX and
+  USB store channel N at buffer index N (start code at index 0); Art-Net
+  stores it at N−1 within its universe slot; the router indexes both with
+  `dmx_address`, so the same configured address is off by one between input
+  modes (the console `dmx` monitor shows the shift too). Needs the convention
+  decision, then retest both modes on hardware.
+- **N19 — `pwm_i2c_task` never spawned** (PWM module unfinished). Unchanged.
+- **N20 — static-IP /24 prefix + off-subnet gateway (`192.168.86.1`).** The
+  `oem: 0` half of N20 was closed by R5; the network-design half remains a
+  functional decision.
+- **N21 — `UiEvent::Load` vs in-progress edits.** Largely mitigated by the
+  Ratatui rewrite's copy-on-edit + per-field merge; the remaining exposure
+  (dropped `Load` events) was closed by R12.
+- **N22 — PC13 user-button polarity.** Still the top bench-check priority: a
+  misread means factory reset + MAC wipe on every boot.
+- **First boot after reflashing** still reads an unwritten boot flag → one
+  boot with ethernet disabled, then recovers (side effect documented at N2).
+- **EEPROM priming writes** (made effective by N11): bench-retest
+  settings/MAC page writes; delete the priming writes if unneeded.
+
+## Bench checklist (next hardware session)
+
+1. **R1**: scope SCL on the bridge bus (should now be 400 kHz); confirm clean
+   block reads in DMX mode.
+2. **N22**: PC13 button polarity — check first, since a misread wipes
+   settings/MAC on every boot.
+3. **R6**: multi-universe Art-Net configuration crossing a sub-net boundary
+   with a real controller; confirm DMX/USB modes unaffected.
+4. **N18**: make the addressing-convention decision, then verify a fixture at
+   address 1 responds identically in DMX and Art-Net modes.
+5. **N11 follow-up**: retest EEPROM settings/MAC page writes without the
+   priming write; delete it if unneeded. Then revisit **R7** (the 0xFE
+   "bus wake" in [m24x02.rs](nucleo/src/eeprom/m24x02.rs) is not a valid 7-bit
+   address and likely just NAKs; drop it and keep the ACK-poll `wait()`, or
+   implement a true bus-clear as 9 manual SCL clocks).
+6. **R4**: observe the one-boot ethernet-disable after reflashing and confirm
+   recovery; optionally test with the module EEPROM disconnected to see the
+   new once-per-boot diagnostic and local-state fallback.
+7. **Display SPI**: the requested 100 MHz resolves to ~50 MHz actual (SPI
+   kernel clock ÷2 floor) — well beyond ST7789 datasheet write-cycle timing.
+   It evidently works, but it is overclocked; drop toward ~33 MHz if the
+   display ever glitches.

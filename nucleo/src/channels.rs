@@ -54,11 +54,13 @@ pub type SmartLedChannelTx = Sender<'static, ThreadModeRawMutex, SmartLedEvent, 
 /// Router -> smart_led_task: "`LED_COLORS` changed, push it to the strips".
 pub static CHANNEL_SMART_LED: SmartLedChannel = Channel::new();
 
-pub type UiChannel = Channel<ThreadModeRawMutex, UiEvent, 1>;
-pub type UiChannelRx = Receiver<'static, ThreadModeRawMutex, UiEvent, 1>;
-pub type UiChannelTx = Sender<'static, ThreadModeRawMutex, UiEvent, 1>;
+pub type UiChannel = Channel<ThreadModeRawMutex, UiEvent, 4>;
+pub type UiChannelRx = Receiver<'static, ThreadModeRawMutex, UiEvent, 4>;
+pub type UiChannelTx = Sender<'static, ThreadModeRawMutex, UiEvent, 4>;
 /// Router -> UI task: button presses translated to Up/Down/Select/Esc,
-/// plus `Load` events carrying refreshed settings.
+/// plus `Load` events carrying refreshed settings. Depth 4 so a `Load`
+/// arriving while the UI task is mid-draw (e.g. a DHCP address update)
+/// is not silently dropped.
 pub static CHANNEL_UI: UiChannel = Channel::new();
 
 pub type GlobalDataChannel = Watch<CriticalSectionRawMutex, GlobalData, 2>;

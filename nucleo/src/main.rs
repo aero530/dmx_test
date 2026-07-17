@@ -219,27 +219,19 @@ async fn main(spawner: Spawner) {
             });
 
         } else {
-            // This option defaults to using the high speed internal clock as the main PLL source.
-            // This clock is less accurate than using an external clock.
-            // The internal clock is 64MHz.  Divide that clock by 8 to get an input of 8MHz to the
-            // rest of the clock chain.
-            // config.rcc.hsi = Some(HSIPrescaler::DIV8);
+            // Fallback without an external clock: the PLL runs from the CSI
+            // internal oscillator (4 MHz). Less accurate than HSE; prefer the
+            // clock_stlink or clock_25MHz_osc features when the hardware allows.
             config.rcc.hsi = None;
 
             // System
             // PLL1Q -> Ethernet
             config.rcc.pll1 = Some(Pll {
-                // source: PllSource::HSI, // use HSI as the clock source
-                // prediv: PllPreDiv::DIV2,
-                // mul: PllMul::MUL125,
-                // divp: Some(PllDiv::DIV2), // PLL P divisor => pll_src / prediv * mul / divp = 8mhz / 2 * 125 / 2 = 250Mhz
-                // divq: Some(PllDiv::DIV2), // PLL Q divisor => pll_src / prediv * mul / divp = 8mhz / 2 * 215 / 2 = 250Mhz
-                // divr: None,
                 source: PllSource::CSI,
                 prediv: PllPreDiv::DIV1,
                 mul: PllMul::MUL125,
-                divp: Some(PllDiv::DIV2), // PLL P divisor => pll_src / prediv * mul / divp = 8mhz / 2 * 125 / 2 = 250Mhz
-                divq: Some(PllDiv::DIV4), // PLL Q divisor => pll_src / prediv * mul / divp = 8mhz / 2 * 215 / 2 = 250Mhz
+                divp: Some(PllDiv::DIV2), // PLL P divisor => pll_src / prediv * mul / divp = 4MHz / 1 * 125 / 2 = 250MHz (sysclk)
+                divq: Some(PllDiv::DIV4), // PLL Q divisor => pll_src / prediv * mul / divq = 4MHz / 1 * 125 / 4 = 125MHz
                 divr: None,
             });
         }
@@ -356,7 +348,10 @@ async fn main(spawner: Spawner) {
     // Reset: PA3
     let mut cfg: I2cConfig = I2cConfig::default();
     cfg.timeout = Duration::from_millis(200);
-    cfg.frequency = Hertz(4_000_000);
+    // 400kHz fast mode. The previous 4MHz setting really was driven onto SCL
+    // (4x the I2C Fm+ maximum and the RP2040 slave's rating). At 400kHz the
+    // three 201-byte block transfers take ~14ms, well within the 30ms poll.
+    cfg.frequency = Hertz(400_000);
     let i2c_dmx = I2c::new(p.I2C1, p.PB8, p.PB9, Irqs, p.GPDMA1_CH4, p.GPDMA1_CH5, cfg);
 
     let i2c_dmx_bus = Mutex::new(i2c_dmx);
@@ -637,13 +632,7 @@ async fn main(spawner: Spawner) {
                 let _ = CHANNEL.try_send(RouterEvent::GetMacAddress(ReturnChannel::Main));
                 let (mac_address, read_mac_success) = if let Ok(new_message) = with_timeout(Duration::from_millis(250), CHANNEL_MAIN.receiver().receive()).await {
                     match new_message {
-                        MainEvent::ReturnMacAddress(x) => {
-                            if let Some(m) = x {
-                                (m, true)
-                            } else {
-                                ([0, 0, 0, 0, 0, 0], false)
-                            }
-                        },
+                        MainEvent::ReturnMacAddress(Some(m)) => (m, true),
                         _ => ([0, 0, 0, 0, 0, 0], false),
                     }
                 } else {
@@ -731,7 +720,32 @@ async fn main(spawner: Spawner) {
         }
     }
 
-    let _ = CHANNEL_EEPROM.send(EepromEvent::WriteBootStatus(ui::BootStatus::Success)).await;
-    Timer::after_millis(50).await;
-    // let _ = CHANNEL.try_send(RouterEvent::StoreBootComplete(true));
+    // Record the successful boot. DMX -> LED rendering is gated on the router
+    // seeing BootStatus::Success, so retry the EEPROM write a few times and
+    // confirm it via the router (the EEPROM task echoes a successful write as
+    // StoreBootStatus).
+    let mut boot_flag_stored = false;
+    for attempt in 1..=3 {
+        let _ = CHANNEL_EEPROM.send(EepromEvent::WriteBootStatus(ui::BootStatus::Success)).await;
+        Timer::after_millis(50).await;
+
+        let _ = CHANNEL.try_send(RouterEvent::GetBootStatus(ReturnChannel::Main));
+        if let Ok(MainEvent::ReturnBootStatus(Some(BootStatus::Success))) =
+            with_timeout(Duration::from_millis(250), CHANNEL_MAIN.receiver().receive()).await
+        {
+            boot_flag_stored = true;
+            break;
+        }
+        error!("Boot success flag write attempt {} not confirmed.", attempt);
+        Timer::after_millis(100).await;
+    }
+
+    if !boot_flag_stored {
+        // The EEPROM is not answering. Treat the local boot result as
+        // authoritative so a healthy system with a flaky EEPROM still
+        // produces output. The unwritten flag means the *next* boot reads
+        // Failed and disables ethernet (documented lockout behavior).
+        error!("Boot success flag not stored in EEPROM; enabling output from local state.");
+        let _ = CHANNEL.try_send(RouterEvent::StoreBootStatus(Some(BootStatus::Success)));
+    }
 }

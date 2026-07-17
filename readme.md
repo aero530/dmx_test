@@ -8,7 +8,8 @@ bidirectional: in the `ArtNet>DMX` and `USB>DMX` modes the device becomes an
 Art-Net node or USB widget *transmitting* DMX. Settings are edited on a TFT menu
 UI and persisted to an EEPROM on the output module.
 
-See [BUGS.md](BUGS.md) for the full findings of the 2026-07 code review and
+See [BUGS.md](BUGS.md) for the full findings and fixes of the 2026-07 code
+reviews (the 2026-07-11 review and the 2026-07-16 follow-up), and
 [UI_PROPOSALS.md](UI_PROPOSALS.md) for UI redesign proposals.
 
 ## System architecture
@@ -38,15 +39,17 @@ See [BUGS.md](BUGS.md) for the full findings of the 2026-07 code review and
 | `nucleo/` | STM32H563ZI (thumbv8m.main-none-eabihf) | Main firmware: inputs, routing, UI, outputs |
 | `rp2040_dmx/` | RP2040 (thumbv6m-none-eabi) | DMX-512 receiver + I2C slave bridge (Rust/Embassy) |
 | `DMX_on_pico/` | RP2040 (Arduino) | Original Arduino sketch that `rp2040_dmx` reimplements |
-| `pico_stepper/` | — | Currently a duplicate of `DMX_on_pico.ino` (misnamed; no stepper code) |
-| `rp2040/` | — | Empty placeholder crate (does not build) |
+| `rp2040/` | — | Empty placeholder crate (excluded from the workspace until it has code) |
 | `dmx_console/` | host PC | Ratatui console: edit settings + live DMX monitor over the USB console port |
 | `host_tests/` | host PC | Unit tests that run the firmware's pure logic on the PC |
 | `reference/` | — | DMX / app-note PDFs |
 
-All three Rust crates share one cargo workspace; **build from inside each crate's
-folder** so its `.cargo/config.toml` (target + runner) applies. Build profiles live in
-the workspace root `Cargo.toml` (cargo ignores profiles in member manifests).
+The two embedded crates share one cargo workspace; **build from inside each crate's
+folder** so its `.cargo/config.toml` (target + runner) applies. `cargo build
+--workspace` is not supported: nucleo (single-core) and rp2040_dmx (multicore)
+need conflicting `critical-section` features, which workspace builds unify. Build
+profiles live in the workspace root `Cargo.toml` (cargo ignores profiles in member
+manifests).
 
 ## nucleo firmware (STM32)
 
@@ -67,7 +70,9 @@ Tasks (spawned from `main`):
   0x11/0x12/0x13 every 30 ms.
 - **`artnet_task`** (`artnet/`) — in the ArtNet modes, receives ArtDmx/ArtPoll/
   ArtSync/ArtCommand on UDP 6454 via a vendored `tiny_artnet` parser, stores universe
-  data into `DMX_BUFFER`, answers ArtPoll with an ArtPollReply.
+  data into `DMX_BUFFER` (indexed by the Port-Address sub-net:universe byte — the
+  buffer covers one full net, and the router filters on Net), answers ArtPoll with
+  an ArtPollReply.
 - **`usb_device_task`** (`usb_device.rs`) — composite USB device. Interface 1
   emulates an Enttec DMX USB Pro widget: PC lighting software can send DMX (label 6)
   which drives the LEDs and, in `USB>DMX` mode, the wired DMX output; received
@@ -96,7 +101,11 @@ Tasks (spawned from `main`):
 Boot sequence: read boot flag / module type / settings from EEPROM → write flag =
 Failed → if the previous boot failed, disable Ethernet (lockout prevention) → bring up
 Ethernet (DHCP, or the Art-Net 2.x.y.z static scheme derived from MAC+OEM) → spawn
-tasks → write flag = Success.
+tasks → write flag = Success (retried up to 3×; if the EEPROM won't confirm, output
+is enabled from local state and the failure is logged — the next boot then reads
+Failed and disables Ethernet). DMX→LED rendering only runs after the boot reaches
+Success: a working module EEPROM is required for output, since it identifies the
+output module.
 
 Settings flow: UI Select → `MenuData` → router → EEPROM write → router `StoreSettings`
 → broadcast back to UI and input tasks (via a `Watch`), so every consumer sees the

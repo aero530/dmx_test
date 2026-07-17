@@ -129,6 +129,17 @@ fn universe_offsets_accumulate_prior_ports() {
 }
 
 #[test]
+fn artnet_addr_sub_uni_indexes_one_full_net() {
+    // Buffer index = sub-net (high nibble) : universe (low nibble)
+    assert_eq!(ArtNetAddr([0, 0, 0]).sub_uni(), 0);
+    assert_eq!(ArtNetAddr([7, 3, 5]).sub_uni(), 0x35);
+    assert_eq!(ArtNetAddr([127, 15, 15]).sub_uni(), 255);
+    // The net byte plays no part, and corrupt (out-of-range) stored values
+    // are masked to 4 bits so the index can never exceed 255
+    assert_eq!(ArtNetAddr([200, 255, 255]).sub_uni(), 255);
+}
+
+#[test]
 fn boot_status_defaults_to_failed() {
     // The ethernet-lockout logic depends on unknown boot flags reading as
     // Failed (fail safe)

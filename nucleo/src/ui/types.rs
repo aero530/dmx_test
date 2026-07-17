@@ -371,3 +371,15 @@ impl Default for SmartLedDmxGroupSize {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Format, Decode, Encode)]
 pub struct ArtNetAddr(pub [u8; 3]);
+
+impl ArtNetAddr {
+    /// The Art-Net "SubUni" byte of the configured Port-Address: Sub-Net in
+    /// the high nibble, Universe in the low nibble (0..=255). This is the
+    /// base index of the configured address within the flat one-net
+    /// `DMX_BUFFER` (buffer offset = `sub_uni() * DMX_UNIVERSE_SIZE`).
+    /// Nibbles are masked to 4 bits so corrupt stored settings can't index
+    /// past the buffer.
+    pub fn sub_uni(&self) -> usize {
+        (((self.0[1] & 0x0F) as usize) << 4) | ((self.0[2] & 0x0F) as usize)
+    }
+}

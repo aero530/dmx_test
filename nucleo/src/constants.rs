@@ -18,6 +18,10 @@ pub const DMX_BUFF_SIZE: usize = 513;
 pub const DMX_UNIVERSE_SIZE: usize = 512;
 
 /// Maximum number of universes supported (how much memory is allocated for data buffers)
+///
+/// 256 = one full Art-Net net (16 sub-nets x 16 universes). The buffer is
+/// indexed by the Port-Address "SubUni" byte, so multi-universe port spans
+/// can cross sub-net boundaries within the configured net.
 pub const DMX_UNIVERSE_COUNT: usize = 256;
 
 /// Width of the display in pixels (display hardware is portrait so this is the short dimension)

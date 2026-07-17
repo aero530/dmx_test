@@ -7,7 +7,7 @@ use crate::channels::*;
 use crate::eeprom::EepromEvent;
 use crate::pwm_i2c::PwmEvent;
 use crate::smart_led::SmartLedEvent;
-use crate::ui::{BootStatus, InputMode, IpAddrMenu, MenuData, ModuleSettings, ModuleType, SmartLedPortMode, UiEvent};
+use crate::ui::{ArtNetAddr, BootStatus, FieldId, InputMode, IpAddrMenu, MenuData, ModuleSettings, ModuleType, SmartLedPortMode, UiEvent};
 use crate::{DMX_BUFFER, DMX_UNIVERSE_SIZE, LED_COLORS};
 use core::net::Ipv4Addr;
 use defmt::Format;
@@ -23,7 +23,7 @@ cfg_if! {
 
 
 
-use embassy_time::{with_timeout, Duration};
+use embassy_futures::select::{select, Either};
 use micromath::F32Ext;
 
 /// Data stored for global use (primarily for logging / terminal display)
@@ -56,6 +56,10 @@ pub enum RouterEvent {
     ButtonArray((KeyPadButton, KeyPadEvent)),
     Button(ButtonEvent),
     WriteSettingsToEeprom(MenuData),
+    /// Apply a single field from `source` to the router's authoritative
+    /// settings and persist. Used by the USB console so a `set` can't
+    /// clobber fields edited elsewhere (e.g. on the TFT) in the meantime.
+    WriteFieldToEeprom(FieldId, MenuData),
     /// Store settings in global data
     StoreSettings(Option<MenuData>),
     /// Store module type in global data
@@ -107,8 +111,8 @@ pub enum DmxEvent {
 /// Send data back to the DMX / ArtNet / USB tasks
 #[derive(Copy, Clone, Debug, Format)]
 pub enum DmxFeedbackEvent {
-    /// Current operating mode and configured Art-Net universe
-    Mode(InputMode, u8),
+    /// Current operating mode and configured Art-Net address (net, sub-net, universe)
+    Mode(InputMode, ArtNetAddr),
 }
 
 /// Send data back to the main task
@@ -146,6 +150,9 @@ pub struct Router {
 
     // Global data store
     pub data: GlobalData,
+
+    /// One-shot flag so "output blocked" is reported once per boot, not per frame
+    reported_output_blocked: bool,
 }
 
 impl Router {
@@ -174,6 +181,7 @@ impl Router {
             channel_eeprom,
             channel_main,
             data: GlobalData::default(),
+            reported_output_blocked: false,
         }
     }
 
@@ -209,6 +217,12 @@ impl Router {
                 info!("Store settings in eeprom {:#?}", menu_data);
                 let _ = self.channel_eeprom.try_send(EepromEvent::WriteSettings(menu_data));
             }
+            RouterEvent::WriteFieldToEeprom(field, source) => {
+                // Merge only the named field, exactly like a TFT commit does
+                field.transfer(&source, &mut self.data.menu_settings);
+                info!("Store single field in eeprom {:#?}", self.data.menu_settings);
+                let _ = self.channel_eeprom.try_send(EepromEvent::WriteSettings(self.data.menu_settings));
+            }
             RouterEvent::StoreSettings(menu_data) => {
                 if let Some(x) = menu_data {
                     self.data.menu_settings = x;
@@ -217,7 +231,7 @@ impl Router {
 
                     info!("Update settings on display {:#?}", x);
                     let _ = self.channel_ui.try_send(UiEvent::Load(x));
-                    self.channel_dmx_feedback.send(DmxFeedbackEvent::Mode(x.input_mode, x.artnet_address.0[2]));
+                    self.channel_dmx_feedback.send(DmxFeedbackEvent::Mode(x.input_mode, x.artnet_address));
                 }
                 CHANNEL_LOG.sender().send(self.data);
             }
@@ -287,16 +301,15 @@ impl Router {
     /// Update LED color in memory and apply to physical LEDs
     pub async fn process_dmx_event(&mut self, event: DmxEvent) {
         if self.data.boot_status == Some(BootStatus::Success) {
-            // Check to make sure the incoming ArtNet packet address info matches current settings (ie make sure this packet was for us)
+            // Check that the incoming ArtNet packet is for us. Only the Net is
+            // filtered: the buffer holds one full net indexed by the packet's
+            // SubUni byte, so multi-universe port spans can cross a sub-net
+            // boundary (the configured sub-net:universe is the render base).
             let _packet_addr = match event {
                 DmxEvent::DmxPacket(d) => d,
                 DmxEvent::ArtNetPacket(packet_addr) => {
                     if packet_addr.port.net != self.data.menu_settings.artnet_address.0[0] {
                         warn!("ArtNet Net does not match {} {}", packet_addr.port.net, self.data.menu_settings.artnet_address.0[0]);
-                        return;
-                    }
-                    if packet_addr.port.sub_net != self.data.menu_settings.artnet_address.0[1] {
-                        warn!("ArtNet SubNet does not match {} {}", packet_addr.port.sub_net, self.data.menu_settings.artnet_address.0[1]);
                         return;
                     }
                     packet_addr
@@ -330,7 +343,8 @@ impl Router {
                             let mut port_virtual_led_offset = match self.data.menu_settings.input_mode {
                                 // DMX-style layouts store their single universe at offset 0
                                 InputMode::Dmx | InputMode::UsbToDmx => 0,
-                                InputMode::ArtNet | InputMode::ArtNetToDmx => (self.data.menu_settings.artnet_address.0[2] as usize) * DMX_UNIVERSE_SIZE,
+                                // Base of the configured sub-net:universe within the one-net buffer
+                                InputMode::ArtNet | InputMode::ArtNetToDmx => self.data.menu_settings.artnet_address.sub_uni() * DMX_UNIVERSE_SIZE,
                             };
 
                             for (port_index, num_virtual_leds) in smart_led_settings.virtual_leds_per_port().iter().enumerate() {
@@ -387,11 +401,11 @@ impl Router {
                             }
                         }
                         SmartLedPortMode::Mirror => {
-                            // Offset into the flat multi-universe buffer; always 0 for DMX,
-                            // set by the configured ArtNet universe for ArtNet (same as Individual mode)
+                            // Offset into the flat one-net buffer; always 0 for DMX, the
+                            // configured sub-net:universe base for ArtNet (same as Individual mode)
                             let universe_offset = match self.data.menu_settings.input_mode {
                                 InputMode::Dmx | InputMode::UsbToDmx => 0,
-                                InputMode::ArtNet | InputMode::ArtNetToDmx => (self.data.menu_settings.artnet_address.0[2] as usize) * DMX_UNIVERSE_SIZE,
+                                InputMode::ArtNet | InputMode::ArtNetToDmx => self.data.menu_settings.artnet_address.sub_uni() * DMX_UNIVERSE_SIZE,
                             };
 
                             for vled_index in 0..smart_led_settings.virtual_leds_per_port()[0] as usize {
@@ -430,9 +444,16 @@ impl Router {
                         }
                     }
 
-                    let _ = self.channel_smart_led.try_send(SmartLedEvent::UpdateLEDs);
+                    let _ = self.channel_smart_led.try_send(SmartLedEvent::UpdateLEDs(smart_led_settings.leds_per_port));
                 }
             }
+        } else if !self.reported_output_blocked {
+            // Without a readable module EEPROM the boot flag never reaches
+            // Success and incoming DMX is deliberately not rendered (the
+            // module EEPROM defines the output module). Say so once so a
+            // bench user can tell why the LEDs are dark.
+            self.reported_output_blocked = true;
+            error!("DMX data ignored: boot incomplete or module EEPROM unavailable (boot status {:?})", self.data.boot_status);
         }
     }
 }
@@ -440,12 +461,12 @@ impl Router {
 #[embassy_executor::task]
 pub async fn event_router(mut router: Router) {
     loop {
-        if let Ok(new_message) = with_timeout(Duration::from_millis(5), router.channel.receive()).await {
-            router.process_router_event(new_message).await;
-        }
-
-        if let Ok(new_message) = with_timeout(Duration::from_millis(5), router.channel_dmx.receive()).await {
-            router.process_dmx_event(new_message).await;
+        // Event-driven: wake on whichever channel has data instead of
+        // polling each with a timeout (which added up to ~10ms latency per
+        // event and constant wakeups).
+        match select(router.channel.receive(), router.channel_dmx.receive()).await {
+            Either::First(new_message) => router.process_router_event(new_message).await,
+            Either::Second(new_message) => router.process_dmx_event(new_message).await,
         }
     }
 }

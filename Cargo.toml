@@ -1,11 +1,17 @@
 [workspace]
 resolver = "3"
-# members = [ "nucleo","rp2040"]
-members = [ "nucleo","rp2040","rp2040_dmx"]
+members = [ "nucleo","rp2040_dmx"]
 # dmx_console (PC tool) and host_tests (host-runnable firmware unit tests)
 # have their own dependency trees; keeping them out of the embedded
-# workspace keeps Cargo.lock clean.
-exclude = ["dmx_console", "host_tests"]
+# workspace keeps Cargo.lock clean. rp2040 is an empty placeholder crate,
+# excluded until it has real code.
+#
+# NOTE: `cargo build --workspace` is not supported — build from inside each
+# crate's folder (which also applies its .cargo/config.toml target/runner).
+# Workspace-wide builds feature-unify `critical-section`, and nucleo
+# (single-core, restore-state-bool) and rp2040_dmx (multicore,
+# restore-state-u8) require conflicting implementations.
+exclude = ["dmx_console", "host_tests", "rp2040"]
 
 # Build profiles must be defined here: cargo silently ignores [profile.*]
 # sections in workspace member manifests (nucleo, rp2040_dmx, ...).

@@ -222,9 +222,18 @@ async fn i2c_task(mut dev: i2c_slave::I2cSlave<'static, I2C1>) {
     let mut buf = [0u8; 256];
 
     loop {
-        match select(FRAMES.receive(), dev.listen(&mut buf)).await {
-            Either::First(new_frame) => frame = new_frame,
-            Either::Second(Ok(cmd)) => match cmd {
+        // Pick up the latest received frame without cancelling listen():
+        // embassy-rp's listen() keeps its progress in a local, so racing it
+        // against the channel in a select() could garble a transaction that
+        // collides with a frame arrival. listen() completes on every master
+        // transaction (~100/s while the STM32 polls), so draining the channel
+        // between transactions keeps the served frame <= ~30ms stale.
+        while let Ok(new_frame) = FRAMES.try_receive() {
+            frame = new_frame;
+        }
+
+        match dev.listen(&mut buf).await {
+            Ok(cmd) => match cmd {
                 i2c_slave::Command::WriteRead(_) => {
                     pending_cmd = buf[0];
                     respond_block(&mut dev, pending_cmd, &frame).await;
@@ -243,7 +252,7 @@ async fn i2c_task(mut dev: i2c_slave::I2cSlave<'static, I2C1>) {
                     log::warn!("unexpected I2C general call ({len} bytes)");
                 }
             },
-            Either::Second(Err(e)) => log::error!("I2C listen error: {e:?}"),
+            Err(e) => log::error!("I2C listen error: {e:?}"),
         }
     }
 }

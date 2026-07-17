@@ -1,1 +1,3 @@
 /target
+# Excluded from the workspace, so cargo generates a standalone lockfile here
+Cargo.lock

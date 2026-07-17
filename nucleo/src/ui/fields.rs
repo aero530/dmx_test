@@ -9,6 +9,8 @@
 use alloc::format;
 use alloc::string::String;
 
+use defmt::Format;
+
 use crate::ui::{
     EthernetIPMode, IncDec, InputMode, MenuData, ModuleSettings, SmartLedColorMode,
     SmartLedPortMode, SmartLedSettings,
@@ -16,7 +18,7 @@ use crate::ui::{
 use crate::DMX_UNIVERSE_SIZE;
 
 /// One setting shown in the UI / exposed on the console.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Format, Debug)]
 pub enum FieldId {
     DmxAddress,
     InputMode,

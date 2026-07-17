@@ -76,6 +76,7 @@ where
         // STM32H563 pulls MOSI high prior to sending SPI data which messes up the first LED.
         // Here we force an additional 0 byte to hold MOSI low at the start of the data being sent.
         // skip processing the first byte of self.data to ensure it remains 0x00
+        let mut leds = 0_usize;
         for (led_bytes, rgb8) in self.data[1..(SMARTLED_NUM_LEDS_MAX * BYTES_PER_LED + 1)].chunks_mut(BYTES_PER_LED).zip(iter) {
             let colors = C::order(rgb8.into());
             for (i, mut color) in colors.into_iter().enumerate() {
@@ -84,17 +85,12 @@ where
                     color <<= 2;
                 }
             }
+            leds += 1;
         }
 
-        // // STM32H563 pulls MOSI high prior to sending SPI data which messes up the first LED.
-        // // Here we force an additional 0 byte to hold MOSI low at the start of the data being sent.
-        // let mut d: [u8; NUM_LEDS_MAX * BYTES_PER_LED+1] = [0; NUM_LEDS_MAX * BYTES_PER_LED+1];
-        // for (i,x) in self.data.iter().enumerate() {
-        //     d[i+1]=*x;
-        // }
-
-        // self.spi.write(&d).await?;
-        self.spi.write(&self.data).await?;
+        // Transmit only the LEDs the iterator provided; the strip latches on
+        // the trailing low period, so LEDs beyond the frame keep their state.
+        self.spi.write(&self.data[..leds * BYTES_PER_LED + 1]).await?;
         let blank = [0_u8; 140];
         self.spi.write(&blank).await
     }

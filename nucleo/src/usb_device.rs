@@ -180,7 +180,8 @@ pub async fn usb_device_task(
         let mut parser = EnttecParser::new();
         let mut packet = [0_u8; 64];
         let mut input_mode = InputMode::default();
-        let mut artnet_universe: u8 = 0;
+        // Buffer index (sub-net:universe) of the configured Art-Net address
+        let mut artnet_sub_uni: usize = 0;
         // Last frame forwarded to the host, DMX-style (start code at 0)
         let mut forwarded = [0_u8; DMX_BUFF_SIZE];
 
@@ -189,15 +190,15 @@ pub async fn usb_device_task(
             info!("Enttec: USB host connected");
 
             'connected: loop {
-                if let Some(DmxFeedbackEvent::Mode(new_mode, universe)) = rx.try_changed() {
+                if let Some(DmxFeedbackEvent::Mode(new_mode, artnet_addr)) = rx.try_changed() {
                     input_mode = new_mode;
-                    artnet_universe = universe;
+                    artnet_sub_uni = artnet_addr.sub_uni();
                 }
 
                 match select(class.read_packet(&mut packet), Timer::after_millis(30)).await {
                     Either::First(Ok(n)) => {
-                        for i in 0..n {
-                            if parser.feed(packet[i]) {
+                        for &byte in &packet[..n] {
+                            if parser.feed(byte) {
                                 let length = parser.payload().len();
                                 // The payload is copied out so `parser` isn't
                                 // borrowed across the await point below.
@@ -219,7 +220,7 @@ pub async fn usb_device_task(
                                 current.copy_from_slice(&dmx_buffer[0..DMX_BUFF_SIZE]);
                             }
                             InputMode::ArtNet | InputMode::ArtNetToDmx => {
-                                let start = (artnet_universe as usize) * DMX_UNIVERSE_SIZE;
+                                let start = artnet_sub_uni * DMX_UNIVERSE_SIZE;
                                 let dmx_buffer = DMX_BUFFER.lock().await;
                                 current[0] = 0x00;
                                 current[1..].copy_from_slice(&dmx_buffer[start..start + DMX_UNIVERSE_SIZE]);

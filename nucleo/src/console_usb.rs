@@ -51,8 +51,7 @@ pub async fn run(class: &mut UsbClass<'_>, router_tx: RouterChannelTx, mut globa
             match class.read_packet(&mut packet).await {
                 Err(_) => break 'connected,
                 Ok(n) => {
-                    for i in 0..n {
-                        let byte = packet[i];
+                    for &byte in &packet[..n] {
                         if byte == b'\n' || byte == b'\r' {
                             if len > 0 {
                                 let done = {
@@ -84,7 +83,7 @@ async fn respond(class: &mut UsbClass<'_>, text: &str) -> Result<(), EndpointErr
     for chunk in text.as_bytes().chunks(64) {
         class.write_packet(chunk).await?;
     }
-    if text.len() % 64 == 0 {
+    if text.len().is_multiple_of(64) {
         class.write_packet(&[]).await?; // flush a packet-aligned transfer
     }
     Ok(())
@@ -121,9 +120,13 @@ async fn handle_line(
                 match all_fields().find(|f| f.key() == key) {
                     None => Err("unknown key"),
                     Some(field) => {
+                        // Validate/parse onto a scratch copy, then have the
+                        // router merge only this field into its authoritative
+                        // settings (same semantics as a TFT commit), so a
+                        // console `set` can't clobber a concurrent edit.
                         let mut settings = current(global_rx).menu_settings;
                         field.set_from_str(&mut settings, value).map(|()| {
-                            let _ = router_tx.try_send(RouterEvent::WriteSettingsToEeprom(settings));
+                            let _ = router_tx.try_send(RouterEvent::WriteFieldToEeprom(field, settings));
                         })
                     }
                 }

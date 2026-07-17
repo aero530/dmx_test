@@ -62,7 +62,8 @@ pub async fn dmx_task(i2c_bus_manager: &'static I2c1Bus, address: u8, tx: DmxCha
 
     let mut data_buffer = [0_u8; DMX_BUFF_SIZE];
     let mut input_mode = InputMode::default();
-    let mut artnet_universe: u8 = 0;
+    // Buffer index (sub-net:universe) of the configured Art-Net address
+    let mut artnet_sub_uni: usize = 0;
     // Direction last acknowledged by the bridge; None forces a (re)send
     let mut bridge_direction: Option<u8> = None;
     let mut refresh_countdown: u32 = 0;
@@ -71,12 +72,12 @@ pub async fn dmx_task(i2c_bus_manager: &'static I2c1Bus, address: u8, tx: DmxCha
         // Try to update current mode
         if let Some(input_data) = rx.try_changed() {
             match input_data {
-                DmxFeedbackEvent::Mode(new_mode, universe) => {
+                DmxFeedbackEvent::Mode(new_mode, artnet_addr) => {
                     if new_mode != input_mode {
                         info!("DMX bridge mode change {:?} -> {:?}", input_mode, new_mode);
                     }
                     input_mode = new_mode;
-                    artnet_universe = universe;
+                    artnet_sub_uni = artnet_addr.sub_uni();
                 }
             }
         }
@@ -139,9 +140,9 @@ pub async fn dmx_task(i2c_bus_manager: &'static I2c1Bus, address: u8, tx: DmxCha
                     match input_mode {
                         // USB data is stored DMX-style: start code + channels at offset 0
                         InputMode::UsbToDmx => frame.copy_from_slice(&dmx_buffer[0..DMX_BUFF_SIZE]),
-                        // Art-Net data has no start code and lives at its universe offset
+                        // Art-Net data has no start code and lives at its sub-net:universe offset
                         _ => {
-                            let start = (artnet_universe as usize) * DMX_UNIVERSE_SIZE;
+                            let start = artnet_sub_uni * DMX_UNIVERSE_SIZE;
                             frame[0] = 0x00; // standard dimmer-data start code
                             frame[1..].copy_from_slice(&dmx_buffer[start..start + DMX_UNIVERSE_SIZE]);
                         }

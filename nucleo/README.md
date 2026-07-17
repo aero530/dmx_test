@@ -62,11 +62,21 @@ with, in order:
 2. **Console** serial port (line protocol; used by `../dmx_console`)
 3. **Logger** serial port (only with the `usb` feature)
 
+## Behavior notes
+
+- **A readable module EEPROM is required for LED output.** The boot flag on
+  the module EEPROM gates DMX→LED rendering (the EEPROM identifies which
+  output module is attached). If the final boot-success write fails, it is
+  retried 3×, then the firmware falls back to its local boot state so a
+  flaky EEPROM doesn't kill output — but a fully absent module leaves the
+  LEDs dark by design, logged once per boot at `error!` level.
+
 ## Memory notes
 
 - A 160 KB `embedded-alloc` heap backs the Ratatui UI (the mousefood
   framebuffer alone is ~108 KB). Sized in `main.rs`.
-- `DMX_BUFFER` holds 256 flat universes (128 KB); static RAM totals ~473 KB
+- `DMX_BUFFER` holds 256 flat universes — one full Art-Net net, indexed by
+  the Port-Address sub-net:universe byte (128 KB); static RAM totals ~473 KB
   of the part's 640 KB.
 
 ## Testing

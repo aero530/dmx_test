@@ -20,8 +20,8 @@ use embassy_stm32::peripherals::ETH;
 
 use crate::channels::{DmxChannelTx, DmxFeedbackChannelRx, RouterChannelTx};
 use crate::event_router::{DmxEvent, DmxFeedbackEvent, PacketAddress, RouterEvent};
-use crate::ui::InputMode;
-use crate::{DMX_BUFFER, DMX_UNIVERSE_SIZE};
+use crate::ui::{ArtNetAddr, InputMode};
+use crate::{ARTNET_OEM, DMX_BUFFER, DMX_UNIVERSE_SIZE};
 
 mod tiny_artnet;
 pub use tiny_artnet::{Art, PortAddress};
@@ -78,14 +78,17 @@ pub async fn artnet_task(
 
     let mut buf = [0; 65_507];
     let mut input_mode = InputMode::default();
+    // Configured Art-Net address (net, sub-net, universe), advertised in ArtPollReply
+    let mut artnet_addr = ArtNetAddr::default();
 
     loop {
         // Try to update current mode
         if let Some(input_data) = rx.try_changed() {
             // info!("ArtNet - update mode to {}", input_data);
             match input_data {
-                DmxFeedbackEvent::Mode(new_mode, _universe) => {
+                DmxFeedbackEvent::Mode(new_mode, new_addr) => {
                     input_mode = new_mode;
+                    artnet_addr = new_addr;
                 }
             }
         }
@@ -112,8 +115,12 @@ pub async fn artnet_task(
                 // Only store data when ArtNet is the active input, otherwise stray
                 // network packets overwrite the wired-DMX / USB data between I2C polls.
                 if matches!(input_mode, InputMode::ArtNet | InputMode::ArtNetToDmx) {
-                    let universe = dmx.port_address.universe as usize;
-                    let start = DMX_UNIVERSE_SIZE * universe;
+                    // Index by the packet's SubUni byte (sub-net:universe) so
+                    // consecutive Port-Addresses map to consecutive buffer
+                    // slots even when a multi-universe span crosses a sub-net
+                    // boundary. The buffer covers one full net (256 universes);
+                    // the router filters on Net.
+                    let start = DMX_UNIVERSE_SIZE * dmx.port_address.sub_uni();
                     // The spec allows packets carrying fewer than 512 channels
                     let len = dmx.data.len().min(DMX_UNIVERSE_SIZE);
                     let mut dmx_buffer = DMX_BUFFER.lock().await;
@@ -151,13 +158,20 @@ pub async fn artnet_task(
                 // info!("RX: ArtPoll - Someone is looking for ArtNet nodes. Let's respond to them to make this node discoverable! {:?}", poll);
                 debug!("RX: ArtPoll - Someone is looking for ArtNet nodes. Let's respond to them to make this node discoverable!");
 
+                // Advertise the configured Port-Address so controllers bind
+                // the right universe: NetSwitch = net, SubSwitch = sub-net,
+                // SwOut low nibble = universe of the (single) output port.
+                let swout = [artnet_addr.0[2], 0, 0, 0];
                 let poll_reply = tiny_artnet::PollReply {
                     ip_address: &local_addr.octets(),
                     port,
                     firmware_version: 0x0001,
-                    short_name: "Example Node",
-                    long_name: "Tiny Artnet Example Node",
-                    //  &'static [u8] = b"Art-Net\0";
+                    oem: ARTNET_OEM,
+                    short_name: "DMX LED Interface",
+                    long_name: "DMX/Art-Net LED Interface",
+                    net_switch: artnet_addr.0[0],
+                    sub_switch: artnet_addr.0[1],
+                    swout: &swout,
                     mac_address: &mac_address_bytes,
                     // This Node has one port
                     num_ports: 1,

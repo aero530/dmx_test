@@ -22,8 +22,10 @@ type DmxBuffer = Mutex<ThreadModeRawMutex, [u8; DMX_UNIVERSE_COUNT * DMX_UNIVERS
 
 /// Buffer to hold incoming data (DMX or ArtNet)
 ///
-/// Data is stored flat where the location in the buffer represents the universe and dmx address
-/// by location = universe*512 + dmx_address
+/// Data is stored flat, covering one full Art-Net net (256 universes):
+/// location = sub_uni * 512 + channel offset, where sub_uni is the
+/// Port-Address "SubUni" byte (sub-net in the high nibble, universe in the
+/// low nibble). Wired DMX / USB use offset 0 (start code at index 0).
 pub static DMX_BUFFER: DmxBuffer = Mutex::new([0_u8; DMX_UNIVERSE_COUNT * DMX_UNIVERSE_SIZE]);
 
 pub type I2c1Bus = Mutex<ThreadModeRawMutex, I2c<'static, embassy_stm32::mode::Async, Master>>;

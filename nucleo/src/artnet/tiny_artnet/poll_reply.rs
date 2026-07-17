@@ -232,17 +232,13 @@ impl<'a> PollReply<'a> {
 }
 
 fn put_str<const N: usize>(buf: &mut [u8; 239], s: usize, value: &str) -> usize {
-    let str_len = value.len();
+    // Truncate to N-1 so the field is always NUL-terminated as the Art-Net
+    // spec requires, even when the name fills the field.
     let bytes = value.as_bytes();
-    let l = N;
-    buf[s..s + l].iter_mut().enumerate().for_each(|(i, v)| {
-        if i < str_len {
-            *v = bytes[i];
-        } else {
-            *v = 0x00;
-        }
-    });
-    s + l
+    let copy = bytes.len().min(N - 1);
+    buf[s..s + copy].copy_from_slice(&bytes[..copy]);
+    buf[s + copy..s + N].fill(0);
+    s + N
 }
 
 fn put_u16_be(buf: &mut [u8; 239], s: usize, value: u16) -> usize {

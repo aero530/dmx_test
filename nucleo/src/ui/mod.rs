@@ -21,7 +21,6 @@
 //! edit keeps its scratch copy, and committing merges only the edited field
 //! so a concurrent update can't be clobbered.
 use cfg_if::cfg_if;
-use defmt::Format;
 cfg_if! {
     if #[cfg(feature = "usb")] {
         use log::{error, info};
@@ -61,26 +60,16 @@ use crate::channels::{RouterChannelTx, UiChannelRx};
 use crate::event_router::RouterEvent;
 use crate::{DISPLAY_HEIGHT, DISPLAY_OFFSET, DISPLAY_WIDTH};
 
-mod types;
-pub use types::*;
-
-mod fields;
-pub use fields::{all_fields, FieldId, Page, PAGES};
+// The settings model and field metadata are target-agnostic and live in
+// `common`; re-exported here so `crate::ui::MenuData` and friends keep working.
+pub use common::ui::*;
 
 type SpiDisplay = mipidsi::Display<SpiInterface<'static, ExclusiveDevice<Spi<'static, Async>, Output<'static>, embedded_hal_bus::spi::NoDelay>, Output<'static>>, ST7789, Output<'static>>;
 
 /// Buffer to write data to SPI based display
 static SPI_DISP_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
 
-/// Action to be processed by the UI (often user interaction)
-#[derive(Format)]
-pub enum UiEvent {
-    Up,
-    Down,
-    Select,
-    Esc,
-    Load(MenuData),
-}
+pub use common::events::UiEvent;
 
 const LABEL_WIDTH: usize = 18;
 

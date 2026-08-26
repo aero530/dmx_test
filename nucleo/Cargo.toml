@@ -17,39 +17,42 @@ ethernet = []
 pwm_native = []
 pwm = []
 display = []
-usb = []
+usb = ["common/usb"]
 clock_stlink = []
 clock_25MHz_osc = []
 
 [dependencies]
+
+# Target-agnostic core shared with host_tests (and, next, the RP2350 crate)
+common = { path = "../common" }
 
 cfg-if = "1.0.3"
 
 # ansi_rgb = {git="https://github.com/rust-osdev/ansi_rgb.git"}
 # bit_field = "0.10.2"
 
-embassy-stm32 = { version = "0.4.0", features = ["defmt", "stm32h563zi", "memory-x", "time-driver-any", "exti", "unstable-pac", "low-power"] }
-embassy-sync = { version = "0.7.2", features = ["defmt"] }
-embassy-executor = { version = "0.9.0", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
-embassy-time = { version = "0.5.0", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-1_000_000"] } # tick-hz-100_000_000 tick-hz-32_768
-embassy-net = { version = "0.7.1", features = ["defmt", "dns", "udp", "tcp", "dhcpv4", "medium-ethernet", "proto-ipv6"] }
-embassy-usb = { version = "0.5.1", features = ["defmt"] }
+embassy-stm32 = { version = "0.6.0", features = ["defmt", "stm32h563zi", "memory-x", "time-driver-any", "exti", "unstable-pac", "low-power"] }
+embassy-sync = { version = "0.8.0", features = ["defmt"] }
+embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-time = { version = "0.5.1", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-1_000_000"] } # tick-hz-100_000_000 tick-hz-32_768
+embassy-net = { version = "0.9.1", features = ["defmt", "dns", "udp", "tcp", "dhcpv4", "medium-ethernet", "proto-ipv6"] }
+embassy-usb = { version = "0.6.0", features = ["defmt"] }
 embassy-futures = { version = "0.1.2"}
-embassy-embedded-hal = "0.5.0"
-embassy-usb-logger =  { version = "0.5.1"}
+embassy-embedded-hal = "0.6.0"
+embassy-usb-logger =  { version = "0.6.0"}
 log = "0.4.29"
 
 # probe-rs puts RTT into blocking-mode, to avoid losing data.
 # As an effect this implementation may block forever if probe-rs disconnects at runtime. This is because the RTT buffer will fill up and writing will
 # eventually halt the program execution. defmt::flush would also block forever in that case.
 # If losing data is not an concern you can disable blocking mode by enabling the feature disable-blocking-mode
-defmt-rtt = {version = "1.0.0", features = ["disable-blocking-mode"]}
-defmt = "1.0.1"
+defmt-rtt = {version = "1.3.0", features = ["disable-blocking-mode"]}
+defmt = "1.1.1"
 
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
-cortex-m-rt = "0.7.0"
+cortex-m-rt = "0.7.6"
 embedded-hal = "0.2.6"
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
@@ -57,7 +60,7 @@ embedded-io-async = { version = "0.7.0" }
 embedded-nal-async = "0.9.0"
 heapless = { version = "0.9", default-features = false }
 critical-section = "1.1"
-micromath = "2.0.0"
+micromath = "2.1.0"
 stm32-fmc = "0.4.0"
 static_cell = "2"
 
@@ -81,9 +84,9 @@ embedded-hal-bus = "0.3.0"
 embedded-graphics = "0.8.1"
 az = "1.2.1"
 arrayvec = {version = "0.7.6", default-features = false }
-embedded-alloc = "0.6.0"
+embedded-alloc = "0.7.0"
 embedded-text = "0.7.2"
-enum-ordinalize = "4.3.0"
+enum-ordinalize = "4.4.2"
 u8g2-fonts = {version = "0.7.2", features = ["embedded_graphics_textstyle"]}
 # embedded-layout = "0.4.2"
 

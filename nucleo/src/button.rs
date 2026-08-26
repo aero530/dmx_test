@@ -1,7 +1,6 @@
 //! Button interaction
 
 use cfg_if::cfg_if;
-use defmt::Format;
 cfg_if! {
     if #[cfg(feature = "usb")] {
         use log::error;
@@ -15,18 +14,7 @@ use embassy_time::Timer;
 use crate::channels::RouterChannelTx;
 use crate::event_router::RouterEvent;
 
-/// States to define button actions
-#[derive(Copy, Clone, Format, PartialEq, Debug)]
-pub enum ButtonEvent {
-    /// Null event
-    None,
-    /// Button was pressed
-    Pressed,
-    /// Button was released
-    Released,
-    /// Button is held
-    Held,
-}
+pub use common::events::ButtonEvent;
 
 /// Task to monitor a single button
 #[embassy_executor::task]

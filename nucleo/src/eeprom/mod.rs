@@ -9,7 +9,6 @@ use crate::{
     EepromChannelRx, I2cSharedDev, channels::RouterChannelTx, event_router::RouterEvent, ui::{BootStatus, MenuData, ModuleType}
 };
 
-use defmt::Format;
 cfg_if! {
     if #[cfg(feature = "usb")] {
         use log::{error, info};
@@ -46,30 +45,16 @@ const SETTINGS_MEMLOC: u8 = 0x20;
 ///
 /// bincode's varint encoding needs 3 bytes for every u16 >= 251, so a
 /// worst-case MenuData (large dmx address, LED counts and group sizes)
-/// encodes to ~40 bytes. 64 keeps headroom within the 256-byte EEPROM.
-const SETTINGS_SIZE: usize = 64;
+/// encodes to a size that scales with SMARTLED_PORT_COUNT. Measured:
+/// 40 bytes at 4 ports, **64 bytes at 8 ports** — i.e. 8 ports lands exactly
+/// on the old 64-byte slot with zero margin. 128 restores real headroom and
+/// still ends at 0x9F, clear of the 256-byte EEPROM's end.
+///
+/// This is reserved *space*, not write cost: WriteSettings only writes the
+/// pages actually covered by the encoded payload.
+const SETTINGS_SIZE: usize = 128;
 
-#[allow(unused)]
-#[derive(Clone, Copy, Format, Debug)]
-pub enum EepromEvent {
-    /// Read module type from EEPROM
-    ReadModuleType,
-    /// Write module type to EEPROM
-    WriteModuleType(ModuleType),
-    /// Read settings from EEPROM
-    ReadSettings,
-    /// Write settings to EEPROM
-    WriteSettings(MenuData),
-    /// Read MAC address from EEPROM
-    ReadMacAddress,
-    /// Write MAC address to EEPROM
-    WriteMacAddress([u8; 6]),
-    /// Read boot_successful flag from EEPROM
-    ReadBootStatus,
-    /// Write boot_successful flag to EEPROM
-    WriteBootStatus(BootStatus),
-    
-}
+pub use common::events::EepromEvent;
 
 /// EEPROM abstraction holding reference to physical chip
 pub struct Eeprom<I2C: I2CTRAIT> {
@@ -209,7 +194,12 @@ impl<I2C: I2CTRAIT> Eeprom<I2C> {
                 if length > 0 {
                     info!("Store settings {:?}. Data is {:?} bytes long", menu_settings, length);
 
-                    let chunks = slice.chunks(PAGE_SIZE as usize).enumerate();
+                    // Only the pages the payload actually covers. SETTINGS_SIZE is
+                    // reserved space; writing all of it would spend an extra ~5 ms
+                    // EEPROM write cycle per empty page and wear them for nothing.
+                    // Trailing bytes from an earlier, longer save are harmless:
+                    // bincode decodes the struct prefix and stops.
+                    let chunks = slice[..length].chunks(PAGE_SIZE as usize).enumerate();
 
                     // There is something going on that makes it so page write only works if you write a byte to the device first then
                     // do the page write...something with the address not being transmitted. Not sure if this is something the eeprom

@@ -33,7 +33,7 @@ use embassy_rp::peripherals::{I2C1, PIO0, PIO1, USB};
 use embassy_rp::pio::Pio;
 use embassy_rp::pio_programs::ws2812::{Grb, PioWs2812, PioWs2812Program};
 use embassy_rp::usb::Driver;
-use embassy_rp::{bind_interrupts, i2c, i2c_slave, pio, usb};
+use embassy_rp::{bind_interrupts, dma, i2c, i2c_slave, pio, usb};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::watch::Watch;
@@ -91,6 +91,10 @@ static OUT_FRAME: Watch<CriticalSectionRawMutex, DmxFrame, 1> = Watch::new();
 static DMX_DIRECTION: AtomicU8 = AtomicU8::new(DIRECTION_INPUT);
 
 bind_interrupts!(struct Irqs {
+    // 0.10 requires each DMA channel in use to bind a handler on DMA_IRQ_0.
+    DMA_IRQ_0 => dma::InterruptHandler<embassy_rp::peripherals::DMA_CH0>,
+                 dma::InterruptHandler<embassy_rp::peripherals::DMA_CH1>,
+                 dma::InterruptHandler<embassy_rp::peripherals::DMA_CH3>;
     I2C1_IRQ => i2c::InterruptHandler<I2C1>;
     PIO0_IRQ_0 => pio::InterruptHandler<PIO0>;
     PIO1_IRQ_0 => pio::InterruptHandler<PIO1>;
@@ -115,7 +119,7 @@ fn main() -> ! {
         mut common, sm0, ..
     } = Pio::new(p.PIO1, Irqs);
     let ws_program = PioWs2812Program::new(&mut common);
-    let status_pixel = PioWs2812::new(&mut common, sm0, p.DMA_CH1, p.PIN_23, &ws_program);
+    let status_pixel = PioWs2812::new(&mut common, sm0, p.DMA_CH1, Irqs, p.PIN_23, &ws_program);
 
     // I2C1 slave for the STM32. GPIO6 = SDA, GPIO7 = SCL.
     let mut config = i2c_slave::Config::default();
@@ -130,23 +134,23 @@ fn main() -> ! {
         ..
     } = Pio::new(p.PIO0, Irqs);
     let rx_program = PioDmxRxProgram::new(&mut common);
-    let dmx_rx = PioDmxRx::new(&mut common, sm0, p.DMA_CH0, p.PIN_2, &rx_program);
+    let dmx_rx = PioDmxRx::new(&mut common, sm0, p.DMA_CH0, Irqs, p.PIN_2, &rx_program);
     let tx_program = PioDmxTxProgram::new(&mut common);
-    let dmx_tx = PioDmxTx::new(&mut common, sm1, p.DMA_CH3, p.PIN_4, &tx_program);
+    let dmx_tx = PioDmxTx::new(&mut common, sm1, p.DMA_CH3, Irqs, p.PIN_4, &tx_program);
 
     spawn_core1(
         p.CORE1,
         unsafe { &mut *core::ptr::addr_of_mut!(CORE1_STACK) },
         move || {
             let executor1 = EXECUTOR1.init(Executor::new());
-            executor1.run(|spawner| spawner.spawn(i2c_task(i2c_device)).unwrap());
+            executor1.run(|spawner| spawner.spawn(defmt::unwrap!(i2c_task(i2c_device))));
         },
     );
 
     let executor0 = EXECUTOR0.init(Executor::new());
     executor0.run(|spawner| {
-        spawner.spawn(logger_task(usb_driver)).unwrap();
-        spawner.spawn(dmx_task(dmx_rx, dmx_tx, status_pixel, led, dmx_en)).unwrap();
+        spawner.spawn(defmt::unwrap!(logger_task(usb_driver)));
+        spawner.spawn(defmt::unwrap!(dmx_task(dmx_rx, dmx_tx, status_pixel, led, dmx_en)));
     });
 }
 

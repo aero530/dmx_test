@@ -6,6 +6,10 @@ use crate::{DMX_UNIVERSE_SIZE, SMARTLED_PORT_COUNT};
 use bincode::{Decode, Encode};
 // use embassy_net::IpAddress;
 use heapless::Vec;
+// Supplies `f32::ceil` in no_std. On the host (host_tests) std provides it as
+// an inherent method, so the import is unused there but still required for the
+// embedded builds — hence the allow rather than a cfg.
+#[allow(unused_imports)]
 use micromath::F32Ext;
 
 use smart_leds::RGB8;
@@ -134,15 +138,61 @@ impl SmartLedSettings {
             .unwrap_or_default()
     }
 
-    pub fn universe_offset(&self) -> [u16; SMARTLED_PORT_COUNT] {
-        let universe_count: [u16; SMARTLED_PORT_COUNT] = self
-            .virtual_leds_per_port()
+    /// Bytes each port puts on the wire per frame: virtual LEDs x colour width.
+    ///
+    /// This is the quantity the budget is expressed in — see
+    /// [`crate::MAX_BYTES_PER_PORT`].
+    pub fn bytes_per_port(&self) -> [u16; SMARTLED_PORT_COUNT] {
+        self.virtual_leds_per_port()
             .iter()
-            .map(|num_virtual_leds| (*num_virtual_leds as f32 * self.color_mode.addr_size() as f32 / DMX_UNIVERSE_SIZE as f32).ceil() as u16)
+            .map(|n| n.saturating_mul(self.color_mode.addr_size() as u16))
             .collect::<Vec<u16, SMARTLED_PORT_COUNT>>()
             .as_slice()
             .try_into()
-            .unwrap_or_default();
+            .unwrap_or_default()
+    }
+
+    /// Universes each port consumes.
+    ///
+    /// Ports start on universe boundaries, so this rounds up per port rather
+    /// than dividing the total — which is why eight ports of 1800 B come to 32
+    /// universes and not 29.
+    pub fn universes_per_port(&self) -> [u16; SMARTLED_PORT_COUNT] {
+        self.bytes_per_port()
+            .iter()
+            .map(|bytes| bytes.div_ceil(DMX_UNIVERSE_SIZE as u16))
+            .collect::<Vec<u16, SMARTLED_PORT_COUNT>>()
+            .as_slice()
+            .try_into()
+            .unwrap_or_default()
+    }
+
+    /// Universes consumed across every port.
+    pub fn total_universes(&self) -> u16 {
+        self.universes_per_port().iter().sum()
+    }
+
+    /// Ports whose frame exceeds [`crate::MAX_BYTES_PER_PORT`].
+    ///
+    /// Over budget does not mean broken — it means the strip cannot be clocked
+    /// out inside the Art-Net frame interval, so the refresh rate silently
+    /// drops. Surfacing it beats letting someone wonder why 44 Hz became 30.
+    pub fn ports_over_budget(&self) -> bool {
+        self.bytes_per_port()
+            .iter()
+            .any(|b| *b > crate::MAX_BYTES_PER_PORT)
+    }
+
+    /// True if the configuration cannot be held or delivered as asked: either a
+    /// port is over its byte budget, or the total exceeds what `DMX_BUFFER`
+    /// covers.
+    pub fn over_budget(&self) -> bool {
+        self.ports_over_budget()
+            || self.total_universes() as usize > crate::DMX_UNIVERSE_COUNT
+    }
+
+    pub fn universe_offset(&self) -> [u16; SMARTLED_PORT_COUNT] {
+        let universe_count = self.universes_per_port();
 
         universe_count
             .iter()
@@ -177,14 +227,15 @@ impl IncDec for u8 {
 ///
 /// The first two modes receive data to drive the local LED outputs; the
 /// `*ToDmx` modes additionally (ArtNet) or exclusively (USB) turn the wired
-/// DMX port around and transmit through the RP2040 bridge.
+/// DMX port around and transmit (PIO2 SM1 on Rev 2 — the RP2040 bridge is
+/// gone).
 ///
 /// New variants must be appended so bincode-encoded EEPROM settings from
 /// older firmware keep decoding to the same modes.
 #[derive(Default, Clone, Copy, PartialEq, Eq, Ordinalize, Format, Debug, Decode, Encode)]
 pub enum InputMode {
     #[default]
-    /// Wired DMX in (via the RP2040 bridge) -> LEDs
+    /// Wired DMX in -> LEDs
     Dmx,
     /// Art-Net in -> LEDs
     ArtNet,
@@ -201,7 +252,7 @@ impl InputMode {
         DMX_UNIVERSE_SIZE
     }
 
-    /// The wired DMX port transmits in this mode (RS-485 driver enabled on the bridge)
+    /// The wired DMX port transmits in this mode (GP10 high, RS-485 driver enabled)
     pub fn is_dmx_output(&self) -> bool {
         matches!(self, InputMode::ArtNetToDmx | InputMode::UsbToDmx)
     }
@@ -284,7 +335,15 @@ impl SmartLedColorMode {
                 }
             }
             SmartLedColorMode::Rgbw => {
-                error!("Using RGBW color space but that it not implimented yet.");
+                // RGBW output is not implemented (the strings are driven with a
+                // 24-bit GRB PIO format); the W byte is consumed for addressing
+                // but not rendered. Warn ONCE — this runs per virtual LED per
+                // frame, and logging in that loop would wreck the frame budget.
+                use core::sync::atomic::{AtomicBool, Ordering};
+                static WARNED: AtomicBool = AtomicBool::new(false);
+                if !WARNED.swap(true, Ordering::Relaxed) {
+                    error!("RGBW selected but not implemented - W channel is ignored");
+                }
                 if data.len() >= 4 {
                     RGB8::new(data[0], data[1], data[2])
                 } else {
@@ -361,11 +420,11 @@ impl core::fmt::Display for SmartLedPortMode {
 
 // LED DMX Group Size (1 to #PHYLEDs)
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Format, Decode, Encode)]
-pub struct SmartLedDmxGroupSize(pub [u16; 4]);
+pub struct SmartLedDmxGroupSize(pub [u16; SMARTLED_PORT_COUNT]);
 
 impl Default for SmartLedDmxGroupSize {
     fn default() -> Self {
-        Self([1, 1, 1, 1])
+        Self([1; SMARTLED_PORT_COUNT])
     }
 }
 
@@ -381,5 +440,15 @@ impl ArtNetAddr {
     /// past the buffer.
     pub fn sub_uni(&self) -> usize {
         (((self.0[1] & 0x0F) as usize) << 4) | ((self.0[2] & 0x0F) as usize)
+    }
+
+    /// [`Self::sub_uni`] clamped to the last universe `DMX_BUFFER` actually
+    /// holds. `sub_uni()` can reach 255 (sub-net 15:15) but the buffer covers
+    /// [`crate::DMX_UNIVERSE_COUNT`] universes — indexing the buffer with the
+    /// raw value would slice out of bounds (a panic in the USB forwarder, a
+    /// per-frame warning storm in the router). Use THIS for buffer indexing
+    /// and `sub_uni()` only for on-the-wire Art-Net values.
+    pub fn buffer_base(&self) -> usize {
+        self.sub_uni().min(crate::DMX_UNIVERSE_COUNT - 1)
     }
 }

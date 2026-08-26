@@ -32,8 +32,44 @@ pub enum FieldId {
     GroupSize(usize),
     LedsPerPort(usize),
     UniverseOffsets,
+    /// Read-only: universes consumed vs. what the buffer covers, and whether
+    /// the configuration is inside its byte budget.
+    TotalUniverses,
     EthernetEnabled,
 }
+
+/// Per-port field labels.
+///
+/// Kept to 11 characters so a label plus its value fits the 25-column grid of
+/// the 128x64 OLED — values start at column 13. Extend both tables if `SMARTLED_PORT_COUNT` grows past 8 —
+/// the `.min()` guard keeps it safe but would repeat the last label.
+const GROUP_LABELS: [&str; 8] = [
+    "Grp Size P1", "Grp Size P2", "Grp Size P3", "Grp Size P4",
+    "Grp Size P5", "Grp Size P6", "Grp Size P7", "Grp Size P8",
+];
+/// Console protocol keys, one per port. `dmx_console` discovers these by
+/// iterating `all_fields`, so extending the tables is all that is needed for it
+/// to drive the new ports.
+const GROUP_KEYS: [&str; 8] = [
+    "group_size_1", "group_size_2", "group_size_3", "group_size_4",
+    "group_size_5", "group_size_6", "group_size_7", "group_size_8",
+];
+const LED_KEYS: [&str; 8] = [
+    "leds_1", "leds_2", "leds_3", "leds_4", "leds_5", "leds_6", "leds_7", "leds_8",
+];
+
+const LED_LABELS: [&str; 8] = [
+    "LEDs Port 1", "LEDs Port 2", "LEDs Port 3", "LEDs Port 4",
+    "LEDs Port 5", "LEDs Port 6", "LEDs Port 7", "LEDs Port 8",
+];
+
+/// Most fields any one page may carry.
+///
+/// The 128x64 OLED is **25x8 characters** with `FONT_5X8` (see
+/// `pico2/src/oled_ui.rs`), and one row goes to the page title. Exceeding this means fields fall off the bottom of the display
+/// with no scroll to reach them — the menu is paged, not scrolling. Enforced by
+/// a test in `host_tests`.
+pub const MAX_FIELDS_PER_PAGE: usize = 7;
 
 /// A page (tab) of the on-device menu.
 pub struct Page {
@@ -55,10 +91,19 @@ pub const PAGES: &[Page] = &[
         ],
     },
     Page {
-        title: "LED 1",
+        title: "LED",
         fields: &[
             FieldId::PortMode,
             FieldId::ColorMode,
+            FieldId::TotalUniverses,
+            FieldId::UniverseOffsets,
+        ],
+    },
+    // Eight ports do not fit one page on a 21x8 display, so group size and LED
+    // count are each split across two pages of four.
+    Page {
+        title: "Group 1-4",
+        fields: &[
             FieldId::GroupSize(0),
             FieldId::GroupSize(1),
             FieldId::GroupSize(2),
@@ -66,13 +111,30 @@ pub const PAGES: &[Page] = &[
         ],
     },
     Page {
-        title: "LED 2",
+        title: "Group 5-8",
+        fields: &[
+            FieldId::GroupSize(4),
+            FieldId::GroupSize(5),
+            FieldId::GroupSize(6),
+            FieldId::GroupSize(7),
+        ],
+    },
+    Page {
+        title: "LEDs 1-4",
         fields: &[
             FieldId::LedsPerPort(0),
             FieldId::LedsPerPort(1),
             FieldId::LedsPerPort(2),
             FieldId::LedsPerPort(3),
-            FieldId::UniverseOffsets,
+        ],
+    },
+    Page {
+        title: "LEDs 5-8",
+        fields: &[
+            FieldId::LedsPerPort(4),
+            FieldId::LedsPerPort(5),
+            FieldId::LedsPerPort(6),
+            FieldId::LedsPerPort(7),
         ],
     },
     Page {
@@ -101,7 +163,7 @@ fn smart_led_mut(data: &mut MenuData) -> Option<&mut SmartLedSettings> {
 }
 
 impl FieldId {
-    /// Label shown on the TFT menu.
+    /// Label shown on the OLED menu.
     pub fn label(&self) -> &'static str {
         match self {
             FieldId::DmxAddress => "DMX Address",
@@ -113,15 +175,13 @@ impl FieldId {
             FieldId::ArtNetUniverse => "ArtNet Univ",
             FieldId::PortMode => "Port Mode",
             FieldId::ColorMode => "Color Mode",
-            FieldId::GroupSize(0) => "Group Sz P1",
-            FieldId::GroupSize(1) => "Group Sz P2",
-            FieldId::GroupSize(2) => "Group Sz P3",
-            FieldId::GroupSize(_) => "Group Sz P4",
-            FieldId::LedsPerPort(0) => "LEDs Port 1",
-            FieldId::LedsPerPort(1) => "LEDs Port 2",
-            FieldId::LedsPerPort(2) => "LEDs Port 3",
-            FieldId::LedsPerPort(_) => "LEDs Port 4",
+            // Table lookup rather than a match with a wildcard: the old
+            // `GroupSize(_) => "...P4"` arm silently mislabelled every port past
+            // the third once the count grew.
+            FieldId::GroupSize(i) => GROUP_LABELS[(*i).min(GROUP_LABELS.len() - 1)],
+            FieldId::LedsPerPort(i) => LED_LABELS[(*i).min(LED_LABELS.len() - 1)],
             FieldId::UniverseOffsets => "Univ Offset",
+            FieldId::TotalUniverses => "Universes",
             FieldId::EthernetEnabled => "Ethernet (reboot)",
         }
     }
@@ -138,21 +198,22 @@ impl FieldId {
             FieldId::ArtNetUniverse => "artnet_universe",
             FieldId::PortMode => "port_mode",
             FieldId::ColorMode => "color_mode",
-            FieldId::GroupSize(0) => "group_size_1",
-            FieldId::GroupSize(1) => "group_size_2",
-            FieldId::GroupSize(2) => "group_size_3",
-            FieldId::GroupSize(_) => "group_size_4",
-            FieldId::LedsPerPort(0) => "leds_1",
-            FieldId::LedsPerPort(1) => "leds_2",
-            FieldId::LedsPerPort(2) => "leds_3",
-            FieldId::LedsPerPort(_) => "leds_4",
+            // Table lookup, not a wildcard: the old arms gave every port past
+            // the third the key `group_size_4` / `leds_4`, so the console could
+            // neither address the extra ports nor unambiguously address port 4.
+            FieldId::GroupSize(i) => GROUP_KEYS[(*i).min(GROUP_KEYS.len() - 1)],
+            FieldId::LedsPerPort(i) => LED_KEYS[(*i).min(LED_KEYS.len() - 1)],
             FieldId::UniverseOffsets => "universe_offsets",
+            FieldId::TotalUniverses => "total_universes",
             FieldId::EthernetEnabled => "ethernet_enabled",
         }
     }
 
     pub fn editable(&self) -> bool {
-        !matches!(self, FieldId::IpAddr | FieldId::UniverseOffsets)
+        !matches!(
+            self,
+            FieldId::IpAddr | FieldId::UniverseOffsets | FieldId::TotalUniverses
+        )
     }
 
     /// Number of digit sub-positions for per-digit editing; 0 for values
@@ -171,7 +232,11 @@ impl FieldId {
         match self {
             FieldId::DmxAddress => (1, DMX_UNIVERSE_SIZE as u16),
             FieldId::ArtNetNet => (0, 127),
-            FieldId::ArtNetSubNet | FieldId::ArtNetUniverse => (0, 15),
+            // Art-Net allows sub-net 0..=15, but DMX_BUFFER holds
+            // DMX_UNIVERSE_COUNT (64) universes = sub-nets 0..=3. A base
+            // beyond that cannot be buffered, so don't let it be configured.
+            FieldId::ArtNetSubNet => (0, (crate::DMX_UNIVERSE_COUNT / 16 - 1) as u16),
+            FieldId::ArtNetUniverse => (0, 15),
             FieldId::GroupSize(_) => (1, 999),
             FieldId::LedsPerPort(_) => (0, 999),
             _ => (0, 0),
@@ -226,9 +291,26 @@ impl FieldId {
             }
             FieldId::PortMode => smart_led(data).map_or(String::from("-"), |s| format!("{}", s.port_mode)),
             FieldId::ColorMode => smart_led(data).map_or(String::from("-"), |s| format!("{}", s.color_mode)),
+            // Every port, not the first four — the old fixed format silently
+            // hid half of them once the port count doubled.
             FieldId::UniverseOffsets => smart_led(data).map_or(String::from("-"), |s| {
-                let o = s.universe_offset();
-                format!("{} {} {} {}", o[0], o[1], o[2], o[3])
+                let mut out = String::new();
+                for (i, o) in s.universe_offset().iter().enumerate() {
+                    if i > 0 {
+                        out.push(' ');
+                    }
+                    out.push_str(&format!("{o}"));
+                }
+                out
+            }),
+            // Over budget is not an error, it is a silently lower refresh rate,
+            // so say so rather than letting someone wonder why 44 Hz became 30.
+            FieldId::TotalUniverses => smart_led(data).map_or(String::from("-"), |s| {
+                if s.over_budget() {
+                    format!("{} OVER", s.total_universes())
+                } else {
+                    format!("{}/{}", s.total_universes(), crate::DMX_UNIVERSE_COUNT)
+                }
             }),
             FieldId::EthernetEnabled => String::from(if data.ethernet_enabled { "On" } else { "Off" }),
             _ => String::new(),

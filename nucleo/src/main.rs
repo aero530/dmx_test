@@ -87,8 +87,10 @@ cfg_if! {
 mod pwm_i2c;
 pub use pwm_i2c::pwm_i2c_task;
 
-mod constants;
-pub use constants::*;
+// Target-agnostic core lives in the `common` crate. Re-exported at the crate
+// root so the existing `crate::CONST` / `crate::ansi` paths keep resolving.
+pub use common::constants::*;
+pub use common::{ansi, enttec_protocol};
 
 mod statics;
 pub use statics::*;
@@ -116,7 +118,6 @@ use button_array::button_row_task;
 // USB composite device: Enttec DMX widget + console line protocol, plus a
 // CDC logger interface when the `usb` logging feature is enabled.
 mod console_usb;
-mod enttec_protocol;
 mod usb_device;
 use embassy_stm32::usb::Driver;
 use usb_device::usb_device_task;
@@ -128,10 +129,8 @@ mod led;
 use led::led_task;
 
 
-mod channels;
+pub use common::channels;
 use channels::*;
-
-mod ansi;
 
 mod dmx_i2c;
 use dmx_i2c::dmx_task;

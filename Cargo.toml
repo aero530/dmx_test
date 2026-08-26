@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = [ "nucleo","rp2040_dmx"]
+members = [ "common", "pico2", "rp2040_dmx"]
 # dmx_console (PC tool) and host_tests (host-runnable firmware unit tests)
 # have their own dependency trees; keeping them out of the embedded
 # workspace keeps Cargo.lock clean. rp2040 is an empty placeholder crate,
@@ -11,7 +11,14 @@ members = [ "nucleo","rp2040_dmx"]
 # Workspace-wide builds feature-unify `critical-section`, and nucleo
 # (single-core, restore-state-bool) and rp2040_dmx (multicore,
 # restore-state-u8) require conflicting implementations.
-exclude = ["dmx_console", "host_tests", "rp2040"]
+# `nucleo` is FROZEN, not deleted. It stopped building when `common` moved to
+# embassy-sync 0.8: embassy-stm32 0.4 -> 0.6 and embassy-net 0.7 -> 0.9 need a
+# ~72-error migration, including a reworked Ethernet PHY API — on the exact code
+# the W6300 replaces. Its job (proving the Phase 1 extraction of `common` stayed
+# faithful) is done and passed; `common` is now validated by host_tests and by
+# pico2 compiling against it. Delete once pico2 ships, or migrate if a deployed
+# STM32 unit ever needs patching.
+exclude = ["dmx_console", "host_tests", "nucleo", "rp2040"]
 
 # Build profiles must be defined here: cargo silently ignores [profile.*]
 # sections in workspace member manifests (nucleo, rp2040_dmx, ...).

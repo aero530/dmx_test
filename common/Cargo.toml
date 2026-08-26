@@ -1,0 +1,29 @@
+[package]
+name = "common"
+version = "0.1.0"
+edition = "2021"
+description = "Target-agnostic core of the DMX interface firmware: settings model, Art-Net parsing, Enttec framing, constants"
+
+[features]
+default = []
+# Mirrors the `usb` feature in the target crates: swap the defmt logging macros
+# for `log`, so the same sources compile on the host and under USB logging.
+# `defmt::Format` derives are unconditional either way.
+usb = []
+
+[dependencies]
+# Versions are kept in step with nucleo/Cargo.toml so the sources behave
+# identically whichever crate pulls them in.
+# Held at 2.x deliberately: bincode 3 is a semver-major API change on the crate
+# that encodes the EEPROM settings blob. Moving it means re-measuring the
+# encode-size budget and re-validating the on-EEPROM format for no benefit yet.
+bincode = { version = "2.0.1", default-features = false, features = ["derive"] }
+cfg-if = "1.0.3"
+defmt = { version = "1.1.1", features = ["ip_in_core"] }
+embassy-sync = "0.8.0"
+enum-ordinalize = "4.4.2"
+heapless = { version = "0.9", default-features = false }
+log = "0.4.29"
+micromath = "2.1.0"
+nom = { version = "8.0.0", default-features = false }
+smart-leds = "0.4.0"

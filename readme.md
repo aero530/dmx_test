@@ -36,15 +36,33 @@ reviews (the 2026-07-11 review and the 2026-07-16 follow-up), and
 
 | Folder | Target | Purpose |
 |---|---|---|
+| `common/` | any (`no_std` lib) | Target-agnostic core: event router, channels, shared buffers, settings model, menu field metadata, Art-Net parsing, Enttec framing, constants |
 | `nucleo/` | STM32H563ZI (thumbv8m.main-none-eabihf) | Main firmware: inputs, routing, UI, outputs |
 | `rp2040_dmx/` | RP2040 (thumbv6m-none-eabi) | DMX-512 receiver + I2C slave bridge (Rust/Embassy) |
 | `DMX_on_pico/` | RP2040 (Arduino) | Original Arduino sketch that `rp2040_dmx` reimplements |
 | `rp2040/` | — | Empty placeholder crate (excluded from the workspace until it has code) |
 | `dmx_console/` | host PC | Ratatui console: edit settings + live DMX monitor over the USB console port |
-| `host_tests/` | host PC | Unit tests that run the firmware's pure logic on the PC |
+| `host_tests/` | host PC | Unit tests that run `common` on the PC |
 | `reference/` | — | DMX / app-note PDFs |
 
-The two embedded crates share one cargo workspace; **build from inside each crate's
+### What goes in `common/` vs a target crate
+
+`common/` holds everything that does not name a peripheral: the event router and
+its message types, the inter-task channels, the shared `DMX_BUFFER` /
+`LED_COLORS`, the settings model, and the protocol parsers. It has **no HAL
+dependency** — not `embassy-stm32`, not `embassy-rp`, not even
+`embassy-executor`.
+
+The dividing line is a concrete peripheral type or an executor attribute. A task
+signature naming `Spi<'static, Async>` or carrying `#[embassy_executor::task]`
+stays in the target crate; the logic it drives and the messages it passes do not.
+`event_router.rs` is the worked example — 458 lines of routing in `common`, and a
+22-line task wrapper in `nucleo/`.
+
+That split is what makes the RP2350 port tractable, and keeping `nucleo/`
+building against `common` is what proves the extraction stayed faithful.
+
+The embedded crates share one cargo workspace; **build from inside each crate's
 folder** so its `.cargo/config.toml` (target + runner) applies. `cargo build
 --workspace` is not supported: nucleo (single-core) and rp2040_dmx (multicore)
 need conflicting `critical-section` features, which workspace builds unify. Build
@@ -202,10 +220,11 @@ and this app, so they can't drift apart. Protocol reference:
 
 ## Testing
 
-The firmware itself targets bare-metal ARM, so its hardware-independent logic is
-tested on the host instead: the `host_tests` crate includes the real firmware
-source files by path (`ui/types.rs`, `ui/fields.rs`, `enttec_protocol.rs`) and
-exercises them with normal `cargo test`:
+The firmware itself targets bare-metal ARM, so its hardware-independent logic
+lives in the `common` library crate and is tested on the host with a normal
+`cargo test`. (`host_tests` used to pull the firmware sources in by `#[path]`
+because they were locked inside a `no_std` *binary* crate; since the extraction
+of `common` it simply depends on it, so the tests exercise the real crate.)
 
 ```
 cd host_tests && cargo test     # settings model, field metadata/editing, Enttec framing

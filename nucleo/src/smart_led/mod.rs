@@ -1,5 +1,4 @@
 //! SmartLED (WS2812) interface
-use defmt::Format;
 use embassy_stm32::mode::Async;
 use embassy_stm32::spi::Spi;
 use embassy_time::{with_timeout, Duration};
@@ -12,20 +11,7 @@ use crate::LED_COLORS;
 
 use ws2812_async::{Grb, Ws2812};
 
-#[allow(unused)]
-pub enum SmartLedEvent {
-    /// Push `LED_COLORS` to the strips; the payload is the configured LED
-    /// count per port so only that many LEDs are encoded and transmitted.
-    UpdateLEDs([u16; crate::SMARTLED_PORT_COUNT]),
-}
-
-impl Format for SmartLedEvent {
-    fn format(&self, f: defmt::Formatter) {
-        match self {
-            SmartLedEvent::UpdateLEDs(counts) => defmt::write!(f, "Update LEDs: {:?}", counts),
-        }
-    }
-}
+pub use common::events::SmartLedEvent;
 
 /// SmartLED module
 ///

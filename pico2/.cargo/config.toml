@@ -1,0 +1,20 @@
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+# probe-rs over SWD (the carrier breaks out the 3-pin debug header).
+runner = "probe-rs run --chip RP235x"
+# Alternative when only USB is available: hold BOOTSEL, then
+# runner = "picotool load -u -v -x -t elf"
+
+# flip-link puts the stack below RAM so an overflow hard-faults instead of
+# silently corrupting statics. Same arrangement as rp2040_dmx.
+linker = "flip-link"
+rustflags = [
+  "-C", "link-arg=--nmagic",
+  "-C", "link-arg=-Tlink.x",
+  "-C", "link-arg=-Tdefmt.x",
+]
+
+[build]
+target = "thumbv8m.main-none-eabihf"
+
+[env]
+DEFMT_LOG = "debug"

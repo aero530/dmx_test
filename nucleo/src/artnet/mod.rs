@@ -23,7 +23,8 @@ use crate::event_router::{DmxEvent, DmxFeedbackEvent, PacketAddress, RouterEvent
 use crate::ui::{ArtNetAddr, InputMode};
 use crate::{ARTNET_OEM, DMX_BUFFER, DMX_UNIVERSE_SIZE};
 
-mod tiny_artnet;
+// Parser lives in `common`; this module keeps the socket-facing task.
+pub use common::artnet::tiny_artnet;
 pub use tiny_artnet::{Art, PortAddress};
 
 /// Pull DMX data from ArtNet via ethernet.

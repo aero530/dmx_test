@@ -1,12 +1,12 @@
 //! Tests for the settings-field metadata table (`nucleo/src/ui/fields.rs`).
 
-use host_tests::ui::{all_fields, FieldId, InputMode, MenuData, ModuleSettings, PAGES};
+use common::ui::{all_fields, FieldId, InputMode, MenuData, ModuleSettings, PAGES};
 
 fn defaults() -> MenuData {
     MenuData::default()
 }
 
-fn group_sizes(data: &MenuData) -> [u16; 4] {
+fn group_sizes(data: &MenuData) -> [u16; common::SMARTLED_PORT_COUNT] {
     match &data.module {
         ModuleSettings::SmartLed(s) => s.dmx_group_size.0,
         _ => panic!("default module should be SmartLed"),
@@ -15,12 +15,18 @@ fn group_sizes(data: &MenuData) -> [u16; 4] {
 
 #[test]
 fn pages_have_expected_shape() {
-    assert_eq!(PAGES.len(), 4);
     let titles: Vec<&str> = PAGES.iter().map(|p| p.title).collect();
-    assert_eq!(titles, ["Main", "LED 1", "LED 2", "System"]);
+    assert_eq!(
+        titles,
+        ["Main", "LED", "Group 1-4", "Group 5-8", "LEDs 1-4", "LEDs 5-8", "System"]
+    );
     // Every page fits the 11-row TFT layout (tabs + footer take 2 rows)
     for page in PAGES {
-        assert!(page.fields.len() <= 9, "page {} has too many rows", page.title);
+        assert!(
+            page.fields.len() <= common::ui::fields::MAX_FIELDS_PER_PAGE,
+            "page {} has too many rows",
+            page.title
+        );
     }
 }
 
@@ -97,6 +103,16 @@ fn artnet_fields_respect_wire_format_limits() {
     assert!(FieldId::ArtNetUniverse.set_from_str(&mut data, "16").is_err());
     FieldId::ArtNetUniverse.set_from_str(&mut data, "15").unwrap();
     assert_eq!(data.artnet_address.0[2], 15);
+
+    // The sub-net is capped below the Art-Net wire maximum: DMX_BUFFER holds
+    // DMX_UNIVERSE_COUNT (64) universes = sub-nets 0..=3, and a base past
+    // that cannot be buffered — so it must not be configurable.
+    let max_subnet = (common::DMX_UNIVERSE_COUNT / 16 - 1) as u16;
+    assert!(FieldId::ArtNetSubNet
+        .set_from_str(&mut data, "3")
+        .is_ok_and(|_| data.artnet_address.0[1] == 3));
+    assert!(FieldId::ArtNetSubNet.set_from_str(&mut data, "4").is_err());
+    assert_eq!(max_subnet, 3);
 }
 
 #[test]
@@ -167,4 +183,51 @@ fn set_from_str_rejects_invalid_input() {
 
     // Nothing above may have modified the settings
     assert_eq!(data, defaults());
+}
+
+
+#[test]
+fn every_page_fits_the_display() {
+    // The menu is paged, not scrolling, so a page that overflows puts fields
+    // somewhere the user cannot reach them. 128x64 at 6x8 is 21x8 characters,
+    // less one row for the page title.
+    for page in PAGES {
+        assert!(
+            page.fields.len() <= common::ui::fields::MAX_FIELDS_PER_PAGE,
+            "page {:?} has {} fields, over the {} the display can show",
+            page.title,
+            page.fields.len(),
+            common::ui::fields::MAX_FIELDS_PER_PAGE
+        );
+    }
+}
+
+#[test]
+fn every_port_is_reachable_from_the_menu() {
+    // Guards the failure this replaced: raising SMARTLED_PORT_COUNT without
+    // extending PAGES left the extra ports configurable over the console but
+    // invisible - and worse, sharing a label with port 4.
+    let all: Vec<FieldId> = all_fields().collect();
+    for port in 0..common::SMARTLED_PORT_COUNT {
+        assert!(
+            all.contains(&FieldId::GroupSize(port)),
+            "port {port} has no group-size field"
+        );
+        assert!(
+            all.contains(&FieldId::LedsPerPort(port)),
+            "port {port} has no LED-count field"
+        );
+    }
+}
+
+#[test]
+fn per_port_labels_are_distinct() {
+    // The old wildcard match arm gave every port past the third the same label.
+    let labels: Vec<&str> = (0..common::SMARTLED_PORT_COUNT)
+        .map(|p| FieldId::GroupSize(p).label())
+        .collect();
+    let mut sorted = labels.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted.len(), labels.len(), "duplicate labels: {labels:?}");
 }

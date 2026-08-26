@@ -1,7 +1,6 @@
 //! Button row and array interaction
 
 use cfg_if::cfg_if;
-use defmt::Format;
 cfg_if! {
     if #[cfg(feature = "usb")] {
         use log::{debug, error};
@@ -17,88 +16,7 @@ use embassy_stm32::gpio::{Input, OutputOpenDrain};
 use crate::channels::RouterChannelTx;
 use crate::event_router::RouterEvent;
 
-#[derive(Copy, Clone, Format, Debug, PartialEq)]
-pub enum KeyPadEvent {
-    None,
-    Pressed,
-    Released,
-    Held,
-}
-
-// Format
-// 1 2 3 A
-// 4 5 6 B
-// 7 8 9 C
-// * 0 # D
-#[derive(Copy, Clone, Format, Debug)]
-pub enum KeyPadButton {
-    A,
-    B,
-    C,
-    D,
-    N0,
-    N1,
-    N2,
-    N3,
-    N4,
-    N5,
-    N6,
-    N7,
-    N8,
-    N9,
-    Star,
-    Pound,
-    None,
-}
-
-impl KeyPadButton {
-    //     fn from(row: usize, col: usize) -> Self {
-    //         match (row, col) {
-    // // 1 2 3 A
-    // // 4 5 6 B
-    // // 7 8 9 C
-    // // * 0 # D
-    //             (0,0) => Self::N1,
-    //             (1,0) => Self::N4,
-    //             (3,0) => Self::N7,
-    //             (4,0) => Self::Star,
-    //             (0,1) => Self::N2,
-    //             (1,1) => Self::N5,
-    //             (3,1) => Self::N8,
-    //             (4,1) => Self::N0,
-    //             (0,2) => Self::N3,
-    //             (1,2) => Self::N6,
-    //             (3,2) => Self::N9,
-    //             (4,2) => Self::Pound,
-    //             (0,3) => Self::A,
-    //             (1,3) => Self::B,
-    //             (3,3) => Self::C,
-    //             (4,3) => Self::D,
-    //             _ => Self::None,
-    //         }
-    //     }
-    fn at(location: usize) -> Self {
-        match location {
-            0 => Self::N1,
-            1 => Self::N2,
-            2 => Self::N3,
-            3 => Self::A,
-            4 => Self::N4,
-            5 => Self::N5,
-            6 => Self::N6,
-            7 => Self::B,
-            8 => Self::N7,
-            9 => Self::N8,
-            10 => Self::N9,
-            11 => Self::C,
-            12 => Self::Star,  // single row button 0
-            13 => Self::N0,    // single row button 1
-            14 => Self::Pound, // single row button 2
-            15 => Self::D,     // single row button 3
-            _ => Self::None,
-        }
-    }
-}
+pub use common::events::{KeyPadButton, KeyPadEvent};
 
 #[embassy_executor::task]
 pub async fn button_array_task(cols: [Input<'static>; 4], mut rows: [OutputOpenDrain<'static>; 4], tx: RouterChannelTx) {

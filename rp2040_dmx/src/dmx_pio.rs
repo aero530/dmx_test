@@ -12,7 +12,8 @@
 
 use embassy_rp::Peri;
 use embassy_rp::clocks::clk_sys_freq;
-use embassy_rp::dma::{AnyChannel, Channel};
+use embassy_rp::dma;
+use embassy_rp::interrupt;
 use embassy_rp::gpio::{Level, Pull};
 use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{
@@ -64,16 +65,17 @@ impl<'d, PIO: Instance> PioDmxRxProgram<'d, PIO> {
 /// PIO-backed DMX-512 receiver.
 pub struct PioDmxRx<'d, PIO: Instance, const SM: usize> {
     sm: StateMachine<'d, PIO, SM>,
-    dma: Peri<'d, AnyChannel>,
+    dma: dma::Channel<'d>,
     origin: u8,
 }
 
 impl<'d, PIO: Instance, const SM: usize> PioDmxRx<'d, PIO, SM> {
     /// Configure a pio state machine to use the loaded DMX RX program.
-    pub fn new(
+    pub fn new<D: dma::ChannelInstance>(
         common: &mut Common<'d, PIO>,
         mut sm: StateMachine<'d, PIO, SM>,
-        dma: Peri<'d, impl Channel>,
+        dma: Peri<'d, D>,
+        irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
         rx_pin: Peri<'d, impl PioPin>,
         program: &PioDmxRxProgram<'d, PIO>,
     ) -> Self {
@@ -101,7 +103,7 @@ impl<'d, PIO: Instance, const SM: usize> PioDmxRx<'d, PIO, SM> {
         // The state machine stays disabled until the first `read()` arms it.
         Self {
             sm,
-            dma: dma.into(),
+            dma: dma::Channel::new(dma, irq),
             origin: program.prg.origin,
         }
     }
@@ -131,7 +133,7 @@ impl<'d, PIO: Instance, const SM: usize> PioDmxRx<'d, PIO, SM> {
 
         // Each RX FIFO word holds one DMX slot in its low byte; drain one
         // packet's worth with 8-bit DMA reads.
-        self.sm.rx().dma_pull(self.dma.reborrow(), buf, false).await;
+        self.sm.rx().dma_pull(&mut self.dma, buf, false).await;
     }
 }
 
@@ -169,16 +171,17 @@ impl<'d, PIO: Instance> PioDmxTxProgram<'d, PIO> {
 /// PIO-backed DMX-512 transmitter.
 pub struct PioDmxTx<'d, PIO: Instance, const SM: usize> {
     sm: StateMachine<'d, PIO, SM>,
-    dma: Peri<'d, AnyChannel>,
+    dma: dma::Channel<'d>,
     origin: u8,
 }
 
 impl<'d, PIO: Instance, const SM: usize> PioDmxTx<'d, PIO, SM> {
     /// Configure a pio state machine to use the loaded DMX TX program.
-    pub fn new(
+    pub fn new<D: dma::ChannelInstance>(
         common: &mut Common<'d, PIO>,
         mut sm: StateMachine<'d, PIO, SM>,
-        dma: Peri<'d, impl Channel>,
+        dma: Peri<'d, D>,
+        irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
         tx_pin: Peri<'d, impl PioPin>,
         program: &PioDmxTxProgram<'d, PIO>,
     ) -> Self {
@@ -205,7 +208,7 @@ impl<'d, PIO: Instance, const SM: usize> PioDmxTx<'d, PIO, SM> {
         // The state machine stays disabled until the first `write()` arms it.
         Self {
             sm,
-            dma: dma.into(),
+            dma: dma::Channel::new(dma, irq),
             origin: program.prg.origin,
         }
     }
@@ -228,7 +231,7 @@ impl<'d, PIO: Instance, const SM: usize> PioDmxTx<'d, PIO, SM> {
 
         // The DMA writes one byte per 32-bit FIFO word (byte lanes are
         // replicated on the bus; `out pins, 1` shifts the low 8 bits).
-        self.sm.tx().dma_push(self.dma.reborrow(), frame, false).await;
+        self.sm.tx().dma_push(&mut self.dma, frame, false).await;
 
         // DMA completion only means the FIFO was filled. Wait until the
         // state machine has drained it and stalled on `pull` with the line

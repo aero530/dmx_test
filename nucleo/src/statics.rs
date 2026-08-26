@@ -1,6 +1,8 @@
-//! Static memory allocations
+//! Static hardware allocations
 //!
-//! Data buffers and shared hardware allocations
+//! The shared I2C buses. The data buffers (`DMX_BUFFER`, `LED_COLORS`) are
+//! target-agnostic and live in `common::buffers`; they are re-exported here so
+//! the existing `crate::DMX_BUFFER` paths keep resolving.
 
 use core::cell::RefCell;
 use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
@@ -8,25 +10,9 @@ use embassy_stm32::i2c::{I2c, Master};
 use embassy_sync::blocking_mutex::raw::{NoopRawMutex, ThreadModeRawMutex};
 use embassy_sync::blocking_mutex::NoopMutex;
 use embassy_sync::mutex::Mutex;
-use smart_leds::RGB8;
 use static_cell::StaticCell;
 
-use crate::{DMX_UNIVERSE_COUNT, DMX_UNIVERSE_SIZE, SMARTLED_NUM_LEDS_MAX, SMARTLED_PORT_COUNT};
-
-pub type LedBuffer = Mutex<ThreadModeRawMutex, [[RGB8; SMARTLED_NUM_LEDS_MAX]; SMARTLED_PORT_COUNT]>;
-
-/// Buffer of current LED colors
-pub static LED_COLORS: LedBuffer = Mutex::new([[RGB8::new(0, 0, 0); SMARTLED_NUM_LEDS_MAX]; SMARTLED_PORT_COUNT]);
-
-type DmxBuffer = Mutex<ThreadModeRawMutex, [u8; DMX_UNIVERSE_COUNT * DMX_UNIVERSE_SIZE]>;
-
-/// Buffer to hold incoming data (DMX or ArtNet)
-///
-/// Data is stored flat, covering one full Art-Net net (256 universes):
-/// location = sub_uni * 512 + channel offset, where sub_uni is the
-/// Port-Address "SubUni" byte (sub-net in the high nibble, universe in the
-/// low nibble). Wired DMX / USB use offset 0 (start code at index 0).
-pub static DMX_BUFFER: DmxBuffer = Mutex::new([0_u8; DMX_UNIVERSE_COUNT * DMX_UNIVERSE_SIZE]);
+pub use common::buffers::{DmxBuffer, LedBuffer, DMX_BUFFER, LED_COLORS};
 
 pub type I2c1Bus = Mutex<ThreadModeRawMutex, I2c<'static, embassy_stm32::mode::Async, Master>>;
 pub type I2cSharedDev = I2cDevice<'static, NoopRawMutex, I2c<'static, embassy_stm32::mode::Async, Master>>;

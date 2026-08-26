@@ -1,5 +1,4 @@
 //! PWM output module for low power LEDs
-use defmt::Format;
 // use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 // use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
 use embassy_time::{with_timeout, Duration};
@@ -10,12 +9,7 @@ use embedded_hal_1::i2c::I2c as I2CTRAIT;
 use crate::channels::PwmChannelRx;
 use crate::I2cSharedDev;
 
-#[derive(Format)]
-pub enum PwmEvent {
-    // On,
-    // Off,
-    Value([u8; 3]),
-}
+pub use common::events::PwmEvent;
 
 // pub struct PwmI2c<I2C: embedded_hal_async::i2c::I2c> {
 pub struct PwmI2c<I2C: I2CTRAIT> {

@@ -13,7 +13,15 @@ default = ["usb"]
 usb = []
 
 [dependencies]
-# Versions must match nucleo/Cargo.toml so the included sources compile identically
+# The crate under test. `usb` selects the `log` macros over defmt's, so the
+# sources never invoke defmt logging on the host.
+common = { path = "../common", features = ["usb"] }
+
+# `common`'s shared buffers use CriticalSectionRawMutex, which needs an
+# implementation linked. The firmware gets one from cortex-m; the host gets it
+# from here. See the module docs in common/src/buffers.rs.
+critical-section = { version = "1", features = ["std"] }
+
 bincode = { version = "2.0.1", default-features = false, features = ["derive"] }
 cfg-if = "1"
 # unstable-test mocks the logger symbols so `derive(Format)` links on the host

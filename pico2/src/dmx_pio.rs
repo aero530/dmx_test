@@ -197,19 +197,14 @@ impl<'d, PIO: Instance> PioDmxTxProgram<'d, PIO> {
     }
 }
 
-/// PIO-backed DMX-512 transmitter.
-///
-/// Constructed and held, but not driven yet: transmit belongs to the
-/// `ArtNet>DMX` and `USB>DMX` modes, which need the settings from the event
-/// router. Wired up when the router lands — see the Phase 2 worklist.
-#[allow(dead_code)]
+/// PIO-backed DMX-512 transmitter — driven by `dmx.rs` in the `ArtNet>DMX`
+/// and `USB>DMX` modes.
 pub struct PioDmxTx<'d, PIO: Instance, const SM: usize> {
     sm: StateMachine<'d, PIO, SM>,
     dma: dma::Channel<'d>,
     origin: u8,
 }
 
-#[allow(dead_code)]
 impl<'d, PIO: Instance, const SM: usize> PioDmxTx<'d, PIO, SM> {
     /// Configure a pio state machine to use the loaded DMX TX program.
     pub fn new<D: dma::ChannelInstance>(

@@ -1499,6 +1499,7 @@ dependencies = [
  "ratatui-core",
  "ratatui-widgets",
  "smart-leds",
+ "smoltcp",
  "static_cell",
 ]
 

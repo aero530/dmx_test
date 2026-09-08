@@ -3,7 +3,7 @@
 //! Two ports speak the Enttec protocol and share this code:
 //!
 //! * the module's native USB, as a CDC-ACM serial port (`usb_device.rs`);
-//! * the carrier's FT232RNL USB-B port over UART0 (`enttec_uart.rs`) — the one
+//! * the carrier's FT232RNL USB-C port over UART0 (`enttec_uart.rs`) — the one
 //!   that FTDI-only lighting software (QLC+, D2XX apps) recognises as a
 //!   genuine Pro, because it *is* FTDI silicon.
 //!

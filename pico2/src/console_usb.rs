@@ -6,7 +6,8 @@
 //! ```text
 //! get                  -> key=value per settings field, then ok
 //! set <key> <value>    -> apply one setting (persisted to EEPROM), ok/err
-//! dmx <start> <count>  -> "dmx <ch> v v v ..." lines (16 per line), then ok
+//! dmx <start> <count>  -> "dmx <ch> v v v ..." lines (16 per line) from the active
+//!                         input's universe, in that mode's addressing, then ok
 //! info                 -> mode/module/ip/mac/net/boot summary, then ok
 //! mac [xx:xx:xx:xx:xx:xx] -> show, or program, the MAC (takes effect at boot)
 //! provision            -> write the module-type and schema bytes (fresh EEPROM)
@@ -33,7 +34,7 @@ use embassy_usb::class::cdc_acm::CdcAcmClass;
 use embassy_usb::driver::EndpointError;
 
 use crate::channels::{GlobalDataChannelRx, RouterChannelTx, CHANNEL_EEPROM};
-use crate::event_router::{GlobalData, RouterEvent};
+use crate::event_router::{buffer_index, GlobalData, RouterEvent};
 use crate::ui::{all_fields, ModuleType};
 use crate::{DMX_BUFFER, DMX_UNIVERSE_SIZE};
 use common::events::EepromEvent;
@@ -175,17 +176,34 @@ async fn handle_line(
         }
 
         "dmx" => {
-            // Channels are read DMX-style: buffer index == channel number
-            // (slot 0 is the start code).
+            // Channels of the *active* universe, 1-based, whichever input is
+            // feeding it. The two input families store a universe differently
+            // (see `event_router::buffer_index`): wired DMX / USB keep the
+            // start code at index 0 so channel N is at index N; Art-Net and
+            // sACN store channel 1 at slot offset 0, and Art-Net's universe
+            // sits at the configured base. Reading DMX-style regardless of
+            // mode showed network data one channel late — the last place the
+            // 2026-07 review's N18 was still visible.
             let start: usize = parts.next().and_then(|s| s.parse().ok()).unwrap_or(1);
             let count: usize = parts.next().and_then(|s| s.parse().ok()).unwrap_or(32);
             let start = start.clamp(1, DMX_UNIVERSE_SIZE);
             let count = count.min(DMX_UNIVERSE_SIZE + 1 - start);
 
+            let settings = current(global_rx).menu_settings;
+            let mode = settings.input_mode;
+            let universe_base = if mode.is_artnet() {
+                settings.artnet_address.buffer_base() * DMX_UNIVERSE_SIZE
+            } else {
+                0
+            };
+            let first = universe_base + buffer_index(start as u16, mode.is_network());
+
             let mut values = [0_u8; DMX_UNIVERSE_SIZE];
             {
                 let buffer = DMX_BUFFER.lock().await;
-                values[..count].copy_from_slice(&buffer[start..start + count]);
+                let end = (first + count).min(buffer.len());
+                let n = end.saturating_sub(first);
+                values[..n].copy_from_slice(&buffer[first..end]);
             }
 
             for (i, chunk) in values[..count].chunks(16).enumerate() {

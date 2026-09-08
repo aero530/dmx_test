@@ -57,23 +57,25 @@ pub const SETTINGS_ADDR: u8 = 0x20;
 /// completed boot. A blank byte (0xFF) reads as zero.
 pub const BOOT_FAIL_COUNT_ADDR: u8 = 0xA0;
 
-/// Bytes reserved for the settings blob.
+/// Bytes reserved for the settings blob — defined in `common` so the host
+/// tests check the worst-case encoding against this exact value.
 ///
 /// Measured worst-case `MenuData` is 40 B at 4 ports and 64 B at 8 — the latter
 /// landing exactly on the old 64-byte slot, which is worse than overflowing
 /// because a `<=` check passes right up until it does not. 128 restores real
 /// margin and still ends at 0x9F. Only the pages the payload covers are
 /// written, so the larger reservation costs nothing at runtime.
-pub const SETTINGS_SIZE: usize = 128;
+pub use common::SETTINGS_SIZE;
 
 /// Bump when the encoded shape of `MenuData` changes. A stored value that does
 /// not match means the settings blob is from an older layout and must not be
 /// decoded.
 ///
 /// * 1 — original Rev 2 layout
-/// * 4 — `led_power` appended (USB-brick LED supply)
 /// * 2 — `sacn_universe` and `backlight` appended; Ethernet defaults on
 /// * 3 — `static_ip`, `static_prefix`, `static_gateway` appended
+/// * 4 — `led_power` appended (USB-brick LED supply); the dead PWM module
+///   variants removed from `ModuleType` / `ModuleSettings`
 pub const SCHEMA_VERSION: u8 = 4;
 
 /// Read the MAC address, rejecting anything that is not a usable unicast
@@ -253,7 +255,17 @@ impl<I2C: I2c> Eeprom<I2C> {
                 match self.dev.read_data(SETTINGS_ADDR, &mut buf).await {
                     // .await {
                     Ok(_) => {
-                        let decoded: MenuData = bincode::decode_from_slice(&buf, bincode::config::standard()).unwrap_or_default().0;
+                        // The schema byte matched, so a decode failure here is
+                        // a torn or corrupt blob, not an old layout. Falling
+                        // back to defaults is still the right recovery — but
+                        // say so, because it means a save did not complete.
+                        let decoded: MenuData = match bincode::decode_from_slice(&buf, bincode::config::standard()) {
+                            Ok((d, _)) => d,
+                            Err(_) => {
+                                warn!("EEPROM: settings blob failed to decode under schema {=u8} - corrupt, using defaults", SCHEMA_VERSION);
+                                MenuData::default()
+                            }
+                        };
                         info!("Read eeprom");
                         let _ = self.tx.try_send(RouterEvent::StoreSettings(Some(decoded)));
                     }

@@ -1,16 +1,14 @@
-//! Tests for the settings-field metadata table (`nucleo/src/ui/fields.rs`).
+//! Tests for the settings-field metadata table (`common/src/ui/fields.rs`).
 
-use common::ui::{all_fields, FieldId, InputMode, MenuData, ModuleSettings, PAGES};
+use common::ui::{all_fields, FieldId, InputMode, LedPower, MenuData, ModuleSettings, PAGES};
 
 fn defaults() -> MenuData {
     MenuData::default()
 }
 
 fn group_sizes(data: &MenuData) -> [u16; common::SMARTLED_PORT_COUNT] {
-    match &data.module {
-        ModuleSettings::SmartLed(s) => s.dmx_group_size.0,
-        _ => panic!("default module should be SmartLed"),
-    }
+    let ModuleSettings::SmartLed(s) = &data.module;
+    s.dmx_group_size.0
 }
 
 #[test]
@@ -364,4 +362,48 @@ fn per_port_labels_are_distinct() {
     sorted.sort_unstable();
     sorted.dedup();
     assert_eq!(sorted.len(), labels.len(), "duplicate labels: {labels:?}");
+}
+
+#[test]
+fn led_power_defaults_to_external_and_is_reachable() {
+    // `External` is a safety property, not a preference: the same USB-C
+    // connector takes a PC, and a host port must never be asked to run strips.
+    let data = defaults();
+    assert_eq!(data.led_power, LedPower::External);
+    assert_eq!(FieldId::LedPower.display(&data), "External");
+    assert!(all_fields().any(|f| f == FieldId::LedPower), "LED Power missing from the menu");
+    assert!(FieldId::LedPower.editable());
+    assert_eq!(FieldId::LedPower.digits(), 0, "edited as a whole, not per digit");
+}
+
+#[test]
+fn led_power_toggles_parses_and_transfers() {
+    let mut data = defaults();
+
+    // Up and Down both toggle a two-state field.
+    FieldId::LedPower.adjust(&mut data, 0, true);
+    assert_eq!(data.led_power, LedPower::UsbBrick);
+    assert_eq!(FieldId::LedPower.display(&data), "USB brick");
+    FieldId::LedPower.adjust(&mut data, 0, false);
+    assert_eq!(data.led_power, LedPower::External);
+
+    // Console spellings documented in the readme, case-insensitive.
+    for text in ["usb", "USB", "brick", "usb_brick"] {
+        FieldId::LedPower.set_from_str(&mut data, text).unwrap();
+        assert_eq!(data.led_power, LedPower::UsbBrick, "{text}");
+    }
+    for text in ["external", "Ext", "j26"] {
+        FieldId::LedPower.set_from_str(&mut data, text).unwrap();
+        assert_eq!(data.led_power, LedPower::External, "{text}");
+    }
+    assert!(FieldId::LedPower.set_from_str(&mut data, "on").is_err());
+
+    // A committed edit moves only this field.
+    let mut draft = defaults();
+    draft.led_power = LedPower::UsbBrick;
+    let mut committed = defaults();
+    FieldId::DmxAddress.set_from_str(&mut committed, "77").unwrap();
+    FieldId::LedPower.transfer(&draft, &mut committed);
+    assert_eq!(committed.led_power, LedPower::UsbBrick);
+    assert_eq!(committed.dmx_address, 77, "unrelated field must survive the merge");
 }

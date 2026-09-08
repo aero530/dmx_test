@@ -12,8 +12,9 @@
 //! them to nothing, so they are harmless.
 //!
 //! Timing is the canonical 10-cycle WS2812 program (T1 = 2, T2 = 5, T3 = 3 at
-//! 8 MHz → 1.25 µs/bit), which SK6812 RGBW parts share. The latch gap after a
-//! frame is held for 100 µs: WS2812 needs > 50 µs, SK6812 > 80 µs.
+//! 8 MHz → 1.25 µs/bit), which SK6812 RGBW parts share. After each frame the
+//! FIFO is drained and the line held idle 150 µs: WS2812 needs > 50 µs of
+//! latch, SK6812 > 80 µs, and the OSR can still hold one word (40 µs).
 
 use embassy_rp::clocks::clk_sys_freq;
 use embassy_rp::dma;
@@ -101,14 +102,25 @@ impl<'d, P: Instance, const S: usize> Ws2812<'d, P, S> {
         }
     }
 
-    /// Clock a packed bit stream out and hold the latch gap. Returns once the
-    /// DMA has handed the last word to the FIFO and the gap has elapsed, so
-    /// back-to-back calls produce cleanly latched frames.
+    /// Clock a packed bit stream out and hold the latch gap, so back-to-back
+    /// calls produce cleanly latched frames.
+    ///
+    /// DMA completion only means the last word reached the **FIFO** — up to
+    /// eight words (256 bits, 320 µs at 800 kHz) can still be queued, and the
+    /// OSR holds one more. Timing the gap from there would start the next
+    /// frame while this one is still on the wire whenever frames arrive
+    /// faster than they render (a USB host pushing label-6 packets at full
+    /// rate, say), and WS2812s then run the two frames together. So wait for
+    /// the FIFO to drain first, then allow the OSR's 40 µs plus the latch:
+    /// WS2812 needs > 50 µs, SK6812 > 80 µs.
     pub async fn write(&mut self, words: &[u32]) {
         if !words.is_empty() {
             self.sm.tx().dma_push(&mut self.dma, words, false).await;
+            while !self.sm.tx().empty() {
+                Timer::after_micros(40).await;
+            }
         }
-        Timer::after_micros(100).await;
+        Timer::after_micros(150).await;
     }
 }
 

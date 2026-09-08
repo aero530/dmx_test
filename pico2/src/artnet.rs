@@ -107,7 +107,10 @@ pub async fn artnet_task(
                     input_mode = new_mode;
                     artnet_addr = new_addr;
                     bound = new_bound;
+                    // A new address or mode is a new situation: let both
+                    // one-shot warnings fire again if it is still wrong.
                     warned_other_net = false;
+                    warned_out_of_range = false;
                 }
             }
         }

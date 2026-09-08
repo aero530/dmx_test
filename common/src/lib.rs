@@ -11,11 +11,16 @@
 //! Contents:
 //! * [`constants`] — buffer sizes, port counts, I²C addresses (re-exported at
 //!   the crate root, so `common::SMARTLED_PORT_COUNT` works)
+//! * [`buffers`] — the shared `DMX_BUFFER` and `LED_COLORS`
+//! * [`channels`], [`events`] — the inter-task channels and their messages
+//! * [`event_router`] — the routing hub and the DMX → LED mapping
 //! * [`ui`] — the settings model (`MenuData` and friends) and the field
 //!   metadata table that drives the menu, the console protocol, and the host app
 //! * [`artnet`] — the Art-Net packet parser and ArtPollReply serialiser
+//! * [`sacn`] — the E1.31 data-packet parser
 //! * [`enttec_protocol`] — Enttec DMX USB Pro message framing
-//! * [`ansi`] — ANSI escape helpers for the console
+//! * [`usb_power`] — the USB-brick LED supply state and current budget
+//! * [`ws2812_pack`] — pixel packing for the PIO output driver
 
 #![no_std]
 
@@ -26,7 +31,6 @@ extern crate alloc;
 pub mod constants;
 pub use constants::*;
 
-pub mod ansi;
 pub mod artnet;
 pub mod enttec_protocol;
 pub mod buffers;

@@ -21,8 +21,8 @@ pub static CHANNEL: RouterChannel = Channel::new();
 pub type DmxChannel = Channel<CriticalSectionRawMutex, DmxEvent, 1>;
 pub type DmxChannelRx = Receiver<'static, CriticalSectionRawMutex, DmxEvent, 1>;
 pub type DmxChannelTx = Sender<'static, CriticalSectionRawMutex, DmxEvent, 1>;
-/// Input tasks (dmx_i2c / artnet / usb_device) -> router: "new frame is in
-/// `DMX_BUFFER`". Depth 1 on purpose: frames are latest-wins.
+/// Input tasks (dmx / artnet / sacn_rx / usb_device / enttec_uart) -> router:
+/// "new frame is in `DMX_BUFFER`". Depth 1 on purpose: frames are latest-wins.
 pub static CHANNEL_DMX: DmxChannel = Channel::new();
 
 // 5 receivers: dmx_task, artnet_task, sacn_task, usb_device_task (CDC widget),

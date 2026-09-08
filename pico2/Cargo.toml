@@ -48,6 +48,12 @@ embassy-net = { version = "0.9.1", features = [
     "multicast",
 ] }
 embassy-net-wiznet = { version = "0.3.0", features = ["defmt"] }
+# sACN joins one multicast group per universe, a 32-universe window
+# (`sacn_rx::JOIN_COUNT`). smoltcp's group table is a compile-time size that
+# defaults to **4**, so without this 28 of the 32 joins fail and, behind an
+# IGMP-snooping switch, only four universes ever arrive. embassy-net does not
+# expose the knob; features unify, so it is set on smoltcp directly.
+smoltcp = { version = "0.13", default-features = false, features = ["iface-max-multicast-group-count-32"] }
 embedded-hal-bus = { version = "0.3.0", features = ["async"] }
 embedded-hal = "1.0"
 embedded-hal-async = "1.0"

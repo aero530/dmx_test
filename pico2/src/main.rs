@@ -69,6 +69,7 @@ mod m24x02;
 mod pca9633;
 mod sacn_rx;
 mod smart_led;
+mod identity;
 mod supervisor;
 mod tca9555;
 mod tft_ui;
@@ -91,14 +92,21 @@ pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
 ];
 
 /// Heap for `common::ui::fields`, which formats menu strings, and for the
-/// Ratatui cell buffers behind the TFT. The panel is drawn directly (no
-/// framebuffer), so 32 KB is generous; RAM is not the constraint on this chip.
+/// Ratatui cell buffers behind the TFT.
+///
+/// Sized from a measurement, not a guess: a `ratatui_core` `Cell` is **40
+/// bytes**, and `Terminal` keeps two 35x11 buffers (current and previous), so
+/// the display alone pins **30.8 KB** of heap for the life of the firmware. The
+/// old 32 KB left under 2 KB for every `format!` in a redraw and for
+/// mousefood's own allocations — an out-of-memory panic at the first frame and
+/// a 4 s watchdog reset loop with a dark panel. 64 KB gives ~33 KB of working
+/// room; RAM is not the constraint on this chip (~190 KB of statics in 520 KB).
 use embedded_alloc::LlffHeap as Heap;
 
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
 
-const HEAP_SIZE: usize = 32 * 1024;
+const HEAP_SIZE: usize = 64 * 1024;
 
 bind_interrupts!(struct Irqs {
     I2C1_IRQ => I2cInterruptHandler<I2C1>;
@@ -156,13 +164,6 @@ pub mod pins {
     pub const I2C_SCL: u8 = 27;
 }
 
-/// MAC used when the EEPROM has none programmed.
-///
-/// Locally-administered (bit 1 of the first octet set), so it is valid on a
-/// private network. **Two unprogrammed boards on one bench would collide** —
-/// which is exactly why boot prefers the EEPROM copy at 0x02–0x07 and only
-/// falls back to this. Program it with the console's `mac` command.
-const MAC_FALLBACK: [u8; 6] = [0x02, 0x44, 0x4d, 0x58, 0x00, 0x01];
 
 /// Incomplete boots in a row before the lockout guard skips Ethernet.
 ///
@@ -202,8 +203,12 @@ async fn heartbeat(mut led: Output<'static>) {
 }
 
 /// Core 1's stack. Task futures live in static task storage, not here, so this
-/// only has to cover the executor poll loop and ordinary call depth.
-static mut CORE1_STACK: CoreStack<8192> = CoreStack::new();
+/// only has to cover the executor poll loop and ordinary call depth — but that
+/// depth includes a full Ratatui draw through mousefood and mipidsi, and unlike
+/// core 0 (where flip-link turns an overflow into a HardFault) **nothing guards
+/// this buffer**: an overflow silently corrupts whichever static sits below it.
+/// 16 KB costs nothing here and doubles the margin.
+static mut CORE1_STACK: CoreStack<16384> = CoreStack::new();
 static EXECUTOR0: StaticCell<Executor> = StaticCell::new();
 static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 
@@ -328,7 +333,7 @@ async fn net_bringup(
 
     let mac = eeprom::read_mac(ee).await.unwrap_or_else(|| {
         warn!("using fallback MAC - program the EEPROM (console: mac xx:xx:xx:xx:xx:xx) before shipping");
-        MAC_FALLBACK
+        identity::mac_fallback()
     });
     let _ = channels::CHANNEL.try_send(RouterEvent::StoreMacAddress(Some(mac)));
 
@@ -571,6 +576,8 @@ fn main() -> ! {
             unwrap!(channels::CHANNEL_DMX_FEEDBACK.receiver()),
             channels::CHANNEL.sender(),
             unwrap!(channels::CHANNEL_LOG.receiver()),
+            // Per-unit serial from the OTP chip ID - see `identity.rs`.
+            identity::usb_serial(),
         )));
 
         // The same Enttec widget on the carrier's FT232RNL USB-C port — the one

@@ -1,5 +1,5 @@
 //! Tests for the Enttec DMX USB Pro message framing
-//! (`nucleo/src/enttec_protocol.rs`).
+//! (`common/src/enttec_protocol.rs`).
 
 use common::enttec_protocol::{
     EnttecParser, END_DELIMITER, LABEL_GET_SERIAL, LABEL_OUTPUT_DMX, MAX_PAYLOAD, START_DELIMITER,

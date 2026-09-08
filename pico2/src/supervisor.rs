@@ -25,8 +25,8 @@
 //!
 //! The module exposes VSYS/3 on its internal ADC (GP29). Reading it costs
 //! nothing and answers two bench questions at once: is the main supply actually
-//! present (a board running from a USB port through R35 sits around 4.2 V and
-//! must not be asked to drive strips), and did a brown-out just happen.
+//! present (a board running from the module USB through D3/F18 sits around
+//! 4.2 V and must not be asked to drive strips), and did a brown-out just happen.
 
 use core::sync::atomic::{AtomicBool, Ordering};
 

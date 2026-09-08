@@ -39,13 +39,19 @@ PCBs — lives in the hardware repo: [../dmx_interface_dev_board_v2/docs/REV2_AL
 ### Power sources
 
 Three ways to power a unit (see [rev2-power-tree.svg](../dmx_interface_dev_board_v2/docs/rev2-power-tree.svg)):
-the LED Power Board through J26 (full power — strip current stays on the power
-board), a plain 5 V/3 A USB-C brick on the **FTDI** connector (low-power installs;
-a TPS2553-1 current-limited USB switch (≈ 1.45 A, reverse-voltage cut-off, FAULT on **P07**) and a 2 A PTC feed `V_LED` on 5 V builds, gated by TCA9555 **P04** (driven high to enable), VBUS
-present-detect on **P05/P06**), or the module's own USB (0.5 A bench feed). The
-brick path is off until firmware enables it; the `LED Power: External / USB brick`
-setting, the ≈ 1.3 A brightness budget, the FAULT/EN re-arm and the `PWR usb` title-row flag are the
-behaviour is described in [ARCHITECTURE.md](docs/ARCHITECTURE.md) §7.
+
+- **The LED Power Board through J26** — full power; strip current stays on the
+  power board.
+- **A plain 5 V USB-C brick (≥ 2 A) on the FTDI connector** — low-power installs,
+  5 V builds only. A TPS2553-1 current-limited switch (≈ 1.45 A, reverse-voltage
+  cut-off) and a 2 A PTC feed `V_LED`. The path is **off until firmware enables
+  it**: the `LED Power` setting (System page, or `set led_power usb`) drives
+  TCA9555 P04 high, but only while VBUS is present on P05; FAULT on P07 backs the
+  path off and latches after three faults; a ≈ 1.3 A per-frame brightness budget
+  keeps normal content under the switch's limit, and the title row shows
+  `PWR usb` / `PWR flt`. Details in [ARCHITECTURE.md](docs/ARCHITECTURE.md) §7.
+- **The module's own USB** — a 0.5 A bench feed; a PC port boots everything but
+  never runs strips.
 
 ### Crates / folders
 
@@ -57,7 +63,7 @@ behaviour is described in [ARCHITECTURE.md](docs/ARCHITECTURE.md) §7.
 | `dmx_console/` | host PC | Ratatui console: edit settings + live DMX monitor over the USB console port |
 | `rp2040_dmx/` | RP2040 | Bench firmware for the Rev 1 board: DMX TX test, Enttec CDC test, **FT232R emulator** (`ftdi_test`) |
 | `nucleo/` | STM32H563ZI | **Frozen.** The previous generation; kept as the record of the `common` extraction |
-| `docs/` | — | Design record, firmware review, bring-up checklist, FT232RNL provisioning notes |
+| `docs/` | — | Architecture, bring-up checklist, FT232RNL provisioning notes |
 | `reference/` | — | DMX / app-note PDFs |
 
 ### What goes in `common/` vs `pico2/`
@@ -150,7 +156,9 @@ picotool load -u -v -x -t elf ../target/thumbv8m.main-none-eabihf/release/pico2
 1. Flash the firmware. First boot: blank EEPROM → defaults, `ETH` comes up on DHCP.
 2. Over the USB console (second CDC port): `provision`, then
    `mac 02:xx:xx:xx:xx:xx` (a unique unicast address per unit; applies at the
-   next boot). `info` shows `mac=` and `net=`.
+   next boot). `info` shows `mac=` and `net=`. Until one is programmed the unit
+   uses `02:44:4D` + the low 24 bits of its OTP chip ID, so unprogrammed boards
+   do not collide; the USB serial number is the full chip ID.
 3. Program the FT232RNL's EEPROM on the bench — [docs/ft232rnl-eeprom.md](docs/ft232rnl-eeprom.md).
 4. Reboot; check QLC+ sees a DMX USB Pro and the display shows the IP.
 
@@ -168,7 +176,8 @@ Six pages on the TFT (title row shows the page and the network state):
   used, offsets
 - **Groups** — DMX group size per port (×8)
 - **LEDs** — LEDs per port (×8, up to 600)
-- **System** — Ethernet enable (applies at boot), backlight
+- **System** — Ethernet enable (applies at boot), backlight, LED Power
+  (External / USB brick)
 
 Buttons: Up/Down move the selection (crossing a page edge changes page), Select
 starts editing, Esc jumps to the next page. While editing, Up/Down change the
@@ -184,14 +193,16 @@ cargo run --release -- COM5    # connect (the console is the 2nd device port)
 ```
 
 Protocol (one line per command, `ok` / `err <reason>` terminated): `get`,
-`set <key> <value>`, `dmx <start> <count>`, `info`, `mac [xx:xx:xx:xx:xx:xx]`,
+`set <key> <value>`, `dmx <start> <count>` (channels of the active input's
+universe, in that mode's addressing), `info`, `mac [xx:xx:xx:xx:xx:xx]`,
 `provision`, `help`. The same field metadata drives the TFT menu, the console
 protocol and this app, so they cannot drift apart.
 
 ## Testing
 
 ```
-cd host_tests && cargo test     # settings model, field metadata/editing, sACN + Enttec framing
+cd host_tests && cargo test     # settings model, field metadata/editing, sACN + Enttec framing,
+                                # DMX addressing convention, WS2812 packing, USB-brick current budget
 cd dmx_console && cargo test    # console protocol line parser
 cd pico2 && cargo clippy --release --bins
 ```

@@ -79,3 +79,12 @@ pub const MAX_LEDS_PER_PORT: usize = MAX_BYTES_PER_PORT as usize / 3;
 /// Per-port size of `LED_COLORS`. Equal to the transmit cap: holding pixels
 /// that can never be output only cost RAM.
 pub const SMARTLED_NUM_LEDS_MAX: usize = MAX_LEDS_PER_PORT;
+
+/// Bytes reserved in the EEPROM for the bincode-encoded `MenuData` blob.
+///
+/// Lives here rather than in the EEPROM driver so `host_tests` asserts the
+/// worst-case encoding against the *same* constant the firmware writes with —
+/// the two used to be separate copies with a "must match" comment, which is a
+/// guard that guards nothing. Measured worst case is 64 B at eight ports; 128
+/// keeps real margin and still ends at 0x9F in the 256-byte part.
+pub const SETTINGS_SIZE: usize = 128;

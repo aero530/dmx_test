@@ -171,7 +171,16 @@ impl UsbPowerControl {
         // nothing to switch and FAULT would read as a fault.
         let want = selected && ftdi_vbus && !self.given_up;
 
-        if self.enabled && fault_pin {
+        if self.enabled && !ftdi_vbus {
+            // The brick was pulled. With IN gone the switch may well report
+            // FAULT too, but that is not an overcurrent and must not spend a
+            // retry — three unplugs would otherwise latch the path off until
+            // the setting is toggled. Just drop EN; a replug re-enables.
+            info!("USB LED power: brick removed, disabling the brick path");
+            let _ = expander.set(0, tca9555::USB_LED_EN, false).await;
+            self.enabled = false;
+            self.cooldown = 0;
+        } else if self.enabled && fault_pin {
             // Latched off. Drop EN so the part can re-arm, then wait.
             warn!("USB LED power: FAULT - switch latched off, backing off");
             let _ = expander.set(0, tca9555::USB_LED_EN, false).await;
@@ -214,7 +223,10 @@ impl UsbPowerControl {
         if rpi_vbus {
             bits |= usb_power::ST_RPI_VBUS;
         }
-        if self.given_up || (self.enabled && fault_pin) {
+        // Sticky through the back-off, not just the one poll that saw the
+        // pin: the title row should read `PWR flt` for the whole ~2 s the path
+        // is off, or the operator sees the strips drop with no explanation.
+        if self.given_up || self.cooldown > 0 || (self.enabled && fault_pin) {
             bits |= usb_power::ST_FAULT;
         }
         usb_power::set_status(bits);

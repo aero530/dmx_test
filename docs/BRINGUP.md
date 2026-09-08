@@ -50,6 +50,8 @@ Do: W6300-EVB-Pico2 in the socket, supply on. Nothing on the strips or USB yet.
 
 ## Stage 3 — Display and front panel
 
+- [ ] **Straps first**: JP4 bridged **1-2 (GND)** so the TCA9555 answers at 0x20 (A1/A2 are R29/R30 to GND); firmware probes 0x20 only. 2-3 would put it at 0x21 and the panel stays dark.
+
 - [ ] Backlight comes on **after** the menu is drawn (no visible power-on noise).
 - [ ] Orientation: landscape, "Main" top-left, `ETH …` status top-right, no cut-off column — if mirrored or offset, adjust `Rotation`/`display_offset`/`ColorInversion` in `tft_ui.rs`.
 - [ ] Colours: white text on black; REVERSED highlight readable. Inverted colours → toggle `ColorInversion`.
@@ -59,6 +61,8 @@ Do: W6300-EVB-Pico2 in the socket, supply on. Nothing on the strips or USB yet.
 - [ ] Full-screen redraw (page change) does not disturb a running LED pattern or DMX reception (core-1 jitter check).
 
 ## Stage 4 — EEPROM and provisioning
+
+- [ ] **Strap**: JP5 bridged **1-2 (GND)** so E0 = 0 → M24C02 at 0x56 (E1/E2 are R33/R34 to 3V3). 2-3 gives 0x57 and every read reports `no chip`.
 
 - [ ] Fresh EEPROM boot log: `EEPROM: blank, settings default`, `previous boot Failed`, `1 consecutive incomplete boot(s)` — and **Ethernet still comes up** (guard needs two).
 - [ ] Second boot: `previous boot Success`, counter cleared, no guard message.
@@ -89,6 +93,8 @@ Do: W6300-EVB-Pico2 in the socket, supply on. Nothing on the strips or USB yet.
 - [ ] Undriven state: with the module removed, the RS-485 driver is **disabled** (fail-safe receive; opto LED on).
 - [ ] Isolation: `3V3ISO` to `GND` still open with the bus connected; no ground current through the XLR shield.
 
+- [ ] **Short-frame consoles**: with a console configured for fewer than 512 slots (e.g. 24), press buttons on the TFT while a fixture above the console's slot count is patched. Any flicker there is the known short-frame/redraw interaction (ARCHITECTURE §11), not a wiring fault; a 512-slot console must show none.
+
 ## Stage 7 — LED outputs
 
 - [ ] Boot: all eight strings dark (blank frame), no flash of stale colour at power-up.
@@ -111,6 +117,9 @@ Do: W6300-EVB-Pico2 in the socket, supply on. Nothing on the strips or USB yet.
 - [ ] Unplug the brick while enabled: EN drops, no glitch on `VSYS`, logic keeps running from D4/F1.
 
 ## Stage 8 — USB
+
+- [ ] **Identity**: `info` on the console shows a MAC of `02:44:4D:xx:xx:xx` when none is programmed, and the USB serial (Device Manager / `lsusb -v`) is 16 hex digits — **different on every unit**. Two units on one PC must enumerate as two COM ports.
+- [ ] **FTDI straps**: JP1 and JP2 both bridged **1-2** = straight (U2 TXD ← FTDI.TX net → GP13; U2 RXD ← FTDI.RX net ← GP28). 2-3 on both swaps TX/RX if a board is wired the other way round — never mix.
 
 - [ ] Module USB-C on a PC: two (three with the `usb` feature) CDC ports enumerate; port order = Enttec widget, console (, logger). `dmx_console` connects on the second.
 - [ ] Enttec widget over CDC: QLC+ **cannot** see it (expected — FTDI-only stack); xLights/OLA `usbpro` on the serial port can.

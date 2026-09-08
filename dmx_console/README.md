@@ -36,7 +36,7 @@ Line-oriented; also usable from any serial terminal. Every reply ends with
 | `help` | command list |
 
 Keys and accepted values come from the firmware's field metadata table
-(`nucleo/src/ui/fields.rs`), which also drives the on-device TFT menu — the
+(`common/src/ui/fields.rs`), which also drives the on-device TFT menu — the
 three interfaces cannot drift apart.
 
 ## Tests

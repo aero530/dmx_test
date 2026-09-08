@@ -48,8 +48,11 @@ pub type DmxBuffer = Mutex<BufferRawMutex, [u8; DMX_UNIVERSE_COUNT * DMX_UNIVERS
 
 /// Buffer to hold incoming data (DMX or ArtNet)
 ///
-/// Data is stored flat, covering one full Art-Net net (256 universes):
-/// location = sub_uni * 512 + channel offset, where sub_uni is the
-/// Port-Address "SubUni" byte (sub-net in the high nibble, universe in the
-/// low nibble). Wired DMX / USB use offset 0 (start code at index 0).
+/// Data is stored flat, `DMX_UNIVERSE_COUNT` (64) universes of the configured
+/// Art-Net net: location = sub_uni * 512 + channel offset, where sub_uni is the
+/// Port-Address "SubUni" byte (sub-net in the high nibble, universe in the low
+/// nibble), bounds-checked by the receive tasks. sACN is rebased so its
+/// configured base universe is slot 0. Wired DMX / USB use offset 0 with the
+/// start code at index 0 — see `event_router::buffer_index` for how the two
+/// layouts are reconciled.
 pub static DMX_BUFFER: DmxBuffer = Mutex::new([0_u8; DMX_UNIVERSE_COUNT * DMX_UNIVERSE_SIZE]);

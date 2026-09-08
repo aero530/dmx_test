@@ -26,7 +26,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Row, Table, TableState, Tabs};
 use ratatui::{Frame, Terminal};
 
-/// VID/PID of the device's composite USB port (see nucleo/src/usb_device.rs).
+/// VID/PID of the device's composite USB port — must match `USB_VID` /
+/// `USB_PID` in `pico2/src/usb_device.rs` (still the placeholder pair).
 const DEVICE_VID: u16 = 0xc0de;
 const DEVICE_PID: u16 = 0xdcaf;
 
@@ -169,11 +170,9 @@ impl App {
                 }
                 View::DmxMonitor => self.dmx_scroll = (self.dmx_scroll + 1).min(31),
             },
-            KeyCode::Enter => {
-                if self.view == View::Settings {
-                    if let Some((_, value)) = self.table_state.selected().and_then(|i| self.settings.get(i)) {
-                        self.edit = Some(value.clone());
-                    }
+            KeyCode::Enter if self.view == View::Settings => {
+                if let Some((_, value)) = self.table_state.selected().and_then(|i| self.settings.get(i)) {
+                    self.edit = Some(value.clone());
                 }
             }
             _ => {}
@@ -238,7 +237,7 @@ impl App {
     }
 
     fn render_dmx(&mut self, frame: &mut Frame, area: ratatui::layout::Rect) {
-        let block = Block::default().borders(Borders::ALL).title(" DMX Channels (1-512) ");
+        let block = Block::default().borders(Borders::ALL).title(" DMX Channels (1-512, active universe) ");
         let inner = area.inner(Margin::new(1, 1));
         frame.render_widget(block, area);
 
@@ -265,7 +264,7 @@ impl App {
 }
 
 /// One line received from the device, decoded (see the protocol summary in
-/// `nucleo/src/console_usb.rs`).
+/// `pico2/src/console_usb.rs`).
 #[derive(Debug, PartialEq)]
 enum DeviceLine {
     /// Command completed: `ok`

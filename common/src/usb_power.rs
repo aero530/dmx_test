@@ -43,6 +43,11 @@ static STATUS: AtomicU8 = AtomicU8::new(0);
 /// the budget sits under that so normal content never trips it.
 pub const BRICK_BUDGET_MA: u32 = 1_300;
 
+/// The TPS2553-1 limit with R37 = 18 k is 1.45 A typical, **1.34 A minimum**.
+/// The budget has to sit under the minimum or a worst-case part latches off on
+/// content the firmware considered legal — so this is checked at compile time.
+const _: () = assert!(BRICK_BUDGET_MA < 1_340, "brick budget must stay below the switch's 1.34 A minimum limit");
+
 /// Milliamps a single WS2812 colour channel draws at full scale. 20 mA per
 /// channel is the datasheet figure; an RGB pixel at full white is 60 mA.
 pub const MA_PER_CHANNEL_FULL: u32 = 20;

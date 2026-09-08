@@ -7,6 +7,9 @@
 
 use common::usb_power::{estimate_ma, scale_for_sum, BRICK_BUDGET_MA, MA_PER_CHANNEL_FULL};
 
+// The budget-vs-switch-limit relationship is a compile-time assertion in
+// `common::usb_power`, so it needs no runtime test here.
+
 /// Colour bytes for `leds` pixels driven to full white in RGB.
 fn full_white_rgb(leds: u32) -> u32 {
     leds * 3 * 255
@@ -82,15 +85,4 @@ fn scaling_is_monotonic_in_demand() {
         );
         last = scale;
     }
-}
-
-#[test]
-fn the_budget_stays_under_the_switch_current_limit() {
-    // R37 = 18 k sets the TPS2553-1 limit at ≈ 1.45 A typical, with a
-    // 1.34 A minimum. The budget must sit under the *minimum* or a
-    // worst-case part latches off on content the firmware considered legal.
-    assert!(
-        BRICK_BUDGET_MA < 1_340,
-        "budget {BRICK_BUDGET_MA} mA is not below the 1.34 A minimum limit"
-    );
 }

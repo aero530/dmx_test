@@ -64,11 +64,8 @@ pub struct M24x02<I2C> {
     address: u8,
 }
 
-/// Common methods.
-///
-/// Boot only reads (MAC, schema version). The write path and its
-/// acknowledge-polling helpers are exercised once the event router is wired and
-/// starts issuing `EepromEvent::WriteSettings`.
+/// Common methods. `write_byte` / `write_page` without the wait are kept for
+/// callers that batch their own acknowledge polling.
 #[allow(dead_code)]
 impl<I2C, E> M24x02<I2C>
 where

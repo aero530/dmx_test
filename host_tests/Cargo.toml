@@ -3,7 +3,7 @@ name = "host_tests"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Host-runnable unit tests for the pure-logic parts of the nucleo firmware"
+description = "Host-runnable unit tests for the target-agnostic `common` crate of the DMX interface firmware"
 
 [features]
 # The firmware sources use cfg_if to select `log` macros (host-friendly)

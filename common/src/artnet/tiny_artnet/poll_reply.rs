@@ -1,13 +1,5 @@
 //! ArtNet poll reply
-use cfg_if::cfg_if;
 use defmt::Format;
-cfg_if! {
-    if #[cfg(feature = "usb")] {
-        use log::{info};
-    } else {
-        use defmt::{info};
-    }
-}
 
 const OP_POLL_REPLY: u16 = 0x2100;
 
@@ -225,7 +217,8 @@ impl<'a> PollReply<'a> {
         // buf.put_slice(&[0u8; 15]);
         loc = put_slice::<15>(&mut buf, loc, &[0u8; 15]);
 
-        info!("Poll Reply is {} long", loc);
+        // 239 bytes by construction; the receive task logs the send at debug.
+        debug_assert_eq!(loc, buf.len());
         buf
         // return initial_buf_len - buf.len();
     }

@@ -6,10 +6,13 @@
 //! | Port | Bits | Function on the Rev 2 carrier |
 //! |---|---|---|
 //! | 0 | 0..=3 | buttons Down / Up / Select / Esc (inputs, active low, J6) |
-//! | 0 | 4..=7 | spares on J7 (inputs) |
+//! | 0 | 4 | `USB_LED_EN` — TPS2553-1 enable for the USB-brick LED supply (output) |
+//! | 0 | 5 | `VBUS_FTDI_DET` — 5 V present on the FTDI USB-C (input) |
+//! | 0 | 6 | `VBUS_RPI_DET` — 5 V present on the module USB (input) |
+//! | 0 | 7 | `USB_LED_FLT` — TPS2553-1 FAULT, low = latched off (input) |
 //! | 1 | 0 | TFT `RES` (output) |
 //! | 1 | 1 | TFT `CS` (output, held low — the panel is alone on SPI1) |
-//! | 1 | 2..=7 | spares on J7 (inputs) |
+//! | 1 | 2..=7 | spares P12–P17 on J7 (inputs); P17 has no header pin |
 //!
 //! # `INT`
 //!

@@ -181,7 +181,11 @@ fn parse_poll<'a>(s: &'a [u8]) -> Result<Poll, Error> {
     let (s, flags) = number::u8(s)?;
     let (s, min_diagnostic_priority) = number::u8(s)?;
 
-    let target_port_addresses = if !s.is_empty() {
+    // Art-Net 4 appends TargetPortAddressTop/Bottom (then EstaMan and Oem);
+    // Art-Net 3 stops at DiagPriority. Only read the range when all four bytes
+    // are present — a controller with an odd trailing byte or two must still
+    // get its ArtPollReply, since not answering makes the node vanish from it.
+    let target_port_addresses = if s.len() >= 4 {
         let (s, target_port_top): (&'a [u8], u16) = be_u16(s)?;
         let (_s, target_port_bottom): (&'a [u8], u16) = be_u16(s)?;
 

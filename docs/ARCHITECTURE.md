@@ -65,7 +65,7 @@ to the STM32 generation this replaced — the Art-Net task ported unchanged.
 |---|---|---|
 | `common/` | any (`no_std`) | Everything that names no peripheral |
 | `pico2/` | RP2350 (`thumbv8m.main-none-eabihf`) | The firmware: peripheral setup, PIO programs, executor wiring |
-| `host_tests/` | host | Tests `common` directly — 72 tests |
+| `host_tests/` | host | Tests `common` directly — 71 tests |
 | `dmx_console/` | host | Desktop settings/monitor app |
 | `rp2040_dmx/` | RP2040 | Rev 1 bench firmware, kept for the FT232R emulator |
 | `nucleo/` | STM32H563ZI | **Frozen.** The previous generation, kept as the record of the extraction |
@@ -174,11 +174,11 @@ correct matters operationally and not just for spec compliance.
 | `LED_COLORS` 8 × 600 × 4 | 19.2 KB |
 | WS2812 PIO/DMA buffers | 19.2 KB |
 | Staging copy | 14.4 KB |
-| TFT (drawn directly by mipidsi, no framebuffer) + heap | 32 KB heap |
+| Heap: two Ratatui 35×11 cell buffers (30.8 KB, measured at 40 B/cell) + menu strings | 64 KB |
 | smoltcp + MACRAW RX | ~48 KB |
 
-Comfortably inside 520 KB. flip-link guards the stack; core 1's 8 KB is adequate
-for its poll loop.
+Comfortably inside 520 KB. flip-link guards core 0's stack; core 1's 16 KB
+static stack has no guard, hence the margin.
 
 ### PIO — 9 state machines across 3 blocks
 
@@ -287,6 +287,17 @@ removed the dead PWM module variants.
 `host_tests` asserts the worst-case encoding leaves real margin in the 128 B
 slot, so the next field added fails there first rather than silently on hardware.
 
+### Unit identity
+
+Two values must differ between otherwise identical units, and both come from the
+RP2350's factory **OTP chip ID** (`pico2/src/identity.rs`), so a board straight
+off the line is already distinguishable with no provisioning step: the **USB
+serial-number string** (the 64-bit ID as hex — a host that sees two devices with
+one serial treats them as one, and Windows reuses the COM-port binding), and the
+**MAC fallback** used until the EEPROM has one programmed (`02:44:4D` + the low
+24 bits of the ID, locally-administered). The programmed MAC at 0x02–0x07 still
+wins when present.
+
 ### Boot ladder
 
 Read boot flag, module type and settings → count consecutive incomplete boots →
@@ -314,10 +325,10 @@ a future board, these are the places the firmware has to follow.
 | DMX RX / TX / DE | GP8 / GP9 (12 mA) / GP10 | pins 11 / 12 / 14 → U8 out, R9→U3, R12→Q1 gate |
 | TFT MOSI / DC / SCK | GP11 / GP12 / GP14 | pins 15 / 16 / 19 → J4 4 / 6 / 3 |
 | TFT RES / CS / BL | expander P10 / P11 (output, held low) / PCA9633 LED0 | P10 → J4.5, P11 → J4.7, U11 → J4.8 |
-| FTDI UART | TX GP28 → RXD, RX GP13 ← TXD, 8N2, baud hunt | pins 34 / 17, JP1/JP2 straight |
+| FTDI UART | TX GP28 → RXD, RX GP13 ← TXD, 8N2, baud hunt | pins 34 / 17; **JP1 and JP2 both bridged 1-2** = straight |
 | I²C1 | GP26 / GP27, 400 kHz | pins 31 / 32, R27/R28 2k2 pull-ups |
-| TCA9555 | 0x20; P00–P03 buttons active-low; P04 USB_LED_EN out; P05/P06 VBUS sense; P07 FAULT in | A0/A1/A2 → GND; J6 buttons to GND |
-| M24C02 | 0x56 | E2=E1=1, E0=0; WC → R32 → GND |
+| TCA9555 | 0x20; P00–P03 buttons active-low; P04 USB_LED_EN out; P05/P06 VBUS sense; P07 FAULT in; INT → TP1 only | A0 = **JP4 bridged 1-2** (GND), A1/A2 = R29/R30 to GND; J6 buttons to GND |
+| M24C02 | 0x56 | E1/E2 = R33/R34 to 3V3, E0 = **JP5 bridged 1-2** (GND); WC → R32 → GND (writes enabled) |
 | PCA9633 | 0x62, MODE2 OUTDRV=1, LED0 = PWM0 | fixed address |
 | W6300 | CS 16, SCLK 17, MOSI 18, MISO 19, INT 15, RST 22 | on-module |
 | Heartbeat | GP25 | module user LED |
@@ -370,6 +381,29 @@ shared a circuit, cable length and route, and whether anything else on the run
 failed at the same time. That context is now the only diagnostic input left.
 
 ## 11. Known limits and future work
+
+Behavioural limits worth knowing before they are mistaken for faults:
+
+- **Wired DMX from a console that sends fewer than 512 slots can glitch during a
+  TFT redraw.** The PIO receiver ends a short packet by noticing the DMA has
+  stalled for 4 ms — a check the DMX task makes cooperatively on core 1. mipidsi
+  is blocking, so a full redraw (~25 ms for the first frame, a few ms per
+  keypress after) can hold that check off long enough for the next packet's
+  BREAK and data to land in the same buffer, and channels above the console's
+  slot count carry garbage for one frame. Consoles sending full 512-slot frames
+  are unaffected (the DMA completes exactly and the PIO stalls on a full FIFO
+  until the next read). The fix is an async display path; not worth it unless
+  the bench shows it.
+- **sACN priority and sequence are not honoured.** Two sources on one universe
+  interleave last-wins rather than the higher priority winning; out-of-order
+  packets are rendered as they arrive. Fine for a single console.
+- **A DHCP lease that renews to a different address updates the ArtPollReply
+  but not the display** — the title row keeps the boot-time address until the
+  next boot. Renewals to the same address, the normal case, are unaffected.
+- **ArtPoll's target Port-Address range is parsed but not honoured** — the node
+  replies to every poll. Controllers tolerate the extra replies.
+
+Open work:
 
 - **Phase 0 throughput ceiling has not been measured.** The 1800 B/port budget is
   reasoned, not measured; [BRINGUP.md](BRINGUP.md) stage 5 establishes the real

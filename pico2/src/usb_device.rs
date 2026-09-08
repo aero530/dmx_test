@@ -52,6 +52,14 @@ async fn send_bytes(class: &mut UsbClass<'_>, bytes: &[u8]) -> Result<(), Endpoi
     Ok(())
 }
 
+/// **Placeholder VID/PID.** Fine on the bench — lighting software opens the
+/// serial port by protocol, not by VID — but a real pair must be allocated
+/// before a unit leaves the building. Free options: <https://pid.codes> for an
+/// open-source project, or a sub-PID under Raspberry Pi's VID `0x2E8A`, which
+/// they issue for RP2350-based products. This is the only place to change it.
+pub const USB_VID: u16 = 0xc0de;
+pub const USB_PID: u16 = 0xdcaf;
+
 /// Composite USB device task: Enttec widget + console (+ logger).
 #[embassy_executor::task]
 pub async fn usb_device_task(
@@ -60,14 +68,14 @@ pub async fn usb_device_task(
     mut rx: DmxFeedbackChannelRx,
     router_tx: RouterChannelTx,
     global_rx: GlobalDataChannelRx,
+    serial: &'static str,
 ) {
-    // Placeholder VID/PID — fine on the bench (lighting software opens the
-    // serial port by protocol, not VID), but allocate a real pair (pid.codes)
-    // before anything ships.
-    let mut config = embassy_usb::Config::new(0xc0de, 0xdcaf);
+    let mut config = embassy_usb::Config::new(USB_VID, USB_PID);
     config.manufacturer = Some("EQUUS");
     config.product = Some("DMX USB Pro compatible");
-    config.serial_number = Some("00000001");
+    // Unique per unit (OTP chip ID) so two boxes on one PC keep separate
+    // COM-port bindings.
+    config.serial_number = Some(serial);
     config.max_packet_size_0 = 64;
     // Composite device with Interface Association Descriptors: without them
     // Windows will not bind its CDC driver to each serial function separately.

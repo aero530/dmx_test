@@ -1,15 +1,14 @@
-//! Tests for the settings model (`nucleo/src/ui/types.rs`): enum cycling,
+//! Tests for the settings model (`common/src/ui/types.rs`): enum cycling,
 //! EEPROM encoding size, and the virtual-LED / universe-offset math the
 //! event router relies on.
 
-use common::SMARTLED_PORT_COUNT;
-use common::ui::{LedPower, 
-    ArtNetAddr, BootStatus, EthernetIPMode, IncDec, InputMode, IpAddrMenu, MenuData,
+use common::ui::{
+    ArtNetAddr, BootStatus, EthernetIPMode, IncDec, InputMode, IpAddrMenu, LedPower, MenuData,
     ModuleSettings, SmartLedColorMode, SmartLedDmxGroupSize, SmartLedPortMode, SmartLedSettings,
 };
-
-/// Must match SETTINGS_SIZE in nucleo/src/eeprom/mod.rs.
-const SETTINGS_SIZE: usize = 128;
+// The very constant the firmware's EEPROM driver writes with (`pico2/src/eeprom.rs`
+// re-exports it), so this suite cannot drift from it.
+use common::{SETTINGS_SIZE, SMARTLED_PORT_COUNT};
 
 /// Headroom the worst case must leave inside the slot, so that adding a
 /// settings field fails here rather than on a customer's EEPROM.
@@ -66,13 +65,9 @@ fn fresh_unit_defaults_are_the_product_defaults() {
     assert!(d.ethernet_enabled);
     assert_eq!(d.sacn_universe, 1);
     assert_eq!(d.backlight, common::ui::DEFAULT_BACKLIGHT);
-    match d.module {
-        ModuleSettings::SmartLed(s) => {
-            assert_eq!(s.leds_per_port, [common::ui::DEFAULT_LEDS_PER_PORT; SMARTLED_PORT_COUNT]);
-            assert!(s.leds_per_port[0] as usize <= common::MAX_LEDS_PER_PORT);
-        }
-        _ => panic!("default module must be SmartLed"),
-    }
+    let ModuleSettings::SmartLed(s) = d.module;
+    assert_eq!(s.leds_per_port, [common::ui::DEFAULT_LEDS_PER_PORT; SMARTLED_PORT_COUNT]);
+    assert!(s.leds_per_port[0] as usize <= common::MAX_LEDS_PER_PORT);
 }
 
 #[test]
@@ -108,15 +103,16 @@ fn worst_case_settings_fit_the_eeprom_slot() {
         length + REQUIRED_MARGIN <= SETTINGS_SIZE,
         "worst-case settings encode to {length} bytes, leaving less than \
          {REQUIRED_MARGIN} bytes of the {SETTINGS_SIZE}-byte slot free; \
-         raise SETTINGS_SIZE in nucleo/src/eeprom/mod.rs"
+         raise common::SETTINGS_SIZE (and check it still ends inside the EEPROM)"
     );
     assert!(length > 32, "if this fails the old 32-byte slot would have been fine");
 }
 
 #[test]
 fn default_settings_decode_from_blank_eeprom_data() {
-    // A fresh EEPROM reads as 0xFF; the firmware falls back to defaults via
-    // unwrap_or_default, so decoding failure (not garbage) is the contract.
+    // A fresh EEPROM reads as 0xFF. The firmware never decodes it (the schema
+    // byte gate catches a blank part first), but if it ever did, a clean
+    // decode *failure* — not plausible garbage — is the contract this pins.
     let blank = [0xFF_u8; SETTINGS_SIZE];
     let result: Result<(MenuData, usize), _> = bincode::decode_from_slice(&blank, bincode::config::standard());
     assert!(result.is_err());

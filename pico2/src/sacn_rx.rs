@@ -59,6 +59,15 @@ fn rejoin(stack: &Stack<'static>, old: Option<u16>, new: u16) {
             joined += 1;
         }
     }
+    if joined < JOIN_COUNT {
+        // smoltcp's group table is a compile-time size (see the smoltcp line
+        // in Cargo.toml). Universes past the joined count still work on a
+        // switch that floods multicast, and silently do not on one that snoops.
+        warn!(
+            "sACN: only {} of {} multicast groups joined - raise smoltcp's iface-max-multicast-group-count",
+            joined, JOIN_COUNT
+        );
+    }
     info!("sACN: universes {}..{} - joined {} groups", new, new.saturating_add(JOIN_COUNT - 1), joined);
 }
 

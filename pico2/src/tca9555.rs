@@ -1,30 +1,37 @@
-//! TCA9555 16-bit I²C I/O expander.
+//! TCA9555 16-bit I²C I/O expander — front-panel buttons and the TFT's static
+//! control lines.
 //!
-//! Four register pairs, so a driver rather than a dependency. Port 0 low bits
-//! are the front-panel buttons; port 1 bit 0 drives the OLED `RES`. Everything
-//! else goes to test points.
+//! Four register pairs, so a driver rather than a dependency.
 //!
-//! # Interrupt behaviour
+//! | Port | Bits | Function on the Rev 2 carrier |
+//! |---|---|---|
+//! | 0 | 0..=3 | buttons Down / Up / Select / Esc (inputs, active low, J6) |
+//! | 0 | 4..=7 | spares on J7 (inputs) |
+//! | 1 | 0 | TFT `RES` (output) |
+//! | 1 | 1 | TFT `CS` (output, held low — the panel is alone on SPI1) |
+//! | 1 | 2..=7 | spares on J7 (inputs) |
 //!
-//! `INT` is open-drain and asserts on *any* input change. It clears when the
-//! input registers are read — and only for the port actually read. [`inputs`]
-//! therefore always reads **both** ports in one auto-incrementing transfer, so
-//! `INT` cannot be left latched by a change on the port that was not polled.
-//! That is the classic expander bug: an interrupt that never re-arms and a
-//! panel that goes dead after one press.
+//! # `INT`
+//!
+//! Not wired on the Rev 2 carrier — GP28 went to the FT232RNL UART, so the
+//! buttons are polled (`buttons.rs`). The pin goes to test point TP1 only.
+//! [`inputs`] still reads **both** ports in one auto-incrementing transfer:
+//! it is one transaction either way, and on any board that does wire `INT`
+//! that is the read that clears the latch for both ports.
 //!
 //! # Pull-ups
 //!
-//! Buttons are wired straight to ground on the assumption that the TCA9555
-//! pulls its inputs high internally. **Confirm this on the bench** — if it does
-//! not hold, the buttons need external pull-ups and that is a board change, not
-//! a firmware one.
+//! The TCA9555 (unlike the TCA9535) has ~100 kΩ pull-ups on every input, which
+//! is why the buttons are wired straight to ground with no external resistors —
+//! and also why an input-configured `CS` would float *high*: the display's chip
+//! select must be an output, driven low, or the panel ignores every byte.
 
 use embedded_hal_async::i2c::I2c;
 
 /// Address with A0/A1/A2 strapped to ground. The part answers 0x20–0x27, so up
-/// to eight can share the bus; the M24C02 at 0x56 does not collide.
-pub const ADDR: u8 = 0x20;
+/// to eight can share the bus; the M24C02 at 0x56 and the PCA9633 at 0x62 do not
+/// collide.
+pub const ADDR: u8 = common::EXPANDER_ADDRESS;
 
 // Register map. Each is a pair: port 0 then port 1.
 const REG_INPUT: u8 = 0x00;
@@ -38,17 +45,35 @@ pub const BTN_UP: u8 = 1 << 1;
 pub const BTN_SELECT: u8 = 1 << 2;
 pub const BTN_ESC: u8 = 1 << 3;
 
-/// Port 1, bit 0 — OLED reset. Asserted only at boot, which is why it can live
+/// Port 0, bit 4 — `USB_LED_EN`, the TPS2553-1 enable. Active high with a
+/// 100 k pull-down (R38) on the board, so the brick path stays off through
+/// reset and only closes when firmware drives this bit.
+pub const USB_LED_EN: u8 = 1 << 4;
+/// Port 0, bit 5 — VBUS present on the FTDI USB-C connector, through the
+/// 10 k/20 k divider (3.33 V at 5 V, against a 2.31 V VIH).
+pub const VBUS_FTDI_DET: u8 = 1 << 5;
+/// Port 0, bit 6 — VBUS present on the module's own USB port.
+pub const VBUS_RPI_DET: u8 = 1 << 6;
+/// Port 0, bit 7 — the TPS2553-1 `FAULT` output: open drain, pulled up by R35.
+/// **Low means the switch has latched off** (overcurrent or reverse voltage)
+/// and it will not conduct again until EN is toggled.
+pub const USB_LED_FLT: u8 = 1 << 7;
+
+/// Port 1, bit 0 — TFT reset. Asserted only at boot, which is why it can live
 /// behind an I²C round trip at all.
-pub const OLED_RES: u8 = 1 << 0;
+pub const DISPLAY_RES: u8 = 1 << 0;
+/// Port 1, bit 1 — TFT chip select. Static: the display is the only device on
+/// SPI1, so it is selected once at init and stays selected.
+pub const DISPLAY_CS: u8 = 1 << 1;
 
 /// Direction masks: a 1 bit is an input, a 0 bit is an output.
 ///
-/// Port 0 is entirely inputs (buttons plus spares). On port 1 only `OLED_RES`
-/// is an output; the remaining eleven lines stay inputs so a floating test
-/// point cannot fight anything.
-const CONFIG_PORT0: u8 = 0xFF;
-const CONFIG_PORT1: u8 = !OLED_RES;
+/// On port 0 only `USB_LED_EN` is an output — the buttons and the three USB
+/// power status lines are inputs. On port 1 only the two display lines are
+/// outputs; the remaining six stay inputs so a floating spare on J7 cannot
+/// fight anything.
+const CONFIG_PORT0: u8 = !USB_LED_EN;
+const CONFIG_PORT1: u8 = !(DISPLAY_RES | DISPLAY_CS);
 
 pub struct Tca9555<I2C> {
     i2c: I2C,
@@ -63,8 +88,11 @@ impl<I2C: I2c> Tca9555<I2C> {
         Self {
             i2c,
             addr,
-            // OLED held in reset until `release_oled_reset` is called.
-            out: [0xFF, 0xFF & !OLED_RES],
+            // Port 0: USB_LED_EN low — never power strips from a USB port
+            // before the firmware has decided to. Port 1: RES low (display held
+            // in reset until `release_display_reset`), CS low (selected),
+            // everything else high.
+            out: [!USB_LED_EN, !(DISPLAY_RES | DISPLAY_CS)],
         }
     }
 
@@ -84,7 +112,7 @@ impl<I2C: I2c> Tca9555<I2C> {
             .await
     }
 
-    /// Read both input ports, clearing `INT`.
+    /// Read both input ports in one transfer.
     pub async fn inputs(&mut self) -> Result<[u8; 2], I2C::Error> {
         let mut buf = [0u8; 2];
         self.i2c
@@ -105,9 +133,9 @@ impl<I2C: I2c> Tca9555<I2C> {
             .await
     }
 
-    /// Take the OLED out of reset. Held low from `init` so the display sees a
-    /// clean edge once its supply has settled.
-    pub async fn release_oled_reset(&mut self) -> Result<(), I2C::Error> {
-        self.set(1, OLED_RES, true).await
+    /// Take the TFT out of reset. Held low from `init` so the controller sees a
+    /// clean edge once its supply has settled; CS is already low.
+    pub async fn release_display_reset(&mut self) -> Result<(), I2C::Error> {
+        self.set(1, DISPLAY_RES, true).await
     }
 }

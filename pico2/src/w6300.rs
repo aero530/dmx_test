@@ -28,7 +28,7 @@
 //!
 //! Both are logged distinctly. Since the Ethernet failure that prompted this
 //! redesign was never diagnosed and now never can be, this is the board's own
-//! account of what went wrong. See `REV2_PLAN.md`.
+//! account of what went wrong. See `docs/ARCHITECTURE.md` §10.
 
 use defmt::*;
 use embassy_net_wiznet::chip::W6300;

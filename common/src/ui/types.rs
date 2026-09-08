@@ -1,8 +1,7 @@
 //! Types used in the user interface
-use cfg_if::cfg_if;
 use core::net::Ipv4Addr;
 
-use crate::{DMX_UNIVERSE_SIZE, SMARTLED_PORT_COUNT};
+use crate::{DMX_UNIVERSE_COUNT, DMX_UNIVERSE_SIZE, SMARTLED_PORT_COUNT};
 use bincode::{Decode, Encode};
 // use embassy_net::IpAddress;
 use heapless::Vec;
@@ -12,7 +11,7 @@ use heapless::Vec;
 #[allow(unused_imports)]
 use micromath::F32Ext;
 
-use smart_leds::RGB8;
+use smart_leds::{White, RGBW};
 
 /// Values that can be incremented or decremented
 pub trait IncDec {
@@ -21,13 +20,6 @@ pub trait IncDec {
 }
 
 use defmt::Format;
-cfg_if! {
-    if #[cfg(feature = "usb")] {
-        use log::{error};
-    } else {
-        use defmt::{error};
-    }
-}
 use enum_ordinalize::Ordinalize;
 
 /// Output module type (defines which kind of module is connected)
@@ -44,7 +36,6 @@ pub enum ModuleType {
     #[default]
     Unknown,
     SmartLed,
-    Pwm,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Format, Debug, Decode, Encode)]
@@ -58,6 +49,11 @@ impl IpAddrMenu {
     pub fn octets(&self) -> [u8; 4] {
         self.0
     }
+
+    /// `0.0.0.0` — "not set" (no gateway, no address).
+    pub fn is_unspecified(&self) -> bool {
+        self.0 == [0; 4]
+    }
 }
 
 impl From<Ipv4Addr> for IpAddrMenu {
@@ -67,7 +63,12 @@ impl From<Ipv4Addr> for IpAddrMenu {
     }
 }
 
-/// Data displayed / configured in the menu system
+/// Data displayed / configured in the menu system.
+///
+/// Bincode-encoded into the EEPROM with no self-describing header, so the field
+/// order is the on-EEPROM format: **append new fields at the end and bump the
+/// schema version** (`pico2/src/eeprom.rs`). Schema 2 added `sacn_universe`
+/// and `backlight`; schema 3 added the static-IP fields.
 #[derive(Clone, Copy, PartialEq, Format, Debug, Decode, Encode)]
 pub struct MenuData {
     pub dmx_address: u16,
@@ -77,7 +78,28 @@ pub struct MenuData {
     pub module: ModuleSettings,
     pub ip_addr: IpAddrMenu,
     pub ethernet_enabled: bool,
+    /// First sACN universe rendered (E1.31 universes are 1-based); the
+    /// following `DMX_UNIVERSE_COUNT - 1` universes map to the next buffer
+    /// slots.
+    pub sacn_universe: u16,
+    /// TFT backlight PWM duty (PCA9633 LED0), 1..=255. Never 0 from the menu —
+    /// a dark panel with no way to see the menu is not a setting anyone wants.
+    pub backlight: u8,
+    /// Address used when `ethernet_ip_mode` is `Static`.
+    pub static_ip: IpAddrMenu,
+    /// Prefix length for the static address, 1..=30.
+    pub static_prefix: u8,
+    /// Gateway for the static address; `0.0.0.0` = none (Art-Net rigs rarely
+    /// have one).
+    pub static_gateway: IpAddrMenu,
+    /// Where the strips get their power. `External` (the J26 supply) is the
+    /// default and leaves the board's USB switch off, so a PC plugged into the
+    /// FTDI port is never asked to run LEDs.
+    pub led_power: LedPower,
 }
+
+/// Backlight duty a fresh unit boots with.
+pub const DEFAULT_BACKLIGHT: u8 = 200;
 
 impl Default for MenuData {
     fn default() -> Self {
@@ -88,7 +110,36 @@ impl Default for MenuData {
             artnet_address: ArtNetAddr::default(),
             module: ModuleSettings::default(),
             ip_addr: IpAddrMenu::new(0, 0, 0, 0),
-            ethernet_enabled: false,
+            // On by default: this is an Art-Net/sACN node first. The
+            // boot-lockout guard (two consecutive incomplete boots) is what
+            // protects against an Ethernet bring-up that hangs, not this flag.
+            ethernet_enabled: true,
+            sacn_universe: 1,
+            backlight: DEFAULT_BACKLIGHT,
+            // Art-Net convention: 2.x.x.x/8, no gateway.
+            static_ip: IpAddrMenu::new(2, 0, 0, 1),
+            static_prefix: 8,
+            static_gateway: IpAddrMenu::new(0, 0, 0, 0),
+            led_power: LedPower::External,
+        }
+    }
+}
+
+impl MenuData {
+    /// Universes this configuration binds in the active mode — what the UI
+    /// shows as "Univ Bound" and what the Art-Net task advertises through
+    /// BindIndex ArtPollReplies. Clamped to what the buffer holds above the
+    /// configured base; wired DMX and USB are always exactly one universe.
+    pub fn bound_universes(&self) -> u16 {
+        let ModuleSettings::SmartLed(s) = &self.module;
+        let wanted = s.bound_universes().max(1);
+        match self.input_mode {
+            InputMode::Dmx | InputMode::UsbToDmx => 1,
+            InputMode::ArtNet | InputMode::ArtNetToDmx => {
+                let room = (DMX_UNIVERSE_COUNT - self.artnet_address.buffer_base()) as u16;
+                wanted.min(room)
+            }
+            InputMode::Sacn => wanted.min(DMX_UNIVERSE_COUNT as u16),
         }
     }
 }
@@ -96,7 +147,6 @@ impl Default for MenuData {
 /// Module settings types
 #[derive(Clone, Copy, PartialEq, Format, Debug, Decode, Encode)]
 pub enum ModuleSettings {
-    Pwm(PwmSettings),
     SmartLed(SmartLedSettings),
 }
 
@@ -106,21 +156,29 @@ impl Default for ModuleSettings {
     }
 }
 
-/// PWM Settings
-#[derive(Clone, Copy, Format, PartialEq, Default, Debug, Decode, Encode)]
-pub struct PwmSettings {
-    pub freq: u8,
-}
-
 /// Smart LED module settings
-#[derive(Default, Clone, Copy, PartialEq, Format, Debug, Decode, Encode)]
+#[derive(Clone, Copy, PartialEq, Format, Debug, Decode, Encode)]
 pub struct SmartLedSettings {
     pub leds_per_port: [u16; SMARTLED_PORT_COUNT],
-    // pub universe_offset: [u16; SMARTLED_PORT_COUNT],
-    // pub virtual_leds_per_port: [u16; SMARTLED_PORT_COUNT],
     pub color_mode: SmartLedColorMode,
     pub port_mode: SmartLedPortMode,
     pub dmx_group_size: SmartLedDmxGroupSize,
+}
+
+/// LEDs per port a fresh unit assumes. Non-zero so a first power-up with strips
+/// attached shows life instead of eight dark ports until every count is typed
+/// in; short enough (one 5 m strip at 30/m) to be safe on any real string.
+pub const DEFAULT_LEDS_PER_PORT: u16 = 150;
+
+impl Default for SmartLedSettings {
+    fn default() -> Self {
+        Self {
+            leds_per_port: [DEFAULT_LEDS_PER_PORT; SMARTLED_PORT_COUNT],
+            color_mode: SmartLedColorMode::default(),
+            port_mode: SmartLedPortMode::default(),
+            dmx_group_size: SmartLedDmxGroupSize::default(),
+        }
+    }
 }
 
 impl SmartLedSettings {
@@ -183,6 +241,15 @@ impl SmartLedSettings {
             .any(|b| *b > crate::MAX_BYTES_PER_PORT)
     }
 
+    /// Universes the configuration consumes from its base: every port's block
+    /// in `Individual` mode, one shared block (port 1's) in `Mirror` mode.
+    pub fn bound_universes(&self) -> u16 {
+        match self.port_mode {
+            SmartLedPortMode::Individual => self.total_universes(),
+            SmartLedPortMode::Mirror => self.universes_per_port()[0],
+        }
+    }
+
     /// True if the configuration cannot be held or delivered as asked: either a
     /// port is over its byte budget, or the total exceeds what `DMX_BUFFER`
     /// covers.
@@ -243,6 +310,9 @@ pub enum InputMode {
     ArtNetToDmx,
     /// Enttec-protocol USB in -> LEDs + wired DMX out
     UsbToDmx,
+    /// sACN / E1.31 multicast in -> LEDs. Universes are addressed from
+    /// `MenuData::sacn_universe`, not the Art-Net fields.
+    Sacn,
 }
 
 impl InputMode {
@@ -256,6 +326,18 @@ impl InputMode {
     pub fn is_dmx_output(&self) -> bool {
         matches!(self, InputMode::ArtNetToDmx | InputMode::UsbToDmx)
     }
+
+    /// Data arrives over Ethernet and is stored network-style (channel 1 at
+    /// slot offset 0, no start code) — as opposed to the wired-DMX/USB layout
+    /// with the start code at index 0.
+    pub fn is_network(&self) -> bool {
+        matches!(self, InputMode::ArtNet | InputMode::ArtNetToDmx | InputMode::Sacn)
+    }
+
+    /// Art-Net is the active source (the Net/Sub-Net/Universe fields apply).
+    pub fn is_artnet(&self) -> bool {
+        matches!(self, InputMode::ArtNet | InputMode::ArtNetToDmx)
+    }
 }
 impl IncDec for InputMode {
     fn increment(&self, _index: usize) -> Self {
@@ -264,8 +346,10 @@ impl IncDec for InputMode {
     }
 
     fn decrement(&self, _index: usize) -> Self {
-        let prev = self.ordinal().saturating_sub(1);
-        Self::from_ordinal(prev).unwrap_or(InputMode::UsbToDmx)
+        if *self == InputMode::Dmx {
+            return InputMode::Sacn;
+        }
+        Self::from_ordinal(self.ordinal() - 1).unwrap_or(InputMode::Dmx)
     }
 }
 
@@ -276,6 +360,42 @@ impl core::fmt::Display for InputMode {
             InputMode::ArtNet => write!(f, "ArtNet"),
             InputMode::ArtNetToDmx => write!(f, "ArtNet>DMX"),
             InputMode::UsbToDmx => write!(f, "USB>DMX"),
+            InputMode::Sacn => write!(f, "sACN"),
+        }
+    }
+}
+
+/// Supply the WS2812 strings run from.
+///
+/// `UsbBrick` closes the board's TPS2553-1 switch (TCA9555 P04) so a 5 V brick
+/// on the FTDI USB-C connector feeds `V_LED`. It is deliberately not the
+/// default: the same connector takes a PC, and a host port cannot run strips.
+/// The firmware also holds the frame inside a current budget in this mode —
+/// see `common::usb_power`.
+#[derive(Default, Clone, Copy, PartialEq, Eq, Ordinalize, Format, Debug, Decode, Encode)]
+pub enum LedPower {
+    #[default]
+    External,
+    UsbBrick,
+}
+
+impl IncDec for LedPower {
+    fn increment(&self, _index: usize) -> Self {
+        let next = self.ordinal().saturating_add(1);
+        Self::from_ordinal(next).unwrap_or(LedPower::External)
+    }
+
+    fn decrement(&self, _index: usize) -> Self {
+        let prev = self.ordinal().saturating_sub(1);
+        Self::from_ordinal(prev).unwrap_or(LedPower::UsbBrick)
+    }
+}
+
+impl core::fmt::Display for LedPower {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self {
+            LedPower::External => write!(f, "External"),
+            LedPower::UsbBrick => write!(f, "USB brick"),
         }
     }
 }
@@ -325,50 +445,45 @@ impl SmartLedColorMode {
         }
     }
 
-    pub fn rgb(&self, data: &[u8]) -> RGB8 {
-        match self {
-            SmartLedColorMode::Rgb => {
-                if data.len() >= 3 {
-                    RGB8::new(data[0], data[1], data[2])
-                } else {
-                    RGB8::new(0, 0, 0)
-                }
-            }
-            SmartLedColorMode::Rgbw => {
-                // RGBW output is not implemented (the strings are driven with a
-                // 24-bit GRB PIO format); the W byte is consumed for addressing
-                // but not rendered. Warn ONCE — this runs per virtual LED per
-                // frame, and logging in that loop would wreck the frame budget.
-                use core::sync::atomic::{AtomicBool, Ordering};
-                static WARNED: AtomicBool = AtomicBool::new(false);
-                if !WARNED.swap(true, Ordering::Relaxed) {
-                    error!("RGBW selected but not implemented - W channel is ignored");
-                }
-                if data.len() >= 4 {
-                    RGB8::new(data[0], data[1], data[2])
-                } else {
-                    RGB8::new(0, 0, 0)
-                }
-            }
+    /// Decode one virtual LED's DMX slots into a colour. The buffer is always
+    /// RGBW; in RGB mode the white channel is simply zero (and never sent).
+    pub fn color(&self, data: &[u8]) -> RGBW::<u8> {
+        let w = match self {
+            SmartLedColorMode::Rgb => 0,
+            SmartLedColorMode::Rgbw => data.get(3).copied().unwrap_or(0),
+        };
+        if data.len() >= 3 {
+            RGBW::<u8> { r: data[0], g: data[1], b: data[2], a: White(w) }
+        } else {
+            BLACK
         }
+    }
+}
+
+/// An off pixel.
+pub const BLACK: RGBW<u8> = RGBW::<u8> { r: 0, g: 0, b: 0, a: White(0) };
+
+impl SmartLedColorMode {
+    /// Colour modes the output driver renders. Both: the PIO driver packs 24-bit
+    /// GRB or 32-bit GRBW per frame from the same RGBW colour buffer
+    /// (`pico2/src/ws2812.rs`). Kept as a list so a future mode can be staged
+    /// behind it before it is offered.
+    pub const SUPPORTED: &'static [SmartLedColorMode] = &[SmartLedColorMode::Rgb, SmartLedColorMode::Rgbw];
+
+    pub fn is_supported(&self) -> bool {
+        Self::SUPPORTED.contains(self)
     }
 }
 
 impl IncDec for SmartLedColorMode {
     fn increment(&self, _index: usize) -> Self {
-        let next = self.ordinal().saturating_add(1);
-        match Self::from_ordinal(next) {
-            Some(n) => n,
-            None => SmartLedColorMode::Rgb,
-        }
+        let i = Self::SUPPORTED.iter().position(|m| m == self).unwrap_or(0);
+        Self::SUPPORTED[(i + 1) % Self::SUPPORTED.len()]
     }
 
     fn decrement(&self, _index: usize) -> Self {
-        let prev = self.ordinal().saturating_sub(1);
-        match Self::from_ordinal(prev) {
-            Some(n) => n,
-            None => SmartLedColorMode::Rgbw,
-        }
+        let i = Self::SUPPORTED.iter().position(|m| m == self).unwrap_or(0);
+        Self::SUPPORTED[(i + Self::SUPPORTED.len() - 1) % Self::SUPPORTED.len()]
     }
 }
 

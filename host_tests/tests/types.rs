@@ -3,7 +3,7 @@
 //! event router relies on.
 
 use common::SMARTLED_PORT_COUNT;
-use common::ui::{
+use common::ui::{LedPower, 
     ArtNetAddr, BootStatus, EthernetIPMode, IncDec, InputMode, IpAddrMenu, MenuData,
     ModuleSettings, SmartLedColorMode, SmartLedDmxGroupSize, SmartLedPortMode, SmartLedSettings,
 };
@@ -44,6 +44,12 @@ fn menu_data_round_trips_through_bincode() {
         module: ModuleSettings::SmartLed(smart_led([170, 0, 999, 1], [1, 1, 3, 999], SmartLedColorMode::Rgbw)),
         ip_addr: IpAddrMenu::new(192, 168, 1, 50),
         ethernet_enabled: true,
+        sacn_universe: 63999,
+        backlight: 1,
+        static_ip: IpAddrMenu::new(10, 20, 30, 40),
+        static_prefix: 24,
+        static_gateway: IpAddrMenu::new(10, 20, 30, 1),
+        led_power: LedPower::UsbBrick,
     };
 
     let mut buffer = [0_u8; SETTINGS_SIZE];
@@ -53,10 +59,27 @@ fn menu_data_round_trips_through_bincode() {
 }
 
 #[test]
+fn fresh_unit_defaults_are_the_product_defaults() {
+    // A blank EEPROM decodes to these: Ethernet on (it is a network node), a
+    // non-zero LED count so attached strips show life, a visible backlight.
+    let d = MenuData::default();
+    assert!(d.ethernet_enabled);
+    assert_eq!(d.sacn_universe, 1);
+    assert_eq!(d.backlight, common::ui::DEFAULT_BACKLIGHT);
+    match d.module {
+        ModuleSettings::SmartLed(s) => {
+            assert_eq!(s.leds_per_port, [common::ui::DEFAULT_LEDS_PER_PORT; SMARTLED_PORT_COUNT]);
+            assert!(s.leds_per_port[0] as usize <= common::MAX_LEDS_PER_PORT);
+        }
+        _ => panic!("default module must be SmartLed"),
+    }
+}
+
+#[test]
 fn worst_case_settings_fit_the_eeprom_slot() {
     // bincode varint encoding costs 3 bytes per u16 >= 251, so maximal legal
     // settings are the largest encoding. This is the regression test for the
-    // bug where SETTINGS_SIZE = 32 silently dropped saves (BUGS.md N12).
+    // bug where SETTINGS_SIZE = 32 silently dropped saves.
     let worst = MenuData {
         dmx_address: 512,
         input_mode: InputMode::UsbToDmx,
@@ -65,6 +88,12 @@ fn worst_case_settings_fit_the_eeprom_slot() {
         module: ModuleSettings::SmartLed(smart_led([999; 4], [999; 4], SmartLedColorMode::Rgbw)),
         ip_addr: IpAddrMenu::new(255, 255, 255, 255),
         ethernet_enabled: true,
+        sacn_universe: 63999,
+        backlight: 255,
+        static_ip: IpAddrMenu::new(255, 255, 255, 255),
+        static_prefix: 30,
+        static_gateway: IpAddrMenu::new(255, 255, 255, 255),
+        led_power: LedPower::UsbBrick,
     };
 
     let mut buffer = [0_u8; SETTINGS_SIZE];
@@ -96,13 +125,20 @@ fn default_settings_decode_from_blank_eeprom_data() {
 #[test]
 fn input_mode_cycles_through_all_variants() {
     let mut mode = InputMode::Dmx;
-    let forward = [InputMode::ArtNet, InputMode::ArtNetToDmx, InputMode::UsbToDmx, InputMode::Dmx];
+    let forward = [
+        InputMode::ArtNet,
+        InputMode::ArtNetToDmx,
+        InputMode::UsbToDmx,
+        InputMode::Sacn,
+        InputMode::Dmx,
+    ];
     for expected in forward {
         mode = mode.increment(0);
         assert_eq!(mode, expected);
     }
     // Wraps backwards from the first to the last variant
-    assert_eq!(InputMode::Dmx.decrement(0), InputMode::UsbToDmx);
+    assert_eq!(InputMode::Dmx.decrement(0), InputMode::Sacn);
+    assert_eq!(InputMode::Sacn.decrement(0), InputMode::UsbToDmx);
 }
 
 #[test]
@@ -114,16 +150,34 @@ fn two_state_enums_toggle_both_directions() {
     assert_eq!(SmartLedPortMode::Individual.increment(0), SmartLedPortMode::Mirror);
     assert_eq!(SmartLedPortMode::Mirror.increment(0), SmartLedPortMode::Individual);
 
+    // Both colour modes are rendered by the output driver
     assert_eq!(SmartLedColorMode::Rgb.increment(0), SmartLedColorMode::Rgbw);
     assert_eq!(SmartLedColorMode::Rgbw.increment(0), SmartLedColorMode::Rgb);
+    assert_eq!(SmartLedColorMode::Rgb.decrement(0), SmartLedColorMode::Rgbw);
+    assert!(SmartLedColorMode::Rgbw.is_supported());
 }
 
 #[test]
 fn is_dmx_output_matches_the_transmit_modes() {
     assert!(!InputMode::Dmx.is_dmx_output());
     assert!(!InputMode::ArtNet.is_dmx_output());
+    assert!(!InputMode::Sacn.is_dmx_output());
     assert!(InputMode::ArtNetToDmx.is_dmx_output());
     assert!(InputMode::UsbToDmx.is_dmx_output());
+}
+
+#[test]
+fn network_and_artnet_classification() {
+    // Network modes store channel 1 at slot offset 0; Art-Net modes are the
+    // ones the Net/Sub-Net/Universe fields apply to.
+    for m in [InputMode::ArtNet, InputMode::ArtNetToDmx, InputMode::Sacn] {
+        assert!(m.is_network(), "{m} is a network mode");
+    }
+    for m in [InputMode::Dmx, InputMode::UsbToDmx] {
+        assert!(!m.is_network(), "{m} stores DMX-style");
+    }
+    assert!(InputMode::ArtNet.is_artnet() && InputMode::ArtNetToDmx.is_artnet());
+    assert!(!InputMode::Sacn.is_artnet());
 }
 
 #[test]
@@ -133,6 +187,7 @@ fn mode_display_strings_match_console_parsing() {
     assert_eq!(format!("{}", InputMode::ArtNet), "ArtNet");
     assert_eq!(format!("{}", InputMode::ArtNetToDmx), "ArtNet>DMX");
     assert_eq!(format!("{}", InputMode::UsbToDmx), "USB>DMX");
+    assert_eq!(format!("{}", InputMode::Sacn), "sACN");
 }
 
 #[test]
@@ -176,6 +231,28 @@ fn artnet_addr_buffer_base_is_clamped_to_the_buffer() {
     assert_eq!(ArtNetAddr([0, 0, 0]).buffer_base(), 0);
     assert_eq!(ArtNetAddr([0, 3, 15]).buffer_base(), DMX_UNIVERSE_COUNT - 1);
     assert_eq!(ArtNetAddr([0, 15, 15]).buffer_base(), DMX_UNIVERSE_COUNT - 1);
+}
+
+#[test]
+fn colour_decoding_carries_white_only_in_rgbw() {
+    use smart_leds::White;
+    let slots = [10u8, 20, 30, 40];
+    let rgb = SmartLedColorMode::Rgb.color(&slots);
+    assert_eq!((rgb.r, rgb.g, rgb.b, rgb.a), (10, 20, 30, White(0)));
+    let rgbw = SmartLedColorMode::Rgbw.color(&slots);
+    assert_eq!((rgbw.r, rgbw.g, rgbw.b, rgbw.a), (10, 20, 30, White(40)));
+    // Short data (end of buffer) is black, never a panic
+    assert_eq!(SmartLedColorMode::Rgbw.color(&slots[..2]), common::ui::BLACK);
+    assert_eq!(SmartLedColorMode::Rgbw.color(&slots[..3]).a, White(0));
+}
+
+#[test]
+fn static_defaults_follow_artnet_convention() {
+    let d = MenuData::default();
+    assert_eq!(d.static_ip.octets(), [2, 0, 0, 1]);
+    assert_eq!(d.static_prefix, 8);
+    assert!(d.static_gateway.is_unspecified());
+    assert_eq!(d.ethernet_ip_mode, EthernetIPMode::Dhcp);
 }
 
 #[test]

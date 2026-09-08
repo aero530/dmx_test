@@ -25,6 +25,7 @@ use crate::channels::{DmxChannelTx, DmxFeedbackChannelRx, RouterChannelTx};
 use crate::event_router::{DmxEvent, DmxFeedbackEvent, PacketAddress, RouterEvent};
 use crate::ui::{ArtNetAddr, InputMode};
 use crate::{ARTNET_OEM, DMX_BUFFER, DMX_UNIVERSE_COUNT, DMX_UNIVERSE_SIZE};
+use common::events::NetStatus;
 
 // Parser lives in `common`; this module keeps the socket-facing task.
 pub use common::artnet::tiny_artnet;
@@ -44,6 +45,7 @@ pub async fn artnet_task(
 ) {
     // Ensure DHCP configuration is up before trying connect
     info!("Waiting for DHCP...");
+    let _ = tx_router.try_send(RouterEvent::StoreNetStatus(NetStatus::Dhcp));
     let _a = stack.wait_config_up().await;
 
     let cfg = stack.config_v4().unwrap();
@@ -88,19 +90,24 @@ pub async fn artnet_task(
     let mut input_mode = InputMode::default();
     // Configured Art-Net address (net, sub-net, universe), advertised in ArtPollReply
     let mut artnet_addr = ArtNetAddr::default();
+    // Universes the configuration binds from that address (`MenuData::bound_universes`)
+    let mut bound: u16 = 1;
 
-    // Latch so a controller blasting out-of-range universes logs once
-    // rather than once per packet at 44 Hz.
+    // Latches so a controller blasting out-of-range universes, or traffic on
+    // another Net, logs once rather than once per packet at 44 Hz.
     let mut warned_out_of_range = false;
+    let mut warned_other_net = false;
 
     loop {
         // Try to update current mode
         if let Some(input_data) = rx.try_changed() {
             // info!("ArtNet - update mode to {}", input_data);
             match input_data {
-                DmxFeedbackEvent::Mode(new_mode, new_addr) => {
+                DmxFeedbackEvent::Mode(new_mode, new_addr, _sacn_base, new_bound) => {
                     input_mode = new_mode;
                     artnet_addr = new_addr;
+                    bound = new_bound;
+                    warned_other_net = false;
                 }
             }
         }
@@ -125,8 +132,21 @@ pub async fn artnet_task(
                 // );
 
                 // Only store data when ArtNet is the active input, otherwise stray
-                // network packets overwrite the wired-DMX / USB data between I2C polls.
-                if matches!(input_mode, InputMode::ArtNet | InputMode::ArtNetToDmx) {
+                // network packets overwrite the wired-DMX / USB / sACN data.
+                if input_mode.is_artnet() {
+                    // Filter on Net *before* touching the buffer. The buffer is
+                    // indexed by SubUni only, so a packet on another Net with a
+                    // matching sub-net:universe would land on top of ours.
+                    if dmx.port_address.net != artnet_addr.0[0] {
+                        if !warned_other_net {
+                            warned_other_net = true;
+                            warn!(
+                                "ArtNet: ignoring traffic on Net {} (configured {})",
+                                dmx.port_address.net, artnet_addr.0[0]
+                            );
+                        }
+                        continue;
+                    }
                     // Index by the packet's SubUni byte (sub-net:universe) so
                     // consecutive Port-Addresses map to consecutive buffer slots
                     // even when a multi-universe span crosses a sub-net boundary.
@@ -182,13 +202,8 @@ pub async fn artnet_task(
                 debug!("RX: ArtSync - Use these to buffer DMX packets and then synchronize the rendering of multiple DMX universes.");
             }
             Ok(Art::Poll(_poll)) => {
-                // info!("RX: ArtPoll - Someone is looking for ArtNet nodes. Let's respond to them to make this node discoverable! {:?}", poll);
-                debug!("RX: ArtPoll - Someone is looking for ArtNet nodes. Let's respond to them to make this node discoverable!");
+                debug!("RX: ArtPoll - answering with one ArtPollReply per four bound universes");
 
-                // Advertise the configured Port-Address so controllers bind
-                // the right universe: NetSwitch = net, SubSwitch = sub-net,
-                // SwOut low nibble = universe of the (single) output port.
-                let swout = [artnet_addr.0[2], 0, 0, 0];
                 // Report the CURRENT address, not the one captured at boot —
                 // a DHCP renewal can move it, and a reply with a stale IP
                 // makes controllers unicast into the void.
@@ -196,38 +211,72 @@ pub async fn artnet_task(
                     .config_v4()
                     .map(|c| c.address.address())
                     .unwrap_or(local_addr);
-                let poll_reply = tiny_artnet::PollReply {
-                    ip_address: &ip_now.octets(),
-                    port,
-                    firmware_version: 0x0001,
-                    oem: ARTNET_OEM,
-                    short_name: "DMX LED Interface",
-                    long_name: "DMX/Art-Net LED Interface",
-                    net_switch: artnet_addr.0[0],
-                    sub_switch: artnet_addr.0[1],
-                    swout: &swout,
-                    mac_address: &mac_address_bytes,
-                    // This Node has one port
-                    num_ports: 1,
-                    // This node has one output channel
-                    port_types: &[0b10000000, 0, 0, 0],
-                    // Report that data is being output correctly
-                    good_output_a: &[0b10000000, 0, 0, 0],
-                    ..Default::default()
-                };
+                let ip_bytes = ip_now.octets();
 
-                let reply_message = poll_reply.ser();
+                // Art-Net 4 BindIndex: one ArtPollReply can carry at most four
+                // ports, all in one Sub-Net. A node binding more universes —
+                // eight ports of 600 LEDs is 32 — sends several replies, each
+                // with the next BindIndex and the same BindIp, and controllers
+                // that auto-patch from ArtPollReply then bind every universe.
+                //
+                // The bound span starts at the configured Port-Address and runs
+                // for `bound` universes (clamped to the buffer by the router),
+                // so it can cross Sub-Net boundaries; a reply is cut at each
+                // one. This is exactly the count the UI shows as "Univ Bound".
+                let net = artnet_addr.0[0];
+                let base = artnet_addr.buffer_base() as u16;
+                let count = bound.max(1).min(256 - base);
+                let mut universe = base;
+                let mut bind_index: u8 = 1;
+                while universe < base + count {
+                    let sub = (universe >> 4) as u8;
+                    let first = (universe & 0x0F) as u8;
+                    let remaining = (base + count - universe) as usize;
+                    let ports = remaining.min(16 - first as usize).min(4);
 
-                let _ = socket
-                    .send_to(
-                        //&buf[..msg_len],
-                        &reply_message,
-                        from_addr,
-                    )
-                    .await
-                    .map_err(|_e| error!("Artnet Unable to send on socket."));
+                    let mut swout = [0u8; 4];
+                    let mut port_types = [0u8; 4];
+                    let mut good_output = [0u8; 4];
+                    for i in 0..ports {
+                        swout[i] = first + i as u8;
+                        port_types[i] = 0b1000_0000; // output port, DMX512
+                        good_output[i] = 0b1000_0000; // data is being output
+                    }
 
-                debug!("Sent ArtPollReply to {:?}:{:?} {:?}", from_addr.endpoint.addr, from_addr.endpoint.port, poll_reply);
+                    let poll_reply = tiny_artnet::PollReply {
+                        ip_address: &ip_bytes,
+                        port,
+                        firmware_version: 0x0001,
+                        oem: ARTNET_OEM,
+                        short_name: "DMX LED Interface",
+                        long_name: "DMX/Art-Net LED Interface",
+                        net_switch: net,
+                        sub_switch: sub,
+                        swout: &swout,
+                        mac_address: &mac_address_bytes,
+                        num_ports: ports as u16,
+                        port_types: &port_types,
+                        good_output_a: &good_output,
+                        bind_ip_address: &ip_bytes,
+                        bind_index,
+                        // Bit 3: 15-bit Port-Address (Art-Net 3/4) supported;
+                        // bit 1: DHCP capable.
+                        status2: 0b0000_1010,
+                        ..Default::default()
+                    };
+                    let reply_message = poll_reply.ser();
+                    if socket.send_to(&reply_message, from_addr).await.is_err() {
+                        error!("Artnet Unable to send on socket.");
+                        break;
+                    }
+
+                    universe += ports as u16;
+                    bind_index = bind_index.saturating_add(1);
+                }
+                debug!(
+                    "Sent {} ArtPollReply(s) for {} universes from {}:{} to {:?}",
+                    bind_index - 1, count, net, base, from_addr.endpoint.addr
+                );
             }
             Ok(Art::Command(command)) => {
                 debug!("command {:?} - {:?}", command.esta_manufacturer_code, command.data);

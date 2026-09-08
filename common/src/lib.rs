@@ -37,3 +37,5 @@ pub mod event_router;
 pub mod events;
 pub mod sacn;
 pub mod ui;
+pub mod usb_power;
+pub mod ws2812_pack;

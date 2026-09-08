@@ -9,7 +9,7 @@ use embassy_sync::channel::{Channel, Receiver, Sender};
 use embassy_sync::watch::{Receiver as WatchReceiver, Sender as WatchSender, Watch};
 
 use crate::event_router::{DmxEvent, DmxFeedbackEvent, GlobalData, MainEvent, RouterEvent};
-use crate::events::{EepromEvent, PwmEvent, SmartLedEvent, UiEvent};
+use crate::events::{EepromEvent, SmartLedEvent, UiEvent};
 
 pub type RouterChannel = Channel<CriticalSectionRawMutex, RouterEvent, 10>;
 pub type RouterChannelRx = Receiver<'static, CriticalSectionRawMutex, RouterEvent, 10>;
@@ -25,25 +25,15 @@ pub type DmxChannelTx = Sender<'static, CriticalSectionRawMutex, DmxEvent, 1>;
 /// `DMX_BUFFER`". Depth 1 on purpose: frames are latest-wins.
 pub static CHANNEL_DMX: DmxChannel = Channel::new();
 
-// 4 receivers: dmx_task, artnet_task, sacn_task, usb_device_task
-pub type DmxFeedbackChannel = Watch<CriticalSectionRawMutex, DmxFeedbackEvent, 4>;
-pub type DmxFeedbackChannelRx = WatchReceiver<'static, CriticalSectionRawMutex, DmxFeedbackEvent, 4>;
-pub type DmxFeedbackChannelTx = WatchSender<'static, CriticalSectionRawMutex, DmxFeedbackEvent, 4>;
+// 5 receivers: dmx_task, artnet_task, sacn_task, usb_device_task (CDC widget),
+// enttec_uart_task (FT232RNL widget)
+pub type DmxFeedbackChannel = Watch<CriticalSectionRawMutex, DmxFeedbackEvent, 5>;
+pub type DmxFeedbackChannelRx = WatchReceiver<'static, CriticalSectionRawMutex, DmxFeedbackEvent, 5>;
+pub type DmxFeedbackChannelTx = WatchSender<'static, CriticalSectionRawMutex, DmxFeedbackEvent, 5>;
 /// Router -> input tasks: broadcast of the current operating mode and
 /// Art-Net universe whenever settings change.
 pub static CHANNEL_DMX_FEEDBACK: DmxFeedbackChannel = Watch::new();
 
-pub type PwmChannel = Channel<CriticalSectionRawMutex, PwmEvent, 1>;
-#[allow(unused)]
-pub type PwmChannelRx = Receiver<'static, CriticalSectionRawMutex, PwmEvent, 1>;
-pub type PwmChannelTx = Sender<'static, CriticalSectionRawMutex, PwmEvent, 1>;
-#[allow(unused)]
-pub static CHANNEL_PWM: PwmChannel = Channel::new();
-/// Router -> PWM output module. NOTE: `pwm_i2c_task` is not currently
-/// spawned (the PWM module is unfinished), so this fills after one event
-/// (BUGS.md N19).
-#[allow(unused)]
-pub static CHANNEL_PWM_I2C: PwmChannel = Channel::new();
 
 pub type SmartLedChannel = Channel<CriticalSectionRawMutex, SmartLedEvent, 1>;
 pub type SmartLedChannelRx = Receiver<'static, CriticalSectionRawMutex, SmartLedEvent, 1>;

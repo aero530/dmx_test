@@ -29,17 +29,20 @@
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
-use smart_leds::RGB8;
+use smart_leds::{White, RGBW};
 
 use crate::{DMX_UNIVERSE_COUNT, DMX_UNIVERSE_SIZE, SMARTLED_NUM_LEDS_MAX, SMARTLED_PORT_COUNT};
 
 /// Raw mutex backing the shared buffers. See the module docs.
 pub type BufferRawMutex = CriticalSectionRawMutex;
 
-pub type LedBuffer = Mutex<BufferRawMutex, [[RGB8; SMARTLED_NUM_LEDS_MAX]; SMARTLED_PORT_COUNT]>;
+pub type LedBuffer = Mutex<BufferRawMutex, [[RGBW<u8>; SMARTLED_NUM_LEDS_MAX]; SMARTLED_PORT_COUNT]>;
 
-/// Buffer of current LED colors
-pub static LED_COLORS: LedBuffer = Mutex::new([[RGB8::new(0, 0, 0); SMARTLED_NUM_LEDS_MAX]; SMARTLED_PORT_COUNT]);
+const OFF: RGBW<u8> = RGBW::<u8> { r: 0, g: 0, b: 0, a: White(0) };
+
+/// Buffer of current LED colors. Always RGBW: in RGB mode the white byte is
+/// zero and the output driver does not transmit it.
+pub static LED_COLORS: LedBuffer = Mutex::new([[OFF; SMARTLED_NUM_LEDS_MAX]; SMARTLED_PORT_COUNT]);
 
 pub type DmxBuffer = Mutex<BufferRawMutex, [u8; DMX_UNIVERSE_COUNT * DMX_UNIVERSE_SIZE]>;
 

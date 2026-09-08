@@ -8,7 +8,7 @@
 
 use defmt::Format;
 
-use crate::ui::{BootStatus, MenuData, ModuleType};
+use crate::ui::{BootStatus, MenuData, ModuleType, SmartLedColorMode};
 use crate::SMARTLED_PORT_COUNT;
 
 /// States to define button actions
@@ -84,24 +84,23 @@ impl KeyPadButton {
     }
 }
 
-#[derive(Format)]
-pub enum PwmEvent {
-    // On,
-    // Off,
-    Value([u8; 3]),
-}
-
 #[allow(unused)]
 pub enum SmartLedEvent {
-    /// Push `LED_COLORS` to the strips; the payload is the configured LED
-    /// count per port so only that many LEDs are encoded and transmitted.
-    UpdateLEDs([u16; SMARTLED_PORT_COUNT]),
+    /// Push `LED_COLORS` to the strips: the configured LED count per port (only
+    /// that many pixels are encoded and transmitted) and the colour mode, which
+    /// selects 24-bit GRB or 32-bit GRBW on the wire.
+    UpdateLEDs {
+        counts: [u16; SMARTLED_PORT_COUNT],
+        color_mode: SmartLedColorMode,
+    },
 }
 
 impl Format for SmartLedEvent {
     fn format(&self, f: defmt::Formatter) {
         match self {
-            SmartLedEvent::UpdateLEDs(counts) => defmt::write!(f, "Update LEDs: {:?}", counts),
+            SmartLedEvent::UpdateLEDs { counts, color_mode } => {
+                defmt::write!(f, "Update LEDs: {:?} {:?}", counts, color_mode)
+            }
         }
     }
 }
@@ -127,6 +126,23 @@ pub enum EepromEvent {
     WriteBootStatus(BootStatus),
 }
 
+/// Where the network stands, for the status line on the display and the
+/// console `info` command. Set by the boot sequence and the Art-Net task.
+#[derive(Copy, Clone, PartialEq, Eq, Format, Debug, Default)]
+pub enum NetStatus {
+    /// Ethernet disabled in settings.
+    #[default]
+    Off,
+    /// Skipped this boot by the lockout guard (two consecutive incomplete boots).
+    Guard,
+    /// The W6300 did not answer, or reported the wrong chip version.
+    NoChip,
+    /// Chip up, waiting for DHCP.
+    Dhcp,
+    /// Configured; the address is what the node advertises.
+    Up([u8; 4]),
+}
+
 /// Action to be processed by the UI (often user interaction)
 #[derive(Format)]
 pub enum UiEvent {
@@ -135,4 +151,6 @@ pub enum UiEvent {
     Select,
     Esc,
     Load(MenuData),
+    /// Network status changed; shown on the display's title row.
+    Net(NetStatus),
 }

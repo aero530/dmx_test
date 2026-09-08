@@ -51,6 +51,9 @@ embassy-net-wiznet = { version = "0.3.0", features = ["defmt"] }
 embedded-hal-bus = { version = "0.3.0", features = ["async"] }
 embedded-hal = "1.0"
 embedded-hal-async = "1.0"
+# Read/Write traits for embassy-rp's BufferedUart (the FT232RL widget port);
+# 0.7 is the version embassy-rp 0.10 implements.
+embedded-io-async = "0.7"
 embassy-usb = { version = "0.6.0", features = ["defmt"] }
 embassy-usb-logger = "0.6.0"
 heapless = { version = "0.9", default-features = false }
@@ -80,11 +83,10 @@ embedded-alloc = "0.7.0"
 
 smart-leds = "0.4.0"
 
-# Display: SSD1306 over SPI, drawn through Ratatui via mousefood's
-# embedded-graphics backend. mousefood implements From<TermColor> for
-# BinaryColor (colors.rs:168), which is what makes the mono panel viable at all.
-ssd1306 = "0.10.0"
-display-interface-spi = "0.5.0"
+# Display: ST7789 172x320 TFT over SPI1 through mipidsi (which carries its own
+# SPI interface - no display-interface crate needed), drawn through Ratatui via
+# mousefood's embedded-graphics backend in Rgb565.
+mipidsi = "0.9.0"
 embedded-graphics = "0.8.2"
 mousefood = { version = "0.5.2", default-features = false, features = ["fonts"] }
 ratatui-core = { version = "0.1.2", default-features = false }

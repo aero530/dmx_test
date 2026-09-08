@@ -2,14 +2,14 @@
 //!
 //! I2C device address, hardware settings, etc.
 
-/// I2C address of output module PWM chip
-pub const PWM_ADDRESS: u8 = 0x60;
-
-/// I2C address of the output module EEPROM
+/// I2C address of the settings EEPROM (M24C02, E2 = E1 = 1, E0 = 0 on the Rev 2 carrier)
 pub const EEPROM_ADDRESS: u8 = 0x56;
 
-/// I2C address used to communicate with RPI
-pub const DMX_ADDRESS: u8 = 0x33;
+/// I2C address of the TCA9555 front-panel expander (A0 = A1 = A2 = 0)
+pub const EXPANDER_ADDRESS: u8 = 0x20;
+
+/// I2C address of the PCA9633DP1 backlight driver (fixed by the DP1 package)
+pub const BACKLIGHT_ADDRESS: u8 = 0x62;
 
 /// Buffer size for incoming DMX data (512 of data + 0 for 'all call' byte)
 pub const DMX_BUFF_SIZE: usize = 513;
@@ -67,8 +67,15 @@ pub const ARTNET_OEM: u16 = 0x7FFF;
 /// measures for single-SPI MACRAW; revise this once that number exists.
 pub const MAX_BYTES_PER_PORT: u16 = 1800;
 
-/// Maximum number of LEDs allowed on a single SmartLED string
+/// LEDs the hardware will actually clock out per port per frame.
 ///
-/// in theory this could be up to floor(2^16 / 12) = 5461
-/// 2^16 = MAX DMA size, 12 bytes per LED needed
-pub const SMARTLED_NUM_LEDS_MAX: usize = 1024;
+/// This is `MAX_BYTES_PER_PORT` in RGB pixels, and it is what the PIO output
+/// driver's fixed-size frame buffer is sized to. The UI clamps the per-port LED
+/// count to it so a configured value can never be silently truncated on the
+/// wire — before this, the menu accepted 999 and the output quietly stopped at
+/// 600.
+pub const MAX_LEDS_PER_PORT: usize = MAX_BYTES_PER_PORT as usize / 3;
+
+/// Per-port size of `LED_COLORS`. Equal to the transmit cap: holding pixels
+/// that can never be output only cost RAM.
+pub const SMARTLED_NUM_LEDS_MAX: usize = MAX_LEDS_PER_PORT;

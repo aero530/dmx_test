@@ -1,15 +1,16 @@
 //! DMX interface firmware — W6300-EVB-Pico2 target (RP2350 + W6300).
 //!
 //! Replaces the STM32H563 Nucleo build. Everything target-agnostic lives in the
-//! `common` crate and is shared with `nucleo/` and `host_tests/`; this crate is
-//! only the peripheral setup, the PIO programs and the executor wiring.
+//! `common` crate and is shared with `host_tests/`; this crate is only the
+//! peripheral setup, the PIO programs and the executor wiring.
 //!
-//! See `../REV2_PLAN.md` for the design and `../docs/` for the diagrams.
+//! See `../docs/ARCHITECTURE.md` for why the firmware is shaped this way.
 //!
 //! # Core split
 //!
-//! * **Core 0** — W6300 + smoltcp, Art-Net / sACN, the event router.
-//! * **Core 1** — OLED UI, buttons, wired DMX, LED render.
+//! * **Core 0** — W6300 + smoltcp, Art-Net / sACN, USB, the FT232RNL widget
+//!   port, the event router, EEPROM, the watchdog feeder.
+//! * **Core 1** — TFT UI, buttons, wired DMX, LED render.
 //!
 //! The split exists so network load cannot make the UI laggy: a console
 //! broadcasting universes we do not care about still has to be ingested and
@@ -28,6 +29,7 @@ pub use common::{channels, enttec_protocol, ui, DMX_BUFFER, LED_COLORS};
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::{Executor, Spawner};
+use embassy_rp::adc::{self, Adc};
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
@@ -40,15 +42,16 @@ use embassy_rp::dma::InterruptHandler as DmaInterruptHandler;
 use embassy_rp::gpio::{Input, Pull};
 use embassy_rp::peripherals::{
     DMA_CH0, DMA_CH1, DMA_CH10, DMA_CH11, DMA_CH2, DMA_CH3, DMA_CH4, DMA_CH5, DMA_CH6,
-    DMA_CH7, DMA_CH8, DMA_CH9, I2C1, PIO0, PIO1, PIO2, USB,
+    DMA_CH7, DMA_CH8, DMA_CH9, I2C1, PIO0, PIO1, PIO2, UART0, USB,
 };
+use embassy_rp::uart::{self, BufferedInterruptHandler as UartInterruptHandler, BufferedUart};
 use embassy_rp::pio_programs::spi::Spi as PioSpi;
 use embassy_rp::spi::{Config as SpiConfig, Spi as HwSpi};
+use embassy_rp::watchdog::{ResetReason, Watchdog};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use static_cell::StaticCell;
 use embassy_rp::pio::{InterruptHandler as PioInterruptHandler, Pio};
 use embassy_rp::usb::{Driver as UsbDriver, InterruptHandler as UsbInterruptHandler};
-use embassy_rp::pio_programs::ws2812::{PioWs2812, PioWs2812Program};
 use embassy_rp::multicore::{spawn_core1, Stack as CoreStack};
 use embassy_time::{Delay, Timer};
 use panic_probe as _;
@@ -59,15 +62,21 @@ mod console_usb;
 mod dmx;
 mod dmx_pio;
 mod eeprom;
+mod enttec_uart;
+mod enttec_widget;
 mod event_router;
 mod m24x02;
-mod smart_led;
-mod tca9555;
-mod oled_ui;
+mod pca9633;
 mod sacn_rx;
+mod smart_led;
+mod supervisor;
+mod tca9555;
+mod tft_ui;
 mod usb_device;
 mod w6300;
+mod ws2812;
 use smart_led::Ws2812Outputs;
+use ws2812::{Ws2812, Ws2812Program};
 
 /// Program metadata for `picotool info`.
 #[unsafe(link_section = ".bi_entries")]
@@ -82,20 +91,19 @@ pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
 ];
 
 /// Heap for `common::ui::fields`, which formats menu strings, and for the
-/// Ratatui cell buffers behind the OLED.
-///
-/// 16 KB against nucleo's 160 KB: the mono 128x64 framebuffer is 1 KB where the
-/// 320x172 TFT needed ~108 KB, and the 21x8 character grid is a fraction of the
-/// old 35x11. Revisit once the Phase 3 UI is real.
+/// Ratatui cell buffers behind the TFT. The panel is drawn directly (no
+/// framebuffer), so 32 KB is generous; RAM is not the constraint on this chip.
 use embedded_alloc::LlffHeap as Heap;
 
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
 
-const HEAP_SIZE: usize = 16 * 1024;
+const HEAP_SIZE: usize = 32 * 1024;
 
 bind_interrupts!(struct Irqs {
     I2C1_IRQ => I2cInterruptHandler<I2C1>;
+    // FT232RNL USB-DMX port (buffered UART, no DMA channels).
+    UART0_IRQ => UartInterruptHandler<UART0>;
     USBCTRL_IRQ => UsbInterruptHandler<USB>;
     PIO0_IRQ_0 => PioInterruptHandler<PIO0>;
     PIO1_IRQ_0 => PioInterruptHandler<PIO1>;
@@ -111,14 +119,15 @@ bind_interrupts!(struct Irqs {
                  DmaInterruptHandler<DMA_CH10>, DmaInterruptHandler<DMA_CH11>;
 });
 
-/// Pin allocation — see `docs/rev2-pinmap.svg`.
+/// Pin allocation — see the Altium netlist (`dmx_interface_dev_board_v2/`).
 ///
 /// GP15–22 are consumed by the W6300 inside the module and cannot be reused.
-/// GP23/24/25/29 are not on the header at all: the Pico 2 keeps four GPIOs
-/// internal (SMPS `PS`, VBUS sense, user LED, VSYS/3 ADC). That leaves GP13 as
-/// the only spare, broken out to a test point.
+/// GP23/24/25/29 are not on the header at all: the module keeps four GPIOs
+/// internal (buck MD/SYNC, VBUS sense, user LED, VSYS/3 ADC). Every remaining
+/// GPIO is spoken for — the last spare (GP13) and the former expander INT
+/// (GP28) became the FT232RNL UART.
 pub mod pins {
-    /// WS2812 data out, one per string, GP0–GP7.
+    /// WS2812 data out, one per string, GP0–GP7 (port 1 = GP0).
     pub const WS2812: [u8; 8] = [0, 1, 2, 3, 4, 5, 6, 7];
 
     pub const DMX_RX: u8 = 8;
@@ -127,20 +136,24 @@ pub mod pins {
     /// GPIO — it switches per frame against PIO output timing.
     pub const DMX_DE: u8 = 10;
 
-    /// SSD1306 on SPI1. `CS` ties low (sole device on the bus) and `RES` is on
-    /// the I/O expander, which is what keeps GP13 free.
-    pub const OLED_MOSI: u8 = 11; // SPI1 TX
-    pub const OLED_DC: u8 = 12; // plain GPIO, toggles per transaction
-    pub const OLED_SCK: u8 = 14; // SPI1 SCK
+    /// ST7789 TFT on SPI1. `RES` and `CS` are on the I/O expander (P10/P11):
+    /// both are static after init, so neither costs a GPIO. `BL` is the
+    /// PCA9633's LED0.
+    pub const TFT_MOSI: u8 = 11; // SPI1 TX
+    pub const TFT_DC: u8 = 12; // plain GPIO, toggles per transaction
+    pub const TFT_SCK: u8 = 14; // SPI1 SCK
 
-    /// The only spare GPIO. Also SPI1 CSn if a second SPI device appears.
-    pub const SPARE: u8 = 13;
+    /// FT232RNL USB-DMX port on UART0 — the only UART0 pair reachable.
+    /// `FTDI_RX` (GP13, UART0 RX) listens to the FT232RNL's TXD; `FTDI_TX`
+    /// (GP28, UART0 TX) drives its RXD. GP28 used to be the expander INT.
+    pub const FTDI_RX: u8 = 13;
+    pub const FTDI_TX: u8 = 28;
 
-    /// Shared I²C1: M24C02 EEPROM at 0x56, TCA9555 expander at 0x20.
+    /// Shared I²C1: TCA9555 expander at 0x20, M24C02 EEPROM at 0x56,
+    /// PCA9633 backlight driver at 0x62. The expander's INT goes to a test
+    /// point only — buttons are polled (see `buttons.rs`).
     pub const I2C_SDA: u8 = 26;
     pub const I2C_SCL: u8 = 27;
-    /// TCA9555 interrupt, open-drain with a 10 kΩ pull-up.
-    pub const EXPANDER_INT: u8 = 28;
 }
 
 /// MAC used when the EEPROM has none programmed.
@@ -148,29 +161,32 @@ pub mod pins {
 /// Locally-administered (bit 1 of the first octet set), so it is valid on a
 /// private network. **Two unprogrammed boards on one bench would collide** —
 /// which is exactly why boot prefers the EEPROM copy at 0x02–0x07 and only
-/// falls back to this.
+/// falls back to this. Program it with the console's `mac` command.
 const MAC_FALLBACK: [u8; 6] = [0x02, 0x44, 0x4d, 0x58, 0x00, 0x01];
 
-/// Shared I²C1 bus: the TCA9555 at 0x20 and the M24C02 at 0x56.
+/// Incomplete boots in a row before the lockout guard skips Ethernet.
+///
+/// One incomplete boot is what a power blip during bring-up looks like, and
+/// costing the network for that would leave an Art-Net install dark until the
+/// *next* power cycle. Two in a row is the pattern of an Ethernet bring-up that
+/// hangs — the failure the guard exists for.
+const BOOT_FAIL_LIMIT: u8 = 2;
+
+/// Shared I²C1 bus: the TCA9555 at 0x20, the M24C02 at 0x56, the PCA9633 at 0x62.
 type I2cBus = Mutex<CriticalSectionRawMutex, I2c<'static, I2C1, i2c::Async>>;
 type I2cDev = I2cDevice<'static, CriticalSectionRawMutex, I2c<'static, I2C1, i2c::Async>>;
 
-/// Released-OLED-reset handshake: signalled by the button task (which owns the
-/// expander that drives the panel's RES line) and awaited by the UI task
-/// before it sends the SSD1306 init sequence. Without it, the blocking init
-/// runs while the panel is still held in reset and the display stays dark.
-static OLED_READY: embassy_sync::signal::Signal<CriticalSectionRawMutex, ()> =
+/// Display-reset handshake: signalled by the button task (which owns the
+/// expander that drives the panel's RES and CS lines) and awaited by the UI
+/// task before it sends the ST7789 init sequence.
+static DISPLAY_READY: embassy_sync::signal::Signal<CriticalSectionRawMutex, ()> =
     embassy_sync::signal::Signal::new();
 
 /// Concrete wrapper — embassy tasks cannot be generic, so the generic driver in
 /// `buttons` is instantiated here.
 #[embassy_executor::task]
-async fn button_task(
-    expander: tca9555::Tca9555<I2cDev>,
-    int: Input<'static>,
-    tx: common::channels::RouterChannelTx,
-) -> ! {
-    buttons::run(expander, int, tx, &OLED_READY).await
+async fn button_task(expander: tca9555::Tca9555<I2cDev>, tx: common::channels::RouterChannelTx) -> ! {
+    buttons::run(expander, tx, &DISPLAY_READY).await
 }
 
 /// Heartbeat on the module's user LED, so a board that is alive but not
@@ -197,26 +213,31 @@ static EXECUTOR1: StaticCell<Executor> = StaticCell::new();
 ///    to the router — which forwards settings to the UI and broadcasts the
 ///    operating mode to every input task. (Without this the router never sees
 ///    `BootStatus::Success` and deliberately renders nothing.)
-/// 2. Arm the boot flag (write `Failed`): if this boot wedges before the
-///    `Success` write at the end, the NEXT boot sees `Failed` and skips the
-///    network — the lockout guard, unchanged from the STM32 build. The first
-///    boot after flashing a blank EEPROM therefore runs without Ethernet;
-///    it comes up on the following boot.
+/// 2. Count consecutive incomplete boots (EEPROM `0xA0`) and arm the boot flag
+///    (write `Failed`): if this boot wedges before the `Success` write at the
+///    end, the NEXT boot sees `Failed`. Two of those in a row and the network
+///    is skipped — the lockout guard, softened from the STM32 build's one.
 /// 3. Bring the network up, gated on the guard and on the `ethernet_enabled`
-///    setting ("Ethernet (reboot)" on the System page).
-/// 4. Record the successful boot, retried and confirmed via the router.
+///    setting, reporting progress to the display.
+/// 4. Record the successful boot, retried and confirmed via the router. If the
+///    EEPROM will not confirm it, the local result is authoritative: a flaky
+///    settings chip must not turn a working light into a dark one.
 #[embassy_executor::task]
 async fn boot_task(
     spawner: Spawner,
-    ee: m24x02::M24x02<I2cDev>,
+    mut ee: m24x02::M24x02<I2cDev>,
     spi_dev: w6300::SpiDev,
     int: Input<'static>,
     reset: Output<'static>,
 ) {
     use common::event_router::{MainEvent, ReturnChannel, RouterEvent};
-    use common::events::EepromEvent;
+    use common::events::{EepromEvent, NetStatus};
     use common::ui::BootStatus;
     use embassy_time::{with_timeout, Duration};
+
+    // The carrier's 3V3 is enable-gated by the module's 3V3_OUT; let it settle
+    // before the first EEPROM transaction.
+    Timer::after_millis(20).await;
 
     channels::CHANNEL_EEPROM.send(EepromEvent::ReadBootStatus).await;
     Timer::after_millis(50).await;
@@ -237,16 +258,31 @@ async fn boot_task(
     };
     info!("boot: previous boot {:?}", prev_boot);
 
+    // Consecutive-failure counter. A blank byte (0xFF) counts as zero.
+    let fails = if prev_boot == BootStatus::Success {
+        0
+    } else {
+        let prev = ee.read_byte(eeprom::BOOT_FAIL_COUNT_ADDR).await.unwrap_or(0);
+        if prev == 0xFF { 1 } else { prev.saturating_add(1) }
+    };
+    if fails > 0 {
+        let _ = ee.write_byte_wait(eeprom::BOOT_FAIL_COUNT_ADDR, fails).await;
+        warn!("boot: {} consecutive incomplete boot(s)", fails);
+    }
+
     channels::CHANNEL_EEPROM.send(EepromEvent::WriteBootStatus(BootStatus::Failed)).await;
     Timer::after_millis(50).await;
 
-    if prev_boot != BootStatus::Success {
-        warn!("boot: previous boot incomplete - Ethernet skipped this boot (lockout guard)");
+    let net_status = if fails >= BOOT_FAIL_LIMIT {
+        warn!("boot: Ethernet skipped this boot (lockout guard after {} incomplete boots)", fails);
+        NetStatus::Guard
     } else if !settings.ethernet_enabled {
         info!("boot: Ethernet disabled in settings");
+        NetStatus::Off
     } else {
-        net_bringup(spawner, ee, spi_dev, int, reset).await;
-    }
+        net_bringup(spawner, &mut ee, &settings, spi_dev, int, reset).await
+    };
+    let _ = channels::CHANNEL.try_send(RouterEvent::StoreNetStatus(net_status));
 
     // DMX -> LED rendering is gated on the router seeing Success; retry the
     // write and confirm it round-tripped (the EEPROM task echoes a successful
@@ -258,27 +294,43 @@ async fn boot_task(
         if let Ok(MainEvent::ReturnBootStatus(Some(BootStatus::Success))) =
             with_timeout(Duration::from_millis(250), channels::CHANNEL_MAIN.receiver().receive()).await
         {
+            if fails > 0 {
+                let _ = ee.write_byte_wait(eeprom::BOOT_FAIL_COUNT_ADDR, 0).await;
+            }
             info!("boot: complete");
             return;
         }
         error!("boot: success flag write attempt {} not confirmed", attempt);
     }
-    error!("boot: flag could not be stored - EEPROM unreachable? Output stays blocked.");
+    // The EEPROM is not answering, but this boot did complete. Treat the local
+    // result as authoritative so output is not blocked by a dead settings chip;
+    // the unwritten flag means the next boot reads Failed, which is the
+    // documented guard behaviour.
+    error!("boot: flag could not be stored - EEPROM unreachable? Continuing with output enabled.");
+    let _ = channels::CHANNEL.try_send(RouterEvent::StoreBootStatus(Some(BootStatus::Success)));
 }
 
-/// Network bring-up: W6300 reset, MAC from the EEPROM, DHCP, then the
-/// Art-Net and sACN receivers.
+/// Network bring-up: W6300 reset, MAC from the EEPROM, DHCP or the configured
+/// static address, then the Art-Net and sACN receivers. Returns the status to
+/// show on the display.
 async fn net_bringup(
     spawner: Spawner,
-    mut ee: m24x02::M24x02<I2cDev>,
+    ee: &mut m24x02::M24x02<I2cDev>,
+    settings: &common::ui::MenuData,
     spi_dev: w6300::SpiDev,
     int: Input<'static>,
     reset: Output<'static>,
-) {
-    let mac = eeprom::read_mac(&mut ee).await.unwrap_or_else(|| {
-        warn!("using fallback MAC - program the EEPROM before shipping");
+) -> common::events::NetStatus {
+    use common::event_router::RouterEvent;
+    use common::events::NetStatus;
+    use common::ui::EthernetIPMode;
+    use embassy_net::{Ipv4Address, Ipv4Cidr, StaticConfigV4};
+
+    let mac = eeprom::read_mac(ee).await.unwrap_or_else(|| {
+        warn!("using fallback MAC - program the EEPROM (console: mac xx:xx:xx:xx:xx:xx) before shipping");
         MAC_FALLBACK
     });
+    let _ = channels::CHANNEL.try_send(RouterEvent::StoreMacAddress(Some(mac)));
 
     static W6300_STATE: StaticCell<w6300::W6300State> = StaticCell::new();
     let Some((device, eth_runner)) =
@@ -288,15 +340,34 @@ async fn net_bringup(
         // network, and the boot-flag / lockout logic depends on reaching this
         // point. The cause has already been logged specifically.
         warn!("continuing without Ethernet");
-        return;
+        return NetStatus::NoChip;
     };
 
     spawner.spawn(unwrap!(w6300::w6300_task(eth_runner)));
 
+    // Static addressing per the Network page; `0.0.0.0` gateway means none
+    // (an Art-Net rig on 2.x.x.x/8 has no router to speak of).
+    let net_config = if settings.ethernet_ip_mode == EthernetIPMode::Static {
+        let ip = settings.static_ip.octets();
+        let gw = settings.static_gateway.octets();
+        info!(
+            "net: static {}.{}.{}.{}/{} gateway {}.{}.{}.{}",
+            ip[0], ip[1], ip[2], ip[3], settings.static_prefix, gw[0], gw[1], gw[2], gw[3]
+        );
+        embassy_net::Config::ipv4_static(StaticConfigV4 {
+            address: Ipv4Cidr::new(Ipv4Address::new(ip[0], ip[1], ip[2], ip[3]), settings.static_prefix),
+            gateway: (!settings.static_gateway.is_unspecified())
+                .then(|| Ipv4Address::new(gw[0], gw[1], gw[2], gw[3])),
+            dns_servers: heapless::Vec::new(),
+        })
+    } else {
+        embassy_net::Config::dhcpv4(Default::default())
+    };
+
     static RESOURCES: StaticCell<StackResources<4>> = StaticCell::new();
     let (stack, net_runner) = embassy_net::new(
         device,
-        embassy_net::Config::dhcpv4(Default::default()),
+        net_config,
         RESOURCES.init(StackResources::new()),
         RoscRng.next_u64(),
     );
@@ -313,6 +384,9 @@ async fn net_bringup(
         channels::CHANNEL.sender(),
         unwrap!(channels::CHANNEL_DMX_FEEDBACK.receiver()),
     )));
+    // The Art-Net task reports the address once the stack is configured
+    // (immediately for static, after the lease for DHCP).
+    NetStatus::Dhcp
 }
 
 #[cortex_m_rt::entry]
@@ -327,12 +401,24 @@ fn main() -> ! {
     let p = embassy_rp::init(Default::default());
     info!("DMX interface starting on RP2350");
 
+    // ---- Watchdog ---------------------------------------------------------
+    // Started first so everything below is covered; fed by the supervisor
+    // task once the executors run. Paused while a debugger halts the core.
+    let mut wdt = Watchdog::new(p.WATCHDOG);
+    match wdt.reset_reason() {
+        Some(ResetReason::TimedOut) => warn!("previous reset: WATCHDOG TIMEOUT - a core stopped checking in"),
+        Some(ResetReason::Forced) => warn!("previous reset: forced by software"),
+        None => {}
+    }
+    wdt.pause_on_debug(true);
+    wdt.start(supervisor::WATCHDOG_TIMEOUT);
+
     // Everything is constructed here, on core 0, and then moved into whichever
     // executor owns it. Peripherals cannot be split after the cores start.
 
-    // ---- I2C1: EEPROM + expander, shared across both cores ---------------
+    // ---- I2C1: EEPROM + expander + backlight, shared across both cores ----
     // The mutex is CriticalSectionRawMutex precisely because core 0 (EEPROM)
-    // and core 1 (expander) both reach this bus.
+    // and core 1 (expander, backlight) both reach this bus.
     let mut i2c_cfg = i2c::Config::default();
     i2c_cfg.frequency = 400_000;
     let i2c = I2c::new_async(p.I2C1, p.PIN_27, p.PIN_26, Irqs, i2c_cfg);
@@ -341,6 +427,27 @@ fn main() -> ! {
 
     let eeprom_dev = m24x02::M24x02::new(I2cDevice::new(i2c_bus), eeprom::ADDR);
     let expander = tca9555::Tca9555::new(I2cDevice::new(i2c_bus), tca9555::ADDR);
+    let backlight = pca9633::Pca9633::new(I2cDevice::new(i2c_bus), pca9633::ADDR);
+
+    // ---- UART0: FT232RNL USB-DMX port -------------------------------------
+    // Buffered (interrupt-driven ring buffers) rather than DMA: the Enttec
+    // stream is byte-framed, reads must return whatever has arrived, and the
+    // baud gets changed at runtime while hunting. 8N2 so both 8N1 and 8N2 hosts
+    // read our replies cleanly; the initial baud is the first hunt candidate.
+    static UART_TX_BUF: StaticCell<[u8; 1024]> = StaticCell::new();
+    static UART_RX_BUF: StaticCell<[u8; 2048]> = StaticCell::new();
+    let mut uart_cfg = uart::Config::default();
+    uart_cfg.baudrate = enttec_uart::BAUD_CANDIDATES[0];
+    uart_cfg.stop_bits = uart::StopBits::STOP2;
+    let ftdi_uart = BufferedUart::new(
+        p.UART0,
+        p.PIN_28, // TX -> FT232RNL RXD
+        p.PIN_13, // RX <- FT232RNL TXD
+        Irqs,
+        UART_TX_BUF.init([0; 1024]),
+        UART_RX_BUF.init([0; 2048]),
+        uart_cfg,
+    );
 
     // ---- PIO -------------------------------------------------------------
     // PIO0 SM0 is the W6300 transport; PIO2 SM0/SM1 are wired DMX. Everything
@@ -353,20 +460,21 @@ fn main() -> ! {
         Pio::new(p.PIO2, Irqs);
 
     // One copy of the 4-instruction WS2812 program per block, shared by that
-    // block's state machines.
-    let ws_p0 = PioWs2812Program::new(&mut pio0);
-    let ws_p1 = PioWs2812Program::new(&mut pio1);
-    let ws_p2 = PioWs2812Program::new(&mut pio2);
+    // block's state machines. The driver packs 24- or 32-bit pixels per frame,
+    // so RGB/RGBW is a menu setting, not a build option.
+    let ws_p0 = Ws2812Program::new(&mut pio0);
+    let ws_p1 = Ws2812Program::new(&mut pio1);
+    let ws_p2 = Ws2812Program::new(&mut pio2);
 
     let outputs = Ws2812Outputs {
-        s1: PioWs2812::new(&mut pio0, p0sm1, p.DMA_CH0, Irqs, p.PIN_0, &ws_p0),
-        s2: PioWs2812::new(&mut pio0, p0sm2, p.DMA_CH1, Irqs, p.PIN_1, &ws_p0),
-        s3: PioWs2812::new(&mut pio0, p0sm3, p.DMA_CH2, Irqs, p.PIN_2, &ws_p0),
-        s4: PioWs2812::new(&mut pio1, p1sm0, p.DMA_CH3, Irqs, p.PIN_3, &ws_p1),
-        s5: PioWs2812::new(&mut pio1, p1sm1, p.DMA_CH4, Irqs, p.PIN_4, &ws_p1),
-        s6: PioWs2812::new(&mut pio1, p1sm2, p.DMA_CH5, Irqs, p.PIN_5, &ws_p1),
-        s7: PioWs2812::new(&mut pio1, p1sm3, p.DMA_CH6, Irqs, p.PIN_6, &ws_p1),
-        s8: PioWs2812::new(&mut pio2, p2sm2, p.DMA_CH7, Irqs, p.PIN_7, &ws_p2),
+        s1: Ws2812::new(&mut pio0, p0sm1, p.DMA_CH0, Irqs, p.PIN_0, &ws_p0),
+        s2: Ws2812::new(&mut pio0, p0sm2, p.DMA_CH1, Irqs, p.PIN_1, &ws_p0),
+        s3: Ws2812::new(&mut pio0, p0sm3, p.DMA_CH2, Irqs, p.PIN_2, &ws_p0),
+        s4: Ws2812::new(&mut pio1, p1sm0, p.DMA_CH3, Irqs, p.PIN_3, &ws_p1),
+        s5: Ws2812::new(&mut pio1, p1sm1, p.DMA_CH4, Irqs, p.PIN_4, &ws_p1),
+        s6: Ws2812::new(&mut pio1, p1sm2, p.DMA_CH5, Irqs, p.PIN_5, &ws_p1),
+        s7: Ws2812::new(&mut pio1, p1sm3, p.DMA_CH6, Irqs, p.PIN_6, &ws_p1),
+        s8: Ws2812::new(&mut pio2, p2sm2, p.DMA_CH7, Irqs, p.PIN_7, &ws_p2),
     };
 
     // ---- Wired DMX on PIO2 ------------------------------------------------
@@ -388,15 +496,17 @@ fn main() -> ! {
     let spi_dev = ExclusiveDevice::new(spi_bus, Output::new(p.PIN_16, Level::High), Delay)
         .expect("W6300 chip select");
 
-    // ---- SSD1306 on SPI1 --------------------------------------------------
-    // Blocking, because display-interface-spi has no async variant. CS is tied
-    // low on the carrier (sole device on the bus), which is what keeps GP13 free.
-    let mut oled_cfg = SpiConfig::default();
-    oled_cfg.frequency = 8_000_000;
-    let oled = oled_ui::build(
-        HwSpi::new_blocking_txonly(p.SPI1, p.PIN_14, p.PIN_11, oled_cfg),
-        Output::new(p.PIN_12, Level::Low), // DC
-    );
+    // ---- TFT on SPI1 --------------------------------------------------------
+    // Blocking (mipidsi). CS and RES are static lines on the expander; the UI
+    // task builds the display once the button task has released them.
+    let mut tft_cfg = SpiConfig::default();
+    tft_cfg.frequency = 40_000_000; // ST7789 write cycle allows ~62 MHz
+    let tft_spi = HwSpi::new_blocking_txonly(p.SPI1, p.PIN_14, p.PIN_11, tft_cfg);
+    let tft_dc = Output::new(p.PIN_12, Level::Low);
+
+    // ---- VSYS monitor (module ADC3 = VSYS/3) ------------------------------
+    let adc = Adc::new_blocking(p.ADC, adc::Config::default());
+    let vsys = adc::Channel::new_pin(p.PIN_29, Pull::None);
 
     // ---- Core 1: UI, buttons, DMX, LED render ----------------------------
     // Everything here is periodic or human-paced. Keeping it off core 0 is what
@@ -408,35 +518,35 @@ fn main() -> ! {
         move || {
             let executor1 = EXECUTOR1.init(Executor::new());
             executor1.run(|s| {
-                s.spawn(unwrap!(button_task(
-                    expander,
-                    Input::new(p.PIN_28, Pull::Up), // INT, open-drain + 10k
-                    channels::CHANNEL.sender(),
-                )));
+                s.spawn(unwrap!(button_task(expander, channels::CHANNEL.sender())));
                 s.spawn(unwrap!(dmx::dmx_task(
                     dmx_rx,
                     dmx_tx,
-                    Output::new(p.PIN_10, Level::Low), // DE//RE, low = receive
+                    Output::new(p.PIN_10, Level::Low), // DE//RE via Q1, low = receive
                     unwrap!(channels::CHANNEL_DMX_FEEDBACK.receiver()),
                 )));
                 s.spawn(unwrap!(smart_led::smart_led_task(
                     outputs,
                     channels::CHANNEL_SMART_LED.receiver(),
                 )));
-                s.spawn(unwrap!(oled_ui::ui_task(
-                    oled,
+                s.spawn(unwrap!(tft_ui::ui_task(
+                    tft_spi,
+                    tft_dc,
+                    backlight,
                     channels::CHANNEL_UI.receiver(),
                     channels::CHANNEL.sender(),
-                    &OLED_READY,
+                    &DISPLAY_READY,
                 )));
             });
         },
     );
 
-    // ---- Core 0: network and the event router ----------------------------
+    // ---- Core 0: network, USB, EEPROM, the event router, the watchdog -----
     let executor0 = EXECUTOR0.init(Executor::new());
     executor0.run(|s| {
         s.spawn(unwrap!(heartbeat(Output::new(p.PIN_25, Level::Low))));
+        s.spawn(unwrap!(supervisor::watchdog_task(wdt)));
+        s.spawn(unwrap!(supervisor::vsys_monitor(adc, vsys)));
 
         // The hub: routes settings, button and EEPROM events, and maps
         // DMX_BUFFER into LED_COLORS on every packet before pinging the LED
@@ -445,22 +555,31 @@ fn main() -> ! {
             channels::CHANNEL.receiver(),
             channels::CHANNEL_DMX.receiver(),
             channels::CHANNEL_DMX_FEEDBACK.sender(),
-            channels::CHANNEL_PWM_I2C.sender(),
             channels::CHANNEL_SMART_LED.sender(),
             channels::CHANNEL_UI.sender(),
             channels::CHANNEL_EEPROM.sender(),
             channels::CHANNEL_MAIN.sender(),
         ))));
 
-        // USB composite device: the Enttec DMX USB Pro widget plus the console
-        // line protocol `dmx_console` talks to. An input like the network, so it
-        // sits alongside it rather than competing with the UI on core 1.
+        // USB composite device on the module's USB-C: the Enttec DMX USB Pro
+        // widget plus the console line protocol `dmx_console` talks to. An
+        // input like the network, so it sits alongside it rather than
+        // competing with the UI on core 1.
         s.spawn(unwrap!(usb_device::usb_device_task(
             UsbDriver::new(p.USB, Irqs),
             channels::CHANNEL_DMX.sender(),
             unwrap!(channels::CHANNEL_DMX_FEEDBACK.receiver()),
             channels::CHANNEL.sender(),
             unwrap!(channels::CHANNEL_LOG.receiver()),
+        )));
+
+        // The same Enttec widget on the carrier's FT232RNL USB-C port — the one
+        // FTDI-stack software (QLC+) recognises as a genuine Pro. Another input,
+        // so it lives on core 0 with USB and the network.
+        s.spawn(unwrap!(enttec_uart::enttec_uart_task(
+            ftdi_uart,
+            channels::CHANNEL_DMX.sender(),
+            unwrap!(channels::CHANNEL_DMX_FEEDBACK.receiver()),
         )));
 
         // Settings persistence. Shares I2C1 with the expander on core 1 — which
@@ -481,9 +600,4 @@ fn main() -> ! {
         )));
     });
 
-    // Remaining Phase 3 work:
-    //   - byte-budget enforcement surfaced in the UI (over_budget() exists)
-    //   - RGBW output format (the PIO drivers are 24-bit GRB; the menu option
-    //     currently renders the RGB portion and warns once)
-    //   - DMX TX task: ArtNet>DMX / USB>DMX modes drive PioDmxTx + GP10 high
 }

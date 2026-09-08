@@ -14,18 +14,16 @@
 //!
 //! # Universe numbering
 //!
-//! sACN universes are 1-based; `DMX_BUFFER` is indexed from 0. Universe *U*
-//! therefore lands at slot *U − 1*, and anything past the buffer is dropped —
-//! the same bounds discipline the Art-Net path needs, for the same reason: the
-//! universe number comes off the wire.
+//! sACN universes are 1-based and unrelated to Art-Net Port-Addresses, so the
+//! node has its own `sacn_universe` setting: universe *base* lands in buffer
+//! slot 0, *base + 1* in slot 1, and so on for the `DMX_UNIVERSE_COUNT` slots
+//! the buffer holds. The router renders from slot 0 in `sACN` mode, so the
+//! LED page's universe offsets read directly as "universes above the base" —
+//! the same mental model as Art-Net, just with the base spelled as one number.
 //!
-//! # Source selection
-//!
-//! Gated on the same network input modes as Art-Net. A dedicated
-//! `InputMode::Sacn`, and the source arbitration that sACN's `priority` field
-//! makes possible, would change the encoded shape of `MenuData` — a schema
-//! change, and the first real exercise of the version byte at EEPROM `0x11`.
-//! Deferred deliberately rather than bolted on here.
+//! Only the groups for that window are joined, and they are re-joined when the
+//! base changes. Joining every possible group would defeat the purpose, since
+//! the switch would then forward everything.
 
 use common::channels::{DmxChannelTx, DmxFeedbackChannelRx, RouterChannelTx};
 use common::event_router::{DmxEvent, DmxFeedbackEvent, PacketAddress};
@@ -37,12 +35,32 @@ use defmt::*;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{IpAddress, Stack};
 
-/// Universes joined at startup.
-///
-/// Sized to what eight ports can actually consume — 8 x 1800 B is 32 universes
-/// — with headroom to the buffer. Joining every possible group would defeat the
-/// purpose, since the switch would then forward everything.
+/// Universes joined above the base. Eight ports of 1800 B is 32 universes;
+/// the buffer holds 64, so a window of 32 covers any legal configuration.
 const JOIN_COUNT: u16 = 32;
+
+fn group(universe: u16) -> IpAddress {
+    let g = multicast_group(universe);
+    IpAddress::v4(g[0], g[1], g[2], g[3])
+}
+
+/// Move the multicast window from `old` to `new`. Joining is what tells an
+/// IGMP-snooping switch to start forwarding these groups — and, just as
+/// importantly, leaving is what stops the old ones.
+fn rejoin(stack: &Stack<'static>, old: Option<u16>, new: u16) {
+    if let Some(old) = old {
+        for u in old..old.saturating_add(JOIN_COUNT) {
+            let _ = stack.leave_multicast_group(group(u));
+        }
+    }
+    let mut joined = 0u16;
+    for u in new..new.saturating_add(JOIN_COUNT) {
+        if stack.join_multicast_group(group(u)).is_ok() {
+            joined += 1;
+        }
+    }
+    info!("sACN: universes {}..{} - joined {} groups", new, new.saturating_add(JOIN_COUNT - 1), joined);
+}
 
 #[embassy_executor::task]
 pub async fn sacn_task(
@@ -70,36 +88,38 @@ pub async fn sacn_task(
         return;
     }
 
-    // Joining is what tells an IGMP-snooping switch to start forwarding these
-    // groups — and, just as importantly, not the others.
-    let mut joined = 0u16;
-    for universe in 1..=JOIN_COUNT {
-        let g = multicast_group(universe);
-        if stack
-            .join_multicast_group(IpAddress::v4(g[0], g[1], g[2], g[3]))
-            .is_ok()
-        {
-            joined += 1;
-        }
-    }
-    info!("sACN: listening on {}, joined {} groups", PORT, joined);
-
+    // The router has normally broadcast the mode before the network is up;
+    // start from it rather than waiting for the next change.
     let mut input_mode = InputMode::default();
+    let mut base: u16 = 1;
+    if let Some(DmxFeedbackEvent::Mode(m, _, b, _)) = rx.try_get() {
+        input_mode = m;
+        base = b;
+    }
+    rejoin(&stack, None, base);
+    let mut joined_base = base;
+
     let mut buf = [0u8; 1536];
     let mut warned_out_of_range = false;
 
     loop {
-        if let Some(DmxFeedbackEvent::Mode(new_mode, _addr)) = rx.try_changed() {
-            input_mode = new_mode;
+        if let Some(DmxFeedbackEvent::Mode(m, _, b, _)) = rx.try_changed() {
+            input_mode = m;
+            base = b;
+            if base != joined_base {
+                rejoin(&stack, Some(joined_base), base);
+                joined_base = base;
+                warned_out_of_range = false;
+            }
         }
 
         let Ok((n, _from)) = socket.recv_from(&mut buf).await else {
             continue;
         };
 
-        // Same guard as the Art-Net path: only store when a network mode is
-        // selected, or stray traffic overwrites wired DMX / USB data.
-        if !matches!(input_mode, InputMode::ArtNet | InputMode::ArtNetToDmx) {
+        // Same guard as the Art-Net path: only store when sACN is the selected
+        // source, or stray traffic overwrites the active input's data.
+        if input_mode != InputMode::Sacn {
             continue;
         }
 
@@ -112,14 +132,17 @@ pub async fn sacn_task(
             continue;
         }
 
-        let Some(slot) = packet.universe.checked_sub(1) else {
-            continue; // universe 0 is not valid in E1.31
+        // Rebase onto the buffer: universe `base` is slot 0. Anything below
+        // the base or past the buffer is not ours to render — and the number
+        // came off the wire, so it is bounds-checked, not trusted.
+        let Some(slot) = packet.universe.checked_sub(base) else {
+            continue;
         };
         if slot as usize >= DMX_UNIVERSE_COUNT {
             if !warned_out_of_range {
                 warn!(
-                    "sACN: ignoring universe {} - beyond the {} buffered",
-                    packet.universe, DMX_UNIVERSE_COUNT
+                    "sACN: ignoring universe {} - beyond the {} buffered above universe {}",
+                    packet.universe, DMX_UNIVERSE_COUNT, base
                 );
                 warned_out_of_range = true;
             }
@@ -133,6 +156,8 @@ pub async fn sacn_task(
             dmx_buffer[start..start + len].copy_from_slice(&packet.values[..len]);
         }
 
+        // Reported as a Port-Address with Net 0; the router skips the Net
+        // filter in sACN mode.
         let _ = tx.try_send(DmxEvent::ArtNetPacket(PacketAddress::new(
             PortAddress::new(0, 0, slot as u8),
             packet.sequence,

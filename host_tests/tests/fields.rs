@@ -16,11 +16,8 @@ fn group_sizes(data: &MenuData) -> [u16; common::SMARTLED_PORT_COUNT] {
 #[test]
 fn pages_have_expected_shape() {
     let titles: Vec<&str> = PAGES.iter().map(|p| p.title).collect();
-    assert_eq!(
-        titles,
-        ["Main", "LED", "Group 1-4", "Group 5-8", "LEDs 1-4", "LEDs 5-8", "System"]
-    );
-    // Every page fits the 11-row TFT layout (tabs + footer take 2 rows)
+    assert_eq!(titles, ["Main", "Network", "LED", "Groups", "LEDs", "System"]);
+    // Every page fits the 11-row TFT layout (the title/status row takes one)
     for page in PAGES {
         assert!(
             page.fields.len() <= common::ui::fields::MAX_FIELDS_PER_PAGE,
@@ -44,12 +41,19 @@ fn numeric_fields_expose_values_on_default_settings() {
     let data = defaults();
     for field in all_fields().filter(|f| f.digits() > 0) {
         // display() zero-pads numerics to the digit count used by the editor
+        // (plus the dots of a dotted quad), so the cursor always lands on a
+        // rendered character
         assert_eq!(
             field.display(&data).len(),
-            field.digits() as usize,
+            field.display_width(),
             "field {} display width mismatch",
             field.key()
         );
+        for d in 0..field.digits() {
+            let col = field.cursor_column(d) as usize;
+            let ch = field.display(&data).chars().nth(col).expect("cursor inside the value");
+            assert!(ch.is_ascii_digit(), "field {} digit {d} cursor sits on {ch:?}", field.key());
+        }
     }
 }
 
@@ -120,13 +124,126 @@ fn enum_fields_cycle_with_up_down() {
     let mut data = defaults();
     assert_eq!(data.input_mode, InputMode::Dmx);
 
-    for expected in [InputMode::ArtNet, InputMode::ArtNetToDmx, InputMode::UsbToDmx, InputMode::Dmx] {
+    for expected in [
+        InputMode::ArtNet,
+        InputMode::ArtNetToDmx,
+        InputMode::UsbToDmx,
+        InputMode::Sacn,
+        InputMode::Dmx,
+    ] {
         FieldId::InputMode.adjust(&mut data, 0, true);
         assert_eq!(data.input_mode, expected);
     }
     // and wrap the other way from the first variant
     FieldId::InputMode.adjust(&mut data, 0, false);
-    assert_eq!(data.input_mode, InputMode::UsbToDmx);
+    assert_eq!(data.input_mode, InputMode::Sacn);
+}
+
+#[test]
+fn network_page_offers_static_addressing() {
+    for f in [FieldId::IpMode, FieldId::StaticIp, FieldId::StaticPrefix, FieldId::StaticGateway] {
+        assert!(all_fields().any(|x| x == f), "{f:?} missing from the menu");
+    }
+    let mut data = defaults();
+    // Defaults follow the Art-Net convention
+    assert_eq!(FieldId::StaticIp.display(&data), "002.000.000.001");
+    assert_eq!(FieldId::StaticPrefix.display(&data), "08");
+    assert_eq!(FieldId::StaticGateway.display(&data), "000.000.000.000");
+
+    // Console form is a plain dotted quad, any padding
+    FieldId::StaticIp.set_from_str(&mut data, "192.168.1.50").unwrap();
+    assert_eq!(data.static_ip.octets(), [192, 168, 1, 50]);
+    assert!(FieldId::StaticIp.set_from_str(&mut data, "192.168.1").is_err());
+    assert!(FieldId::StaticIp.set_from_str(&mut data, "192.168.1.256").is_err());
+    assert!(FieldId::StaticPrefix.set_from_str(&mut data, "0").is_err());
+    assert!(FieldId::StaticPrefix.set_from_str(&mut data, "31").is_err());
+    FieldId::StaticPrefix.set_from_str(&mut data, "24").unwrap();
+
+    // Per-digit editing: digit 5 is the ones digit of the second octet
+    // (168 -> 169); the cursor for it sits past one dot.
+    FieldId::StaticIp.adjust(&mut data, 5, true);
+    assert_eq!(data.static_ip.octets(), [192, 168 + 1, 1, 50]);
+    assert_eq!(FieldId::StaticIp.cursor_column(5), 6);
+    // An octet cannot be pushed past 255: 192 -> 292 is rejected
+    FieldId::StaticIp.adjust(&mut data, 0, true);
+    assert_eq!(data.static_ip.octets()[0], 192);
+    // ...and wraps 9 -> 0 without carry like every other digit editor
+    FieldId::StaticIp.adjust(&mut data, 5, true); // 169 -> 160
+    assert_eq!(data.static_ip.octets()[1], 160);
+
+    // The edit merges like any other field
+    let mut committed = defaults();
+    FieldId::StaticIp.transfer(&data, &mut committed);
+    assert_eq!(committed.static_ip, data.static_ip);
+    assert_eq!(committed.static_prefix, 8, "only the transferred field moves");
+}
+
+#[test]
+fn colour_modes_are_both_offered() {
+    let mut data = defaults();
+    FieldId::ColorMode.adjust(&mut data, 0, true);
+    assert_eq!(FieldId::ColorMode.display(&data), "RGBW");
+    FieldId::ColorMode.adjust(&mut data, 0, true);
+    assert_eq!(FieldId::ColorMode.display(&data), "RGB");
+    assert!(FieldId::ColorMode.set_from_str(&mut data, "rgbw").is_ok());
+    assert!(FieldId::ColorMode.set_from_str(&mut data, "rgb").is_ok());
+}
+
+#[test]
+fn bound_universes_follow_the_mode() {
+    // 150 RGB LEDs per port (defaults) = 450 B = 1 universe per port
+    let mut data = defaults();
+    assert!(!FieldId::UniversesBound.editable());
+    FieldId::InputMode.set_from_str(&mut data, "artnet").unwrap();
+    assert_eq!(data.bound_universes(), 8);
+    assert_eq!(FieldId::UniversesBound.display(&data), "8 @ 0:0:0");
+
+    // Mirror: every port shows the same universe(s)
+    FieldId::PortMode.set_from_str(&mut data, "mirror").unwrap();
+    assert_eq!(data.bound_universes(), 1);
+    FieldId::PortMode.set_from_str(&mut data, "individual").unwrap();
+
+    // 600 RGB LEDs = 4 universes per port = 32; clamped by the buffer above the base
+    for p in 0..8 {
+        FieldId::LedsPerPort(p).set_from_str(&mut data, "600").unwrap();
+    }
+    assert_eq!(data.bound_universes(), 32);
+    FieldId::ArtNetSubNet.set_from_str(&mut data, "3").unwrap(); // base = 48 of 64
+    assert_eq!(data.bound_universes(), 16);
+    assert_eq!(FieldId::UniversesBound.display(&data), "16 @ 0:3:0");
+
+    // Wired DMX and USB are one universe whatever the LED count
+    FieldId::InputMode.set_from_str(&mut data, "dmx").unwrap();
+    assert_eq!(data.bound_universes(), 1);
+    assert_eq!(FieldId::UniversesBound.display(&data), "1 (wired DMX)");
+    FieldId::InputMode.set_from_str(&mut data, "sacn").unwrap();
+    FieldId::SacnUniverse.set_from_str(&mut data, "100").unwrap();
+    assert_eq!(FieldId::UniversesBound.display(&data), "32 @ 100");
+}
+
+#[test]
+fn schema_2_fields_are_reachable_and_bounded() {
+    let mut data = defaults();
+    assert_eq!(FieldId::SacnUniverse.display(&data), "00001");
+    assert!(FieldId::SacnUniverse.set_from_str(&mut data, "0").is_err());
+    assert!(FieldId::SacnUniverse.set_from_str(&mut data, "64000").is_err());
+    FieldId::SacnUniverse.set_from_str(&mut data, "63999").unwrap();
+    assert_eq!(data.sacn_universe, 63999);
+    // The ten-thousands digit of 63999 rolling 6 -> 7 would exceed the range
+    // and must be rejected without overflowing the u16 arithmetic.
+    FieldId::SacnUniverse.adjust(&mut data, 0, true);
+    assert_eq!(data.sacn_universe, 63999);
+
+    assert!(FieldId::Backlight.set_from_str(&mut data, "0").is_err(), "backlight 0 is a dark menu");
+    FieldId::Backlight.set_from_str(&mut data, "255").unwrap();
+    assert_eq!(data.backlight, 255);
+    assert_eq!(FieldId::Backlight.display(&data), "255");
+
+    // LED counts are capped at what the output can transmit.
+    let cap = common::MAX_LEDS_PER_PORT as u16;
+    assert!(FieldId::LedsPerPort(0).set_from_str(&mut data, &(cap + 1).to_string()).is_err());
+    FieldId::LedsPerPort(0).set_from_str(&mut data, &cap.to_string()).unwrap();
+    assert!(FieldId::GroupSize(0).set_from_str(&mut data, &(cap + 1).to_string()).is_err());
 }
 
 #[test]
@@ -158,6 +275,9 @@ fn set_from_str_parses_every_editable_kind() {
     FieldId::InputMode.set_from_str(&mut data, "usb>dmx").unwrap();
     assert_eq!(data.input_mode, InputMode::UsbToDmx);
 
+    FieldId::InputMode.set_from_str(&mut data, "sacn").unwrap();
+    assert_eq!(data.input_mode, InputMode::Sacn);
+
     FieldId::IpMode.set_from_str(&mut data, "static").unwrap();
     FieldId::PortMode.set_from_str(&mut data, "mirror").unwrap();
     FieldId::ColorMode.set_from_str(&mut data, "rgbw").unwrap();
@@ -180,6 +300,7 @@ fn set_from_str_rejects_invalid_input() {
     // Read-only fields cannot be set from the console
     assert!(FieldId::IpAddr.set_from_str(&mut data, "1.2.3.4").is_err());
     assert!(FieldId::UniverseOffsets.set_from_str(&mut data, "0").is_err());
+    assert!(FieldId::UniversesBound.set_from_str(&mut data, "4").is_err());
 
     // Nothing above may have modified the settings
     assert_eq!(data, defaults());
@@ -189,8 +310,8 @@ fn set_from_str_rejects_invalid_input() {
 #[test]
 fn every_page_fits_the_display() {
     // The menu is paged, not scrolling, so a page that overflows puts fields
-    // somewhere the user cannot reach them. 128x64 at 6x8 is 21x8 characters,
-    // less one row for the page title.
+    // somewhere the user cannot reach them. 320x172 at 9x15 is 35x11
+    // characters, less one row for the page title / status line.
     for page in PAGES {
         assert!(
             page.fields.len() <= common::ui::fields::MAX_FIELDS_PER_PAGE,
@@ -216,6 +337,19 @@ fn every_port_is_reachable_from_the_menu() {
         assert!(
             all.contains(&FieldId::LedsPerPort(port)),
             "port {port} has no LED-count field"
+        );
+    }
+}
+
+#[test]
+fn labels_fit_before_the_value_column() {
+    // Labels and values share one 35-column row on the TFT; a label that runs
+    // into the value column overwrites the value it is labelling.
+    for field in all_fields() {
+        assert!(
+            field.label().len() < common::ui::fields::VALUE_COLUMN as usize,
+            "label {:?} is too long for the display",
+            field.label()
         );
     }
 }

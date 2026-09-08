@@ -11,9 +11,10 @@
 //! | `0x01` | module type — now an EEPROM liveness marker (see below) |
 //! | `0x02..=0x07` | MAC address |
 //! | `0x10` | boot-success flag |
-//! | `0x11` | **schema version** (new) |
+//! | `0x11` | **schema version** |
 //! | `0x20..=0x9F` | settings, 128 B, bincode-encoded `MenuData` |
-//! | `0xA0..=0xFF` | free |
+//! | `0xA0` | consecutive incomplete-boot counter (the lockout guard) |
+//! | `0xA1..=0xFF` | free |
 //!
 //! # The boot gate, simplified
 //!
@@ -52,6 +53,9 @@ pub const MAC_ADDR_LOC: u8 = 0x02;
 pub const SCHEMA_VERSION_ADDR: u8 = 0x11;
 pub const BOOT_FLAG_ADDR: u8 = 0x10;
 pub const SETTINGS_ADDR: u8 = 0x20;
+/// Consecutive incomplete boots, maintained by `boot_task`; reset to 0 by a
+/// completed boot. A blank byte (0xFF) reads as zero.
+pub const BOOT_FAIL_COUNT_ADDR: u8 = 0xA0;
 
 /// Bytes reserved for the settings blob.
 ///
@@ -65,7 +69,12 @@ pub const SETTINGS_SIZE: usize = 128;
 /// Bump when the encoded shape of `MenuData` changes. A stored value that does
 /// not match means the settings blob is from an older layout and must not be
 /// decoded.
-pub const SCHEMA_VERSION: u8 = 1;
+///
+/// * 1 — original Rev 2 layout
+/// * 4 — `led_power` appended (USB-brick LED supply)
+/// * 2 — `sacn_universe` and `backlight` appended; Ethernet defaults on
+/// * 3 — `static_ip`, `static_prefix`, `static_gateway` appended
+pub const SCHEMA_VERSION: u8 = 4;
 
 /// Read the MAC address, rejecting anything that is not a usable unicast
 /// address.

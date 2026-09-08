@@ -7,7 +7,8 @@ configured through a Ratatui TFT menu, a USB console, or the `dmx_console`
 desktop app.
 
 See the [repository readme](../readme.md) for the overall architecture and
-task/data-flow description, and [BUGS.md](../BUGS.md) for review history.
+task/data-flow description. The 2026-07 review of this generation (`BUGS.md`) was
+removed in the 2026-09-04 docs cleanup; it is in git history if needed.
 
 ## Source map
 

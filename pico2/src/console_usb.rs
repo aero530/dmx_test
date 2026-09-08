@@ -7,7 +7,9 @@
 //! get                  -> key=value per settings field, then ok
 //! set <key> <value>    -> apply one setting (persisted to EEPROM), ok/err
 //! dmx <start> <count>  -> "dmx <ch> v v v ..." lines (16 per line), then ok
-//! info                 -> mode/module/ip/boot summary, then ok
+//! info                 -> mode/module/ip/mac/net/boot summary, then ok
+//! mac [xx:xx:xx:xx:xx:xx] -> show, or program, the MAC (takes effect at boot)
+//! provision            -> write the module-type and schema bytes (fresh EEPROM)
 //! help                 -> command list
 //! ```
 //!
@@ -30,10 +32,38 @@ use embassy_rp::usb::Driver;
 use embassy_usb::class::cdc_acm::CdcAcmClass;
 use embassy_usb::driver::EndpointError;
 
-use crate::channels::{GlobalDataChannelRx, RouterChannelTx};
+use crate::channels::{GlobalDataChannelRx, RouterChannelTx, CHANNEL_EEPROM};
 use crate::event_router::{GlobalData, RouterEvent};
-use crate::ui::all_fields;
+use crate::ui::{all_fields, ModuleType};
 use crate::{DMX_BUFFER, DMX_UNIVERSE_SIZE};
+use common::events::EepromEvent;
+
+/// Parse `aa:bb:cc:dd:ee:ff` (or `-` separated) into a unicast MAC.
+///
+/// Rejects the values `eeprom::read_mac` would reject at boot — all-zero,
+/// all-ones, multicast bit set — so a bad address fails here, on the bench,
+/// rather than as a silent fallback in the field.
+fn parse_mac(text: &str) -> Result<[u8; 6], &'static str> {
+    let mut mac = [0u8; 6];
+    let mut n = 0;
+    for part in text.split([':', '-']) {
+        if n == 6 {
+            return Err("expected 6 octets");
+        }
+        mac[n] = u8::from_str_radix(part, 16).map_err(|_| "octets must be two hex digits")?;
+        n += 1;
+    }
+    if n != 6 {
+        return Err("expected 6 octets");
+    }
+    if mac == [0; 6] || mac == [0xFF; 6] {
+        return Err("not a usable address");
+    }
+    if mac[0] & 0x01 != 0 {
+        return Err("multicast bit set - not a valid source address");
+    }
+    Ok(mac)
+}
 
 type UsbClass<'d> = CdcAcmClass<'d, Driver<'d, peripherals::USB>>;
 
@@ -91,6 +121,13 @@ async fn respond(class: &mut UsbClass<'_>, text: &str) -> Result<(), EndpointErr
 
 fn current(global_rx: &mut GlobalDataChannelRx) -> GlobalData {
     global_rx.try_get().unwrap_or_default()
+}
+
+fn mac_text(mac: Option<[u8; 6]>) -> alloc::string::String {
+    match mac {
+        Some(m) => format!("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", m[0], m[1], m[2], m[3], m[4], m[5]),
+        None => alloc::string::String::from("unprogrammed"),
+    }
 }
 
 async fn handle_line(
@@ -168,12 +205,41 @@ async fn handle_line(
             respond(class, &format!("mode={}\n", data.menu_settings.input_mode)).await?;
             respond(class, &format!("module={:?}\n", data.module_type)).await?;
             respond(class, &format!("ip={}.{}.{}.{}\n", ip[0], ip[1], ip[2], ip[3])).await?;
+            respond(class, &format!("mac={}\n", mac_text(data.mac))).await?;
+            respond(class, &format!("net={:?}\n", data.net_status)).await?;
             respond(class, &format!("boot={:?}\n", data.boot_status)).await?;
             respond(class, "ok\n").await?;
         }
 
+        "mac" => match parts.next() {
+            None => {
+                respond(class, &format!("mac={}\n", mac_text(current(global_rx).mac))).await?;
+                respond(class, "ok\n").await?;
+            }
+            Some(text) => match parse_mac(text) {
+                Ok(mac) => {
+                    // Straight to the EEPROM task: the MAC is provisioning
+                    // data, not a menu setting, and it is read once at boot.
+                    CHANNEL_EEPROM.send(EepromEvent::WriteMacAddress(mac)).await;
+                    respond(class, "ok (applies at next boot)\n").await?;
+                }
+                Err(e) => respond(class, &format!("err {}\n", e)).await?,
+            },
+        },
+
+        "provision" => {
+            // Fresh-EEPROM bring-up: the liveness byte the boot gate reads, and
+            // the settings blob (which stamps the schema version). The MAC is
+            // separate on purpose — it is per unit.
+            CHANNEL_EEPROM.send(EepromEvent::WriteModuleType(ModuleType::SmartLed)).await;
+            CHANNEL_EEPROM
+                .send(EepromEvent::WriteSettings(current(global_rx).menu_settings))
+                .await;
+            respond(class, "ok (module type + settings written; set the mac separately)\n").await?;
+        }
+
         "help" => {
-            respond(class, "get | set <key> <value> | dmx <start> <count> | info\n").await?;
+            respond(class, "get | set <key> <value> | dmx <start> <count> | info | mac [xx:xx:xx:xx:xx:xx] | provision\n").await?;
             respond(class, "ok\n").await?;
         }
 

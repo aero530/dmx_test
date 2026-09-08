@@ -224,7 +224,7 @@ impl<'d, PIO: Instance, const SM: usize> PioDmxTx<'d, PIO, SM> {
         let mut tx_pin = common.make_pio_pin(tx_pin);
         // The TX opto LED needs ~8 mA of sink (220R from 3V3 through the
         // TLP2368 LED); the RP2350 pad default is 4 mA, which was already
-        // marginal on Rev 1's RP2040 at 330R. See REV2_PLAN.md.
+        // marginal on Rev 1's RP2040 at 330R. See docs/ARCHITECTURE.md.
         tx_pin.set_drive_strength(embassy_rp::gpio::Drive::_12mA);
         // The BREAK/MAB/start/stop bits are driven by the side-set on the same pin
         cfg.use_program(&program.prg, &[&tx_pin]);

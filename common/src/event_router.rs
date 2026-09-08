@@ -1,9 +1,9 @@
 //! Event router to send commands between tasks
 
 use crate::artnet::PortAddress;
-use crate::events::{ButtonEvent, KeyPadButton, KeyPadEvent};
+use crate::events::{ButtonEvent, KeyPadButton, KeyPadEvent, NetStatus};
 use crate::channels::*;
-use crate::events::{EepromEvent, PwmEvent, SmartLedEvent, UiEvent};
+use crate::events::{EepromEvent, SmartLedEvent, UiEvent};
 use crate::ui::{ArtNetAddr, BootStatus, FieldId, InputMode, IpAddrMenu, MenuData, ModuleSettings, ModuleType, SmartLedPortMode};
 use crate::{DMX_BUFFER, DMX_UNIVERSE_SIZE, LED_COLORS};
 use core::net::Ipv4Addr;
@@ -26,6 +26,29 @@ cfg_if! {
 use micromath::F32Ext;
 
 /// Data stored for global use (primarily for logging / terminal display)
+/// Where the configured "DMX Address" lands in `DMX_BUFFER`.
+///
+/// The two input families store a universe differently, and this is the one
+/// place that difference is reconciled:
+///
+/// * **Wired DMX and USB** keep the frame DMX-style — the start code sits at
+///   index 0, so channel N is at index N and a 1-based address indexes
+///   directly.
+/// * **Art-Net and sACN** carry no start code, so channel 1 is at slot offset
+///   0 and the address has to shift down by one.
+///
+/// Without the shift the same configured address selected a different channel
+/// depending on the input mode (the 2026-07 review logged this as N18).
+/// `saturating_sub` keeps address 0 — which the UI does not allow, but an old
+/// EEPROM or the console can still produce — pinned at the start of the slot.
+pub fn buffer_index(dmx_address: u16, is_network: bool) -> usize {
+    if is_network {
+        (dmx_address as usize).saturating_sub(1)
+    } else {
+        dmx_address as usize
+    }
+}
+
 #[derive(Debug, PartialEq, Copy, Clone, Default)]
 pub struct GlobalData {
     /// Current menu settings
@@ -36,6 +59,8 @@ pub struct GlobalData {
     pub mac: Option<[u8; 6]>,
     /// Monitor boot process
     pub boot_status: Option<BootStatus>,
+    /// Network state for the display and the console.
+    pub net_status: NetStatus,
 }
 
 /// Indicate which channel should be used to return data
@@ -70,6 +95,8 @@ pub enum RouterEvent {
     /// Store IP address in global data
     #[allow(unused)]
     StoreIpAddr(Option<Ipv4Addr>),
+    /// Network bring-up progress (boot task / Art-Net task -> display, console)
+    StoreNetStatus(NetStatus),
     /// Get module type from global data
     GetModuleType(ReturnChannel),
     /// Get MAC address from global data
@@ -107,11 +134,13 @@ pub enum DmxEvent {
     ArtNetPacket(PacketAddress),
 }
 
-/// Send data back to the DMX / ArtNet / USB tasks
+/// Send data back to the DMX / ArtNet / sACN / USB tasks
 #[derive(Copy, Clone, Debug, Format)]
 pub enum DmxFeedbackEvent {
-    /// Current operating mode and configured Art-Net address (net, sub-net, universe)
-    Mode(InputMode, ArtNetAddr),
+    /// Current operating mode, configured Art-Net address (net, sub-net,
+    /// universe), the first sACN universe, and how many universes the
+    /// configuration binds from its base (`MenuData::bound_universes`).
+    Mode(InputMode, ArtNetAddr, u16, u16),
 }
 
 /// Send data back to the main task
@@ -132,8 +161,6 @@ pub struct Router {
     pub channel_dmx_feedback: DmxFeedbackChannelTx,
 
     /// Channel to send LED events
-    // pub channel_pwm: PwmChannelTx,
-    pub channel_pwm_i2c: PwmChannelTx,
 
     /// Channel to send Smart Led events
     pub channel_smart_led: SmartLedChannelTx,
@@ -154,6 +181,9 @@ pub struct Router {
     reported_output_blocked: bool,
     /// One-shot flag for a configured Art-Net base beyond the buffered universes
     warned_base_clamp: bool,
+    /// One-shot flag for Art-Net traffic on a different Net (was a per-packet
+    /// warning — a log storm at 44 Hz on any site with more than one Net)
+    warned_net_mismatch: bool,
 }
 
 impl Router {
@@ -163,8 +193,6 @@ impl Router {
         channel_dmx: DmxChannelRx,
         channel_dmx_feedback: DmxFeedbackChannelTx,
         // channel_led: LedChannelTx,
-        // channel_pwm: PwmChannelTx,
-        channel_pwm_i2c: PwmChannelTx,
         channel_smart_led: SmartLedChannelTx,
         channel_ui: UiChannelTx,
         channel_eeprom: EepromChannelTx,
@@ -176,7 +204,6 @@ impl Router {
             channel_dmx_feedback,
             // channel_led,
             // channel_pwm,
-            channel_pwm_i2c,
             channel_smart_led,
             channel_ui,
             channel_eeprom,
@@ -184,7 +211,29 @@ impl Router {
             data: GlobalData::default(),
             reported_output_blocked: false,
             warned_base_clamp: false,
+            warned_net_mismatch: false,
         }
+    }
+
+    /// Broadcast the current mode and addressing to every input task.
+    /// Mirror the `LED Power` setting into `usb_power` so the button task
+    /// (core 1, the only owner of the expander) can act on it and the UI can
+    /// show it. Called from every path that assigns `menu_settings`.
+    fn publish_led_power(&self) {
+        crate::usb_power::set_mode(match self.data.menu_settings.led_power {
+            crate::ui::LedPower::External => crate::usb_power::MODE_EXTERNAL,
+            crate::ui::LedPower::UsbBrick => crate::usb_power::MODE_USB_BRICK,
+        });
+    }
+
+    fn broadcast_mode(&self) {
+        let s = &self.data.menu_settings;
+        self.channel_dmx_feedback.send(DmxFeedbackEvent::Mode(
+            s.input_mode,
+            s.artnet_address,
+            s.sacn_universe,
+            s.bound_universes(),
+        ));
     }
 
     /// Main event router
@@ -216,25 +265,30 @@ impl Router {
             }
             RouterEvent::WriteSettingsToEeprom(menu_data) => {
                 self.data.menu_settings = menu_data;
+                self.publish_led_power();
                 info!("Store settings in eeprom {:#?}", menu_data);
                 let _ = self.channel_eeprom.try_send(EepromEvent::WriteSettings(menu_data));
             }
             RouterEvent::WriteFieldToEeprom(field, source) => {
                 // Merge only the named field, exactly like a TFT commit does
                 field.transfer(&source, &mut self.data.menu_settings);
+                self.publish_led_power();
                 info!("Store single field in eeprom {:#?}", self.data.menu_settings);
                 let _ = self.channel_eeprom.try_send(EepromEvent::WriteSettings(self.data.menu_settings));
             }
             RouterEvent::StoreSettings(menu_data) => {
                 if let Some(x) = menu_data {
                     self.data.menu_settings = x;
-
-                    // update internal data based on menu_data
-
+                    self.publish_led_power();
                     info!("Update settings on display {:#?}", x);
                     let _ = self.channel_ui.try_send(UiEvent::Load(x));
-                    self.channel_dmx_feedback.send(DmxFeedbackEvent::Mode(x.input_mode, x.artnet_address));
+                    self.broadcast_mode();
                 }
+                CHANNEL_LOG.sender().send(self.data);
+            }
+            RouterEvent::StoreNetStatus(status) => {
+                self.data.net_status = status;
+                let _ = self.channel_ui.try_send(UiEvent::Net(status));
                 CHANNEL_LOG.sender().send(self.data);
             }
             RouterEvent::StoreBootStatus(status) => {
@@ -252,10 +306,13 @@ impl Router {
             RouterEvent::StoreIpAddr(data) => {
                 if let Some(addr) = data {
                     self.data.menu_settings.ip_addr = addr.into();
+                    self.data.net_status = NetStatus::Up(addr.octets());
                 } else {
                     self.data.menu_settings.ip_addr = IpAddrMenu::default();
+                    self.data.net_status = NetStatus::Dhcp;
                 }
                 let _ = self.channel_ui.try_send(UiEvent::Load(self.data.menu_settings));
+                let _ = self.channel_ui.try_send(UiEvent::Net(self.data.net_status));
                 CHANNEL_LOG.sender().send(self.data);
             }
             RouterEvent::GetModuleType(return_channel) => {
@@ -303,15 +360,24 @@ impl Router {
     /// Update LED color in memory and apply to physical LEDs
     pub async fn process_dmx_event(&mut self, event: DmxEvent) {
         if self.data.boot_status == Some(BootStatus::Success) {
+            let input_mode = self.data.menu_settings.input_mode;
             // Check that the incoming ArtNet packet is for us. Only the Net is
-            // filtered: the buffer holds one full net indexed by the packet's
-            // SubUni byte, so multi-universe port spans can cross a sub-net
-            // boundary (the configured sub-net:universe is the render base).
+            // filtered (and only when Art-Net is the source — sACN packets
+            // arrive as ArtNetPacket events with a zero Net): the buffer holds
+            // one full net indexed by the packet's SubUni byte, so
+            // multi-universe port spans can cross a sub-net boundary (the
+            // configured sub-net:universe is the render base).
             let _packet_addr = match event {
                 DmxEvent::DmxPacket(d) => d,
                 DmxEvent::ArtNetPacket(packet_addr) => {
-                    if packet_addr.port.net != self.data.menu_settings.artnet_address.0[0] {
-                        warn!("ArtNet Net does not match {} {}", packet_addr.port.net, self.data.menu_settings.artnet_address.0[0]);
+                    if input_mode.is_artnet() && packet_addr.port.net != self.data.menu_settings.artnet_address.0[0] {
+                        if !self.warned_net_mismatch {
+                            self.warned_net_mismatch = true;
+                            warn!(
+                                "ArtNet: ignoring traffic on Net {} (configured {})",
+                                packet_addr.port.net, self.data.menu_settings.artnet_address.0[0]
+                            );
+                        }
                         return;
                     }
                     packet_addr
@@ -322,33 +388,24 @@ impl Router {
             let mut colors = LED_COLORS.lock().await;
 
             match self.data.menu_settings.module {
-                ModuleSettings::Pwm(_pwm_settings) => {
-                    error!("Module LED settings not programmed");
-                    let dmx_buffer = DMX_BUFFER.lock().await;
-                    let _ = self.channel_pwm_i2c.try_send(PwmEvent::Value([dmx_buffer[1], dmx_buffer[2], dmx_buffer[3]]));
-                }
                 ModuleSettings::SmartLed(smart_led_settings) => {
 
                     let dmx_group_size = smart_led_settings.dmx_group_size.0;
                     // Lock global dmx data buffer
                     let dmx_buffer = DMX_BUFFER.lock().await;
 
-                    // Where "DMX address 1" lives in the buffer, per input.
-                    // Wired/USB frames are stored DMX-style (start code at 0,
-                    // channel 1 at index 1), so the 1-based address indexes
-                    // directly. Network universes are stored 0-based (channel
-                    // 1 at slot offset 0), so the address shifts down by one —
-                    // without this, network modes rendered one channel late.
-                    let dmx_address_index = match self.data.menu_settings.input_mode {
-                        InputMode::Dmx | InputMode::UsbToDmx => self.data.menu_settings.dmx_address as usize,
-                        InputMode::ArtNet | InputMode::ArtNetToDmx => (self.data.menu_settings.dmx_address as usize).saturating_sub(1),
-                    };
+                    let dmx_address_index = buffer_index(
+                        self.data.menu_settings.dmx_address,
+                        input_mode.is_network(),
+                    );
 
-                    // Base of the configured sub-net:universe in the flat
-                    // buffer, clamped to what the buffer holds (buffer_base).
-                    // The UI now limits the sub-net, but the value can also
-                    // arrive from an old EEPROM or the console.
-                    let network_base = {
+                    // Base of the configured universe in the flat buffer.
+                    // Art-Net: the configured sub-net:universe, clamped to what
+                    // the buffer holds (buffer_base) — the UI limits the
+                    // sub-net, but the value can also arrive from an old EEPROM
+                    // or the console. sACN: the receive task already rebases
+                    // universes onto slot 0.
+                    let network_base = if input_mode.is_artnet() {
                         let addr = &self.data.menu_settings.artnet_address;
                         if addr.sub_uni() != addr.buffer_base() && !self.warned_base_clamp {
                             self.warned_base_clamp = true;
@@ -358,6 +415,8 @@ impl Router {
                             );
                         }
                         addr.buffer_base() * DMX_UNIVERSE_SIZE
+                    } else {
+                        0
                     };
 
                     match smart_led_settings.port_mode {
@@ -369,12 +428,8 @@ impl Router {
                             // };
 
                             // Byte offset to place virtual leds at the right buffer location for each port
-                            let mut port_virtual_led_offset = match self.data.menu_settings.input_mode {
-                                // DMX-style layouts store their single universe at offset 0
-                                InputMode::Dmx | InputMode::UsbToDmx => 0,
-                                // Base of the configured sub-net:universe within the one-net buffer
-                                InputMode::ArtNet | InputMode::ArtNetToDmx => network_base,
-                            };
+                            // (DMX-style layouts store their single universe at offset 0)
+                            let mut port_virtual_led_offset = if input_mode.is_network() { network_base } else { 0 };
 
                             for (port_index, num_virtual_leds) in smart_led_settings.virtual_leds_per_port().iter().enumerate() {
                                 // Calculate hoe many universes this port consumes. Each new port will start at a new universe...I think.
@@ -409,7 +464,7 @@ impl Router {
                                         dmx_buffer_start = dmx_buffer_end;
                                     }
 
-                                    let c = smart_led_settings.color_mode.rgb(&dmx_buffer[dmx_buffer_start..=dmx_buffer_end]); // calculate a color from the dmx data
+                                    let c = smart_led_settings.color_mode.color(&dmx_buffer[dmx_buffer_start..=dmx_buffer_end]); // calculate a color from the dmx data
 
                                     // Loop through each group and assign to individual LEDs
                                     for i in 0..dmx_group_size[port_index] {
@@ -422,20 +477,20 @@ impl Router {
                                         colors[port_index][place] = c;
                                     }
                                 }
-                                // port_u_offset += port_universe_count;
-                                port_virtual_led_offset += match self.data.menu_settings.input_mode {
-                                    InputMode::Dmx | InputMode::UsbToDmx => *num_virtual_leds as usize * smart_led_settings.color_mode.addr_size(), // offset by the number of virtual LEDs in the current port
-                                    InputMode::ArtNet | InputMode::ArtNetToDmx => (*num_virtual_leds as f32 * smart_led_settings.color_mode.addr_size() as f32 / DMX_UNIVERSE_SIZE as f32).ceil() as usize * DMX_UNIVERSE_SIZE // Offset by the number of universes this port uses times the dmx size per universe
+                                port_virtual_led_offset += if input_mode.is_network() {
+                                    // Each port starts on a universe boundary: offset by the
+                                    // universes this port uses times the size of a universe
+                                    (*num_virtual_leds as f32 * smart_led_settings.color_mode.addr_size() as f32 / DMX_UNIVERSE_SIZE as f32).ceil() as usize * DMX_UNIVERSE_SIZE
+                                } else {
+                                    // Wired/USB: ports pack back-to-back in the one universe
+                                    *num_virtual_leds as usize * smart_led_settings.color_mode.addr_size()
                                 };
                             }
                         }
                         SmartLedPortMode::Mirror => {
                             // Offset into the flat one-net buffer; always 0 for DMX, the
-                            // configured sub-net:universe base for ArtNet (same as Individual mode)
-                            let universe_offset = match self.data.menu_settings.input_mode {
-                                InputMode::Dmx | InputMode::UsbToDmx => 0,
-                                InputMode::ArtNet | InputMode::ArtNetToDmx => network_base,
-                            };
+                            // configured base for the network modes (same as Individual mode)
+                            let universe_offset = if input_mode.is_network() { network_base } else { 0 };
 
                             for vled_index in 0..smart_led_settings.virtual_leds_per_port()[0] as usize {
                                 let mut dmx_buffer_start = dmx_address_index + universe_offset + vled_index * smart_led_settings.color_mode.addr_size();
@@ -457,7 +512,7 @@ impl Router {
                                     dmx_buffer_start = dmx_buffer_end;
                                 }
 
-                                let c = smart_led_settings.color_mode.rgb(&dmx_buffer[dmx_buffer_start..=dmx_buffer_end]); // calculate a color from the dmx data
+                                let c = smart_led_settings.color_mode.color(&dmx_buffer[dmx_buffer_start..=dmx_buffer_end]); // calculate a color from the dmx data
 
                                 for i in 0..dmx_group_size[0] {
                                     let place = i as usize + dmx_group_size[0] as usize * vled_index;
@@ -473,7 +528,10 @@ impl Router {
                         }
                     }
 
-                    let _ = self.channel_smart_led.try_send(SmartLedEvent::UpdateLEDs(smart_led_settings.leds_per_port));
+                    let _ = self.channel_smart_led.try_send(SmartLedEvent::UpdateLEDs {
+                        counts: smart_led_settings.leds_per_port,
+                        color_mode: smart_led_settings.color_mode,
+                    });
                 }
             }
         } else if !self.reported_output_blocked {

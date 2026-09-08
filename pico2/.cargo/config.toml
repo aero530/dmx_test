@@ -17,4 +17,6 @@ rustflags = [
 target = "thumbv8m.main-none-eabihf"
 
 [env]
-DEFMT_LOG = "debug"
+# `info` is the shipping level: `debug` fires per ArtPoll and per VSYS sample.
+# Override for a bench session with `DEFMT_LOG=debug cargo run --release`.
+DEFMT_LOG = "info"
